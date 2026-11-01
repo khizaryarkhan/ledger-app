@@ -103,14 +103,21 @@ export default auth((req) => {
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
   const isAdmin = path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/admin/");
 
-  if (isCron) return NextResponse.next();
+  // The cron/public branches never stamp x-app-path, so drop any value the
+  // client sent rather than let it reach a handler that reads the header.
+  const withoutPathHeader = () => {
+    const h = new Headers(req.headers);
+    h.delete(APP_PATH_HEADER);
+    return NextResponse.next({ request: { headers: h } });
+  };
+  if (isCron) return withoutPathHeader();
 
   if (isPublic) {
     if (isAuth) {
       // Logged-in users skip the login page and go straight to the app.
       // ("/" is the public marketing site — everyone can view it.)
       if (path === "/login" || path === "/register") {
-        const dest = role === "rep" ? "/rep-portal" : "/dashboard";
+        const dest = role === "rep" ? "/rep-portal" : role === "employee" ? "/my-time" : "/dashboard";
         return NextResponse.redirect(new URL(dest, req.nextUrl));
       }
     }
@@ -129,10 +136,11 @@ export default auth((req) => {
       if (sub && !RESERVED_SUBDOMAINS.has(sub)) {
         const headers = new Headers(req.headers);
         headers.set("x-org-subdomain", sub);
+        headers.delete(APP_PATH_HEADER);
         return NextResponse.next({ request: { headers } });
       }
     }
-    return NextResponse.next();
+    return withoutPathHeader();
   }
 
   // The mobile app authenticates via `Authorization: Bearer <token>` instead
@@ -172,6 +180,17 @@ export default auth((req) => {
   if (role === "rep") {
     if (!isRepPortal && !isApi) {
       return NextResponse.redirect(new URL("/rep-portal", req.nextUrl));
+    }
+    return pass();
+  }
+
+  // Employee logins exist to fill the owner's own timesheet and read their own
+  // reports. Pages: /my-time only. APIs: requireOrg() confines the role to
+  // /api/resources/me/** (lib/api.ts), so this only has to keep them off the app shell.
+  if (role === "employee") {
+    const isMyTime = path === "/my-time" || path.startsWith("/my-time/");
+    if (!isMyTime && !isApi) {
+      return NextResponse.redirect(new URL("/my-time", req.nextUrl));
     }
     return pass();
   }

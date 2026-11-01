@@ -3873,14 +3873,42 @@ export const resources = pgTable("resources", {
   costRatePerHour:   numeric("cost_rate_per_hour", { precision: 10, scale: 2 }), // actual pay cost (person) or running cost (equipment)
   holidayCalendarId: uuid("holiday_calendar_id").references(() => holidayCalendars.id, { onDelete: "set null" }), // null = org's default calendar
   workingDays:       integer("working_days").array(),                // ISO weekday numbers (1=Mon..7=Sun); null = org default Mon-Fri
+  // People hierarchy (2026-11-01). userId = the login this person uses to fill
+  // their own timesheet; managerId = line manager (Dynamics' resource manager);
+  // designationId decides which reports they may open. All nullable.
+  userId:        uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  managerId:     uuid("manager_id").references((): any => resources.id, { onDelete: "set null" }),
+  designationId: uuid("designation_id").references((): any => resourceDesignations.id, { onDelete: "set null" }),
+  department:    varchar("department", { length: 80 }),
   status:        varchar("status", { length: 16 }).notNull().default("active"), // active | inactive
   notes:         text("notes"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   orgTypeStatus: index("resources_org_type_status_idx").on(t.orgId, t.type, t.status),
+  orgManagerIdx: index("resources_org_manager_idx").on(t.orgId, t.managerId),
+  orgUserUnique: uniqueIndex("resources_org_user_unique").on(t.orgId, t.userId).where(sql`${t.userId} is not null`),
 }));
 export type Resource = typeof resources.$inferSelect;
+
+// A designation (Dynamics' bookable-resource "default role") — "Software
+// Engineer", "Team Lead", "Head of Delivery". `accessLevel` is what the
+// designation lets its holder see and approve:
+//   self = own timesheet and reports only
+//   team = self + everyone who reports to them, directly or indirectly
+//   all  = every person in the organisation
+export const resourceDesignations = pgTable("resource_designations", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:        varchar("name", { length: 80 }).notNull(),
+  accessLevel: varchar("access_level", { length: 8 }).notNull().default("self"), // self | team | all
+  sortOrder:   integer("sort_order").notNull().default(0),
+  status:      varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("resource_designations_org_idx").on(t.orgId, t.status),
+}));
+export type ResourceDesignation = typeof resourceDesignations.$inferSelect;
 
 export const resourceAssignments = pgTable("resource_assignments", {
   id:                uuid("id").defaultRandom().primaryKey(),

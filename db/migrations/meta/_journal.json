@@ -827,6 +827,13 @@
       "when": 1792600000000,
       "tag": "0118_budgets_fixed_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1792700000000,
+      "tag": "0119_resource_hierarchy",
+      "breakpoints": true
     }
   ]
 }

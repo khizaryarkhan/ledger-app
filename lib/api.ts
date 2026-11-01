@@ -68,7 +68,7 @@ export function isPlatformAdmin(session: any) {
 //
 // Result: removing a user from user_organisations or setting status=Inactive
 // blocks access immediately, regardless of what's in the JWT.
-export async function requireOrg() {
+export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
   const session = await resolveSession();
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
@@ -155,6 +155,16 @@ export async function requireOrg() {
   // not what the viewer is allowed to see.
   let appPath: string | null = null;
   try { appPath = headers().get(APP_PATH_HEADER); } catch { /* not in a request context */ }
+
+  // STEP 4a: an `employee` login exists only to fill its owner's own timesheet
+  // and read their own reports. Deny by default; the only handlers that opt in
+  // are /api/resources/me/** (they pass { allowEmployee: true }). This must not
+  // depend on the x-app-path header: middleware leaves it unstamped on the
+  // cron/public branches, so a client could otherwise spoof it.
+  if (role === "employee" && !opts.allowEmployee) {
+    return { error: NextResponse.json({ error: "This login can only be used for your own timesheet." }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+  }
+
   const owner = appPath ? moduleForApi(appPath) : null;
   if (owner) {
     const [org] = await db.select({ enabledModules: organisations.enabledModules })

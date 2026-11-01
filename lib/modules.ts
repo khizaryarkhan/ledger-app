@@ -129,6 +129,7 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   // Supply Chain / Resources — see CLAUDE.md "Modules & per-org feature gating".
   { path: "/supply-chain", owner: "manufacturing" },
   { path: "/resources", owner: "resources" },
+  { path: "/my-time", owner: "resources" },                    // employee self-service timesheet + reports
 ];
 
 export const API_OWNERS: readonly PathRule[] = [

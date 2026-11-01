@@ -105,14 +105,19 @@ describe("the rule tables", () => {
     const pageDir = (p: string) => {
       // /accounting/new/PurchaseOrder is a value of the [type] segment, not a folder.
       const parts = p.split("/").filter(Boolean);
-      let dir = join(ROOT, "app/(app)");
-      for (const seg of parts) {
-        if (existsSync(join(dir, seg))) { dir = join(dir, seg); continue; }
-        const dyn = ["[type]", "[kind]", "[list]", "[statement]", "[id]"].find((d) => existsSync(join(dir, d)));
-        if (!dyn) return false;
-        dir = join(dir, dyn);
-      }
-      return true;
+      // Pages live in the app shell group, or in the standalone (portal) group
+      // (the employee self-service shell, /my-time).
+      const resolvesUnder = (root: string) => {
+        let dir = root;
+        for (const seg of parts) {
+          if (existsSync(join(dir, seg))) { dir = join(dir, seg); continue; }
+          const dyn = ["[type]", "[kind]", "[list]", "[statement]", "[id]"].find((d) => existsSync(join(dir, d)));
+          if (!dyn) return false;
+          dir = join(dir, dyn);
+        }
+        return true;
+      };
+      return resolvesUnder(join(ROOT, "app/(app)")) || resolvesUnder(join(ROOT, "app/(portal)"));
     };
     for (const r of PAGE_OWNERS) expect(pageDir(r.path), `page ${r.path}`).toBe(true);
     for (const r of API_OWNERS) expect(existsSync(join(ROOT, "app", r.path)), `api ${r.path}`).toBe(true);
@@ -296,7 +301,11 @@ const API_DIR = join(ROOT, "app", "api");
 const PAGE_DIR = join(ROOT, "app", "(app)");
 
 const apiRouteFiles = collectRoutes(API_DIR, ["route.ts", "route.tsx"]).map((r) => ({ ...r, url: "/api" + r.url }));
-const pageRouteFiles = collectRoutes(PAGE_DIR, ["page.tsx", "page.ts"]);
+const PORTAL_DIR = join(ROOT, "app", "(portal)");
+const pageRouteFiles = [
+  ...collectRoutes(PAGE_DIR, ["page.tsx", "page.ts"]),
+  ...(existsSync(PORTAL_DIR) ? collectRoutes(PORTAL_DIR, ["page.tsx", "page.ts"]) : []),
+];
 
 function isAccountedFor(rules: readonly PathRule[], allow: readonly AllowEntry[], pathname: string): boolean {
   if (findRule(rules, pathname)) return true;

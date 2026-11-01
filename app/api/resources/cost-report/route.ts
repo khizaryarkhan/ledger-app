@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { resources, timeEntries, projects, manufacturingOrders, jobWorkOrders } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
+import { isAdminRole } from "@/lib/resources/access";
 import { and, eq, gte, lte, inArray } from "drizzle-orm";
 import { computeCostSummary, type CostGroupBy, type CostBucket } from "@/lib/resources/cost";
 
@@ -17,7 +18,7 @@ const GROUPS: CostGroupBy[] = ["assignable", "resource", "month"];
 const COUNTED_STATUSES = ["draft", "submitted", "approved", "posted"];
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -30,6 +31,8 @@ export async function GET(req: Request) {
   const assignableId = searchParams.get("assignableId");
   if (!from || !to || !DATE_RE.test(from) || !DATE_RE.test(to)) return bad("from and to (YYYY-MM-DD) are required");
   if (!GROUPS.includes(groupBy)) return bad("groupBy must be assignable, resource or month");
+  // Cost split per person, divided by their hours, is their pay rate.
+  if (groupBy === "resource" && !isAdminRole(role)) return bad("Only organisation admins can see cost per person", 403);
 
   const conds = [
     eq(timeEntries.orgId, orgId!),

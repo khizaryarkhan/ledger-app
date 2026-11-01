@@ -453,6 +453,10 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     {
       items: [
         { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
+        { href: "/resources/my-time", label: "My Timesheet", icon: Clock },
+        { href: "/resources/my-reports", label: "My Reports", icon: Gauge },
+        { href: "/resources/approvals", label: "Approvals", icon: ClipboardList },
+        { href: "/resources/reports", label: "Team Reports", icon: ScrollText },
         { href: "/resources/timesheets", label: "Timesheets", icon: Clock },
         { href: "/resources/utilization", label: "Utilization", icon: Gauge },
         { href: "/resources/cost", label: "Resource Cost", icon: Scale },
@@ -464,6 +468,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       icon: Database,
       items: [
         { href: "/resources/people", label: "People", icon: Users },
+        { href: "/resources/designations", label: "Designations", icon: ClipboardList },
         { href: "/resources/equipment", label: "Equipment", icon: Wrench },
         { href: "/resources/timesheet-types", label: "Timesheet Types", icon: ClipboardList },
         { href: "/resources/leave-balances", label: "Leave Balances", icon: Scale },
