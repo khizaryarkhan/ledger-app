@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Button, Input, Select } from "./ui";
 import { useData } from "./data-provider";
 
@@ -9,7 +9,7 @@ import { useData } from "./data-provider";
 // =====================
 // A project is a customer-grouping label: it has no date columns, and the
 // create/edit routes would discard dates if this form offered them.
-const EMPTY_PROJECT = { customerId: "", name: "", code: "", status: "Active" };
+const EMPTY_PROJECT = { customerId: "", name: "", code: "", status: "Active", leadResourceId: "" };
 
 export function ProjectModal({ project, preCustomerId, onClose }: { project?: any; preCustomerId?: string; onClose: () => void }) {
   const { customers, addProject, updateProject } = useData() as any;
@@ -19,6 +19,22 @@ export function ProjectModal({ project, preCustomerId, onClose }: { project?: an
   const [error, setError] = useState("");
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
+
+  // The people this org could name as a project lead. Resources is a gated
+  // module, so a 403 or an empty list simply hides the field rather than
+  // showing a control that can never be filled.
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/resources")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (!live || !Array.isArray(rows)) return;
+        setPeople(rows.filter((r: any) => r.type === "person" && r.status === "active").map((r: any) => ({ id: r.id, name: r.name })));
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   const handle = async () => {
     if (!form.customerId || !form.name || !form.code) { setError("Customer, name and code are required"); return; }
@@ -51,6 +67,15 @@ export function ProjectModal({ project, preCustomerId, onClose }: { project?: an
           <Select value={form.status} onChange={(e: any) => set("status", e.target.value)} className="w-full"
             options={["Pending", "Active", "In Progress", "Completed", "On Hold", "Cancelled"]} />
         </div>
+        {people.length > 0 && (
+          <div>
+            <label className="text-[12px] font-medium text-stone-400 block mb-1">Project lead</label>
+            <Select value={form.leadResourceId || ""} onChange={(e: any) => set("leadResourceId", e.target.value || null)}
+              className="w-full" placeholder="No lead — the line manager approves"
+              options={people.map((p) => ({ value: p.id, label: p.name }))} />
+            <p className="text-[12px] text-stone-500 mt-1">Approves time booked to this project. Leave empty and each person&apos;s line manager approves instead.</p>
+          </div>
+        )}
       </div>
     </Modal>
   );

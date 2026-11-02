@@ -870,6 +870,12 @@ export const projects = pgTable("projects", {
   name: varchar("name", { length: 255 }).notNull(),
   code: varchar("code", { length: 64 }).notNull(),
   ownerId: uuid("owner_id").references(() => users.id),
+  // Who approves time booked to this project (Resources, Phase A 2026-11-02).
+  // Deliberately NOT `ownerId`: lib/qbo-sync.ts stamps that with whoever ran the
+  // sync, so it is a creator stamp, not a lead — routing approvals through it
+  // would send every synced project's time to one arbitrary person. Null = no
+  // lead named, and the person's line manager approves exactly as before.
+  leadResourceId: uuid("lead_resource_id").references((): any => resources.id, { onDelete: "set null" }),
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
   countryId: uuid("country_id").references(() => countries.id, { onDelete: "set null" }),
@@ -4084,6 +4090,31 @@ export const timesheetBatches = pgTable("timesheet_batches", {
   orgPeriodUnique: uniqueIndex("timesheet_batches_org_period_unique").on(t.orgId, t.periodStart, t.periodEnd),
 }));
 export type TimesheetBatch = typeof timesheetBatches.$inferSelect;
+
+// Returning time is a conversation, not a verdict (Resources, Phase A
+// 2026-11-02). Rejecting an entry opens one of these: the approver's reason,
+// then the person's acknowledgement and their reply, which the approver reads
+// back on their own queue. `time_entries.rejected_reason` still carries the
+// latest reason for the grid; this table is the thread and the history, so a
+// resubmit-and-reject cycle does not erase what was said the first time.
+export const timesheetReturns = pgTable("timesheet_returns", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  timeEntryId:    uuid("time_entry_id").notNull().references(() => timeEntries.id, { onDelete: "cascade" }),
+  // Denormalised from the entry so "my open returns" is one indexed read, and
+  // kept because it is who the return is ABOUT, not who happens to own the row.
+  resourceId:     uuid("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  returnedBy:     uuid("returned_by").references(() => users.id, { onDelete: "set null" }),
+  reason:         text("reason").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  response:       text("response"),
+  respondedAt:    timestamp("responded_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  orgResourceIdx: index("timesheet_returns_org_resource_idx").on(t.orgId, t.resourceId, t.acknowledgedAt),
+  entryIdx:       index("timesheet_returns_entry_idx").on(t.timeEntryId),
+}));
+export type TimesheetReturn = typeof timesheetReturns.$inferSelect;
 
 export type CrmFieldValue = typeof crmFieldValues.$inferSelect;
 

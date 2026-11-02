@@ -15,6 +15,7 @@ import { ChevronLeft, ChevronRight, Plus, Send, Loader, Trash2 } from "lucide-re
 import { CalcInput, SelectField, cell, controlCompact, tableHead } from "@/components/form-kit";
 import { ASSIGNABLE_LABEL, ASSIGNABLE_TYPES, type AssignableType } from "@/lib/resources/assignable";
 import { weekDates, weekStartOf, isEditableStatus } from "@/lib/resources/time-entry-rules";
+import { MyReturns } from "@/components/my-returns";
 import { addDays } from "@/lib/accounting/report-periods";
 import { localToday, formatDateShort } from "@/lib/format";
 
@@ -174,6 +175,9 @@ export function MyTimesheet() {
 
   return (
     <div className="flex flex-col gap-4 px-6 py-4">
+      {/* Returned time first: it is the one thing on this page asking for
+          something back. Renders nothing when there are no returns. */}
+      <MyReturns />
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week" className="h-8 w-8 flex items-center justify-center rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"><ChevronLeft size={15} /></button>
         <button onClick={() => setWeekStart(thisWeek)} disabled={weekStart === thisWeek} className="h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-[12px] text-stone-300 hover:text-stone-100 disabled:opacity-50">This week</button>

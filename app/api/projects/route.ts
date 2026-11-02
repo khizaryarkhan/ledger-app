@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, customers } from "@/db/schema";
+import { projects, customers, resources } from "@/db/schema";
 import { requireOrg, requireReadScope, ok, bad, ownsInOrg } from "@/lib/api";
 import { getRepScope } from "@/lib/rep-scope";
 import { z } from "zod";
@@ -10,6 +10,8 @@ const Schema = z.object({
   name: z.string().min(1).max(255),
   code: z.string().min(1).max(64),
   ownerId: z.string().uuid().nullable().optional(),
+  // Who approves time booked to this project. NOT ownerId — see db/schema.ts.
+  leadResourceId: z.string().uuid().nullable().optional(),
   status: z.enum(["Pending", "Active", "In Progress", "Completed", "On Hold", "Cancelled"]).default("Active"),
 });
 
@@ -36,12 +38,16 @@ export async function POST(req: Request) {
   try {
     const data = Schema.parse(await req.json());
     if (!(await ownsInOrg(customers, data.customerId, orgId!))) return bad("Customer not found in this organisation", 404);
+    if (data.leadResourceId && !(await ownsInOrg(resources, data.leadResourceId, orgId!))) {
+      return bad("That project lead was not found in this organisation", 404);
+    }
     const [created] = await db.insert(projects).values({
       orgId: orgId!,
       customerId: data.customerId,
       name: data.name,
       code: data.code,
       ownerId: data.ownerId ?? null,
+      leadResourceId: data.leadResourceId ?? null,
       status: data.status ?? "Active",
     }).returning();
     return ok(created);

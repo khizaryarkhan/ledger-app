@@ -19,15 +19,35 @@ import { formatDateShort } from "@/lib/format";
 
 interface QueueRow {
   id: string; resourceId: string; personName: string; date: string; hours: number;
-  typeName: string; assignableName: string | null; description: string | null;
+  typeName: string; assignableId: string | null; assignableName: string | null; description: string | null;
+  planned: number | null; actual: number | null;
 }
+interface Reply { id: string; personName: string; reason: string; response: string; respondedAt: string | null; date: string }
+/** One booking inside a person-week: what the plan said, and what they logged. */
+interface Booking { key: string; name: string; planned: number; actual: number }
 interface Group { key: string; personName: string; weekStart: string; rows: QueueRow[]; total: number }
 interface Outcome { id: string; ok: boolean; error?: string }
 
 const hrs = (n: number) => String(Math.round(n * 100) / 100);
 
+/** The bookings in this group, each once, with the week's plan beside the week's hours. */
+function bookingsOf(rows: QueueRow[]): Booking[] {
+  const map = new Map<string, Booking>();
+  for (const r of rows) {
+    if (!r.assignableId || r.planned === null) continue;
+    if (!map.has(r.assignableId)) {
+      map.set(r.assignableId, {
+        key: r.assignableId, name: r.assignableName ?? "-",
+        planned: r.planned, actual: r.actual ?? 0,
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
 export function ApprovalsPanel() {
   const [rows, setRows] = useState<QueueRow[] | null>(null);
+  const [replies, setReplies] = useState<Reply[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -40,7 +60,8 @@ export function ApprovalsPanel() {
       const r = await fetch("/api/resources/me/approvals");
       const body = await r.json().catch(() => null);
       if (!r.ok) { setMsg(body?.error || "Could not load approvals"); setRows([]); return; }
-      setRows(Array.isArray(body) ? body : []);
+      setRows(Array.isArray(body?.queue) ? body.queue : []);
+      setReplies(Array.isArray(body?.replies) ? body.replies : []);
     } catch { setMsg("Network problem. Try again."); setRows([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -101,6 +122,26 @@ export function ApprovalsPanel() {
         </button>
       </div>
 
+      {replies.length > 0 && (
+        <div className="rounded-lg border border-stone-800">
+          <div className="px-3 py-2.5 border-b border-stone-800 bg-stone-950 text-[13px] font-semibold text-stone-100">
+            Replies to time you sent back
+          </div>
+          <ul className="divide-y divide-stone-800/60">
+            {replies.map((r) => (
+              <li key={r.id} className="px-3 py-2.5 text-[13px]">
+                <div>
+                  <span className="font-semibold text-stone-100">{r.personName}</span>
+                  <span className="text-stone-500"> · {formatDateShort(r.date)}</span>
+                </div>
+                <div className="text-stone-500 mt-0.5">You wrote: {r.reason}</div>
+                <div className="text-stone-200 mt-0.5">They replied: {r.response}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {groups.length === 0 && (
         <div className="rounded-lg border border-stone-800 bg-stone-900 p-8 text-center text-[13px] text-stone-500">Nothing is waiting for your approval.</div>
       )}
@@ -108,6 +149,7 @@ export function ApprovalsPanel() {
       {groups.map((g) => {
         const ids = g.rows.map((r) => r.id);
         const allOn = ids.every((id) => selected.has(id));
+        const bookings = bookingsOf(g.rows);
         return (
           <div key={g.key} className="rounded-lg border border-stone-800">
             <div className="flex items-center gap-3 px-3 py-2.5 border-b border-stone-800 bg-stone-950">
@@ -126,6 +168,26 @@ export function ApprovalsPanel() {
                 <Check size={13} /> Approve
               </button>
             </div>
+            {bookings.length > 0 && (
+              // Each booking's WEEK, so the approver sees the hours against the
+              // plan for that week — not against a running total or this one
+              // line. Colour marks the exception only: over plan reads amber,
+              // on or under plan stays quiet.
+              <div className="flex flex-wrap gap-x-5 gap-y-1 px-3 py-2 border-b border-stone-800/60 bg-stone-900/40">
+                {bookings.map((b) => {
+                  const over = b.actual > b.planned + 0.01;
+                  return (
+                    <div key={b.key} className="text-[12px]">
+                      <span className="text-stone-400">{b.name}</span>
+                      <span className="text-stone-600"> · planned </span>
+                      <span className="tabular-nums text-stone-300">{hrs(b.planned)} h</span>
+                      <span className="text-stone-600"> · logged </span>
+                      <span className={over ? "tabular-nums text-amber-400" : "tabular-nums text-stone-300"}>{hrs(b.actual)} h</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <table className="w-full text-[13px]">
               <tbody>
                 {g.rows.map((r) => (

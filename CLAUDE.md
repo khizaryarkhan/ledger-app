@@ -1497,8 +1497,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0119` at `when`
-  `1792700000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0120` at `when`
+  `1792800000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -4691,6 +4691,80 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Resources Phase A: approval follows the project's lead (2026-11-02)
+
+Prompted by reading a Laravel portal the product owner built earlier for an
+engineering firm (EDC), which routes timesheet approval to the project's lead,
+not the line manager. Phase A of a five-phase plan (A approval, B dated
+capacity, C compliance, D hours-over-plan, E scope tiers); only A is built.
+Migration `0120`, additive.
+
+- **`projects.lead_resource_id` is a NEW column, and the reason matters.** The
+  obvious field to reuse was `projects.owner_id` — and it is wrong:
+  `lib/qbo-sync.ts` stamps it with whoever ran the sync, so it is a creator
+  stamp. Routing approvals through it would have sent every QBO-synced
+  project's time to one arbitrary person. Check what a field already means
+  before reusing its name; this is the same class as `PostDocInput.locationId`.
+- **Nothing changes until an org names a lead.** The column starts null
+  everywhere and nothing back-fills it, so every project line keeps routing to
+  the line manager exactly as before. That is deliberate: it makes the change
+  safe to deploy without touching a single existing approval path.
+- **The rule is `canApproveEntry` (`lib/resources/access.ts`, pure), reached
+  through `decideEntry`** — still the one choke point every approve/reject
+  path goes through. In order: an org admin always may; never your own
+  otherwise; an `all` designation is the org-wide approver; **time on a project
+  WITH a lead is that lead's alone**; everything else is the line manager's.
+  - **`decideEntry`'s lead map is a REQUIRED parameter, not an optional one.**
+    A caller that forgot would silently fall back to the manager and route
+    approval to the wrong person. Making it required turned that into eleven
+    `tsc` errors instead, which is the whole point.
+  - **Leading a project IS the grant, whatever the designation says.** A `self`
+    person who leads a project approves its time. Requiring `team` on top would
+    mean naming a lead did nothing until someone also changed an unrelated
+    setting.
+  - **An inactive lead is left out of the map** (`leadsForProjects`), dropping
+    that project back to the manager — a lead who has left must not strand
+    their team's timesheets behind an approval nobody can give.
+  - MOs and job work orders have no lead concept and stay with the manager.
+- **`approvalQueue` widens its candidate set to "people I can see OR anything
+  booked to a project I lead".** A lead is routinely not in their people's
+  management chain, so the old visible-people-first narrowing would have hidden
+  the very rows this phase routes to them — the filter has to come after the
+  widening, not before.
+- **Plan vs actual, per person, booking and WEEK** (`planVsActual` in
+  `lib/resources/approval-server.ts`), shown on each group in the queue. Each
+  entry is set against the plan for ITS OWN week, not the week being looked at
+  — the bug EDC's own approval page shipped with. `actual` counts every
+  non-rejected line that week, not only the submitted ones on screen, because
+  the plan covers the whole week. Reuses `plannedHours`/`loadCalendars` rather
+  than a second capacity calculation. Colour marks the exception only: over
+  plan reads amber, on or under plan stays quiet.
+- **Returning time is a conversation** (`timesheet_returns`): the approver's
+  reason opens a thread, the person acknowledges and may reply, and the reply
+  comes back on the approver's own queue. `time_entries.rejected_reason` still
+  carries the latest reason for the grid; the table is the history, so a
+  resubmit-and-reject cycle no longer erases what was said the first time.
+  Written AFTER the status moves and with its own `.catch`, so a failed thread
+  never undoes a decision that already stands.
+  - `answerReturn` scopes by `resourceId` **inside the UPDATE's WHERE clause**,
+    so a guessed id belonging to someone else changes nothing and 404s rather
+    than confirming it exists. Acknowledging and replying are one call: a reply
+    is an acknowledgement, and two round trips would let the two disagree.
+  - `components/my-returns.tsx` renders above the weekly grid (inside
+    `MyTimesheet`, so both the app and portal pages get it) and renders nothing
+    when there are no returns.
+- **`lib/resources/approval-server.ts` is a new module, not growth of
+  `time-entries-server.ts`** — both stay under the 800-line ceiling, and it
+  deliberately takes plain ids rather than that file's `TimeCtx`, so the
+  dependency runs one way with no import cycle.
+- **Tests**: 8 new cases in `tests/time-entry-rules.test.ts`, **proven to fail
+  on the real defect** — with the lead branch disabled, exactly the three that
+  assert the lead rule fail and the fallback cases correctly still pass.
+- **Not done / not verified**: the migration has NOT been run against any
+  database and nothing was clicked through in a browser (the dev server cannot
+  reach Neon from here). No notification tells a lead that time is waiting —
+  they have to open Approvals. Phases B–E are not built.
 
 ## Budgets, fixed assets, reorder suggestions, resource cost (2026-11-01)
 

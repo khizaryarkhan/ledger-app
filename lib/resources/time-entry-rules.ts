@@ -8,7 +8,7 @@
  * string.
  */
 
-import { canApprove, type Actor, type PersonNode } from "./access";
+import { canApproveEntry, leadForEntry, type ApprovableEntry, type Actor, type PersonNode } from "./access";
 import { addDays } from "@/lib/accounting/report-periods";
 
 export const TIME_ENTRY_STATUSES = ["draft", "submitted", "approved", "rejected", "posted"] as const;
@@ -83,17 +83,34 @@ export function parseReason(v: unknown): { ok: true; reason: string } | { ok: fa
 
 export type Decision = { ok: true } | { ok: false; error: string; status: number };
 
-/** May `actor` approve or reject this entry right now? One rule for both. */
+/**
+ * May `actor` approve or reject this entry right now? One rule for both.
+ *
+ * `leadOfProject` maps a project id to the resource who leads it, and is
+ * REQUIRED rather than optional on purpose: a caller that forgot to pass it
+ * would silently fall back to the line manager and route approval to the wrong
+ * person, which is the exact bug this parameter exists to prevent.
+ */
 export function decideEntry(
   actor: Actor,
-  entry: { resourceId: string; status: string },
+  entry: ApprovableEntry & { status: string },
   people: readonly PersonNode[],
+  leadOfProject: ReadonlyMap<string, string>,
 ): Decision {
   if (!isDecidableStatus(entry.status)) {
     return { ok: false, error: "Only a Submitted entry can be approved or rejected", status: 409 };
   }
-  if (!canApprove(actor, entry.resourceId, people)) {
-    return { ok: false, error: "You cannot approve this person's time", status: 403 };
+  if (!canApproveEntry(actor, entry, people, leadOfProject)) {
+    // Say which rule refused: "you are not their manager" and "this project has
+    // its own lead" send the person to two different places to get unstuck.
+    const lead = leadForEntry(entry, leadOfProject);
+    return {
+      ok: false,
+      error: lead
+        ? "Time booked to a project is approved by that project's lead."
+        : "You cannot approve this person's time",
+      status: 403,
+    };
   }
   return { ok: true };
 }

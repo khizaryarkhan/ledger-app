@@ -1,11 +1,16 @@
 /**
- * GET  /api/resources/me/approvals                             -> submitted entries the caller may decide
+ * GET  /api/resources/me/approvals                             -> { queue, replies }
  * POST /api/resources/me/approvals { ids, action, reason? }    -> { results: [{ id, ok, error? }] }, one per id
+ *
+ * `replies` is the other half of a return: what people wrote back about time
+ * THIS approver sent back. It rides on the same request because an approver
+ * who has to go looking for replies will not look.
  */
 
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { buildCtx, approvalQueue, decideMany } from "@/lib/resources/time-entries-server";
+import { repliesForApprover } from "@/lib/resources/approval-server";
 
 const MAX_BULK = 500;
 
@@ -16,7 +21,11 @@ export async function GET() {
   if (modErr) return modErr;
 
   const ctx = await buildCtx(orgId!, session, role);
-  return ok(await approvalQueue(ctx));
+  const [queue, replies] = await Promise.all([
+    approvalQueue(ctx),
+    repliesForApprover(orgId!, ctx.userId),
+  ]);
+  return ok({ queue, replies });
 }
 
 export async function POST(req: Request) {

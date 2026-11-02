@@ -67,39 +67,106 @@ describe("input", () => {
 });
 
 describe("approval decisions", () => {
-  const entry = (resourceId: string, status = "submitted") => ({ resourceId, status });
+  const entry = (resourceId: string, status = "submitted") =>
+    ({ resourceId, status, assignableType: null, assignableId: null });
+  /** No project anywhere has a named lead — every org on the day this shipped. */
+  const NO_LEADS = new Map<string, string>();
 
   it("lets a manager approve down the chain, not sideways or up", () => {
     const lead = buildActor("company_user", "lead", "team");
-    expect(decideEntry(lead, entry("dev"), people).ok).toBe(true);
-    expect(decideEntry(lead, entry("peer"), people).ok).toBe(false);
-    expect(decideEntry(lead, entry("boss"), people).ok).toBe(false);
+    expect(decideEntry(lead, entry("dev"), people, NO_LEADS).ok).toBe(true);
+    expect(decideEntry(lead, entry("peer"), people, NO_LEADS).ok).toBe(false);
+    expect(decideEntry(lead, entry("boss"), people, NO_LEADS).ok).toBe(false);
   });
   it("never lets a non-admin approve their own time", () => {
     const boss = buildActor("company_user", "boss", "all");
-    const d = decideEntry(boss, entry("boss"), people);
+    const d = decideEntry(boss, entry("boss"), people, NO_LEADS);
     expect(d.ok).toBe(false);
     if ("error" in d) expect(d.status).toBe(403);
   });
   it("lets an org-wide approver act for anyone else", () => {
     const hr = buildActor("company_user", "peer", "all");
-    expect(decideEntry(hr, entry("dev"), people).ok).toBe(true);
+    expect(decideEntry(hr, entry("dev"), people, NO_LEADS).ok).toBe(true);
   });
   it("refuses self-level people and logins with no person", () => {
-    expect(decideEntry(buildActor("company_user", "dev", "self"), entry("lead"), people).ok).toBe(false);
-    expect(decideEntry(buildActor("company_user", null, "all"), entry("dev"), people).ok).toBe(false);
+    expect(decideEntry(buildActor("company_user", "dev", "self"), entry("lead"), people, NO_LEADS).ok).toBe(false);
+    expect(decideEntry(buildActor("company_user", null, "all"), entry("dev"), people, NO_LEADS).ok).toBe(false);
   });
   it("lets an org admin decide anything submitted, including their own", () => {
     const admin = buildActor("company_admin", "boss", "self");
-    expect(decideEntry(admin, entry("boss"), people).ok).toBe(true);
-    expect(decideEntry(admin, entry("dev"), people).ok).toBe(true);
+    expect(decideEntry(admin, entry("boss"), people, NO_LEADS).ok).toBe(true);
+    expect(decideEntry(admin, entry("dev"), people, NO_LEADS).ok).toBe(true);
   });
   it("treats approved and posted as immutable", () => {
     const admin = buildActor("company_admin", null, null);
     for (const s of ["approved", "posted", "draft", "rejected"]) {
-      const d = decideEntry(admin, entry("dev", s), people);
+      const d = decideEntry(admin, entry("dev", s), people, NO_LEADS);
       expect(d.ok).toBe(false);
       if ("error" in d) expect(d.status).toBe(409);
     }
+  });
+});
+
+/**
+ * Phase A: time booked to a project is the project lead's to approve.
+ *
+ * "peer" leads project P and manages nobody; "lead" manages "dev" but does not
+ * lead P. That pair is the whole point of the change — before it, `lead`
+ * approved everything `dev` logged and `peer` approved nothing.
+ */
+describe("approval follows the project's lead", () => {
+  const P = "project-p";
+  const LEADS = new Map<string, string>([[P, "peer"]]);
+  const onProject = (resourceId: string, projectId = P, status = "submitted") =>
+    ({ resourceId, status, assignableType: "project", assignableId: projectId });
+  const noBooking = (resourceId: string) =>
+    ({ resourceId, status: "submitted", assignableType: null, assignableId: null });
+
+  it("gives the project's time to its lead, not to the line manager", () => {
+    const projectLead = buildActor("company_user", "peer", "self");
+    const lineManager = buildActor("company_user", "lead", "team");
+    expect(decideEntry(projectLead, onProject("dev"), people, LEADS).ok).toBe(true);
+    expect(decideEntry(lineManager, onProject("dev"), people, LEADS).ok).toBe(false);
+  });
+
+  it("says WHICH rule refused, so the manager knows where to go", () => {
+    const d = decideEntry(buildActor("company_user", "lead", "team"), onProject("dev"), people, LEADS);
+    if ("error" in d) expect(d.error).toContain("project's lead");
+    else throw new Error("expected a refusal");
+  });
+
+  it("leaves non-project time with the line manager", () => {
+    const lineManager = buildActor("company_user", "lead", "team");
+    expect(decideEntry(lineManager, noBooking("dev"), people, LEADS).ok).toBe(true);
+  });
+
+  it("falls back to the line manager for a project with no lead named", () => {
+    const lineManager = buildActor("company_user", "lead", "team");
+    expect(decideEntry(lineManager, onProject("dev", "unled-project"), people, LEADS).ok).toBe(true);
+  });
+
+  it("leaves an MO and a job work order with the line manager", () => {
+    const lineManager = buildActor("company_user", "lead", "team");
+    for (const t of ["manufacturing_order", "job_work_order"]) {
+      const e = { resourceId: "dev", status: "submitted", assignableType: t, assignableId: P };
+      expect(decideEntry(lineManager, e, people, LEADS).ok).toBe(true);
+    }
+  });
+
+  it("lets a lead approve whatever their designation says, but never their own", () => {
+    const projectLead = buildActor("company_user", "peer", "self");
+    expect(decideEntry(projectLead, onProject("dev"), people, LEADS).ok).toBe(true);
+    expect(decideEntry(projectLead, onProject("peer"), people, LEADS).ok).toBe(false);
+  });
+
+  it("keeps the org-wide approver and the org admin able to act", () => {
+    expect(decideEntry(buildActor("company_user", "boss", "all"), onProject("dev"), people, LEADS).ok).toBe(true);
+    expect(decideEntry(buildActor("company_admin", "boss", "self"), onProject("dev"), people, LEADS).ok).toBe(true);
+  });
+
+  it("changes nothing while no org has named a lead", () => {
+    const lineManager = buildActor("company_user", "lead", "team");
+    const empty = new Map<string, string>();
+    expect(decideEntry(lineManager, onProject("dev"), people, empty).ok).toBe(true);
   });
 });

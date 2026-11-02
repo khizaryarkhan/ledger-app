@@ -16,7 +16,7 @@ import {
   timeEntries, timesheetTypes, leavePolicies, leaveBalanceEntries,
   projects, manufacturingOrders, jobWorkOrders, apItems, resources,
 } from "@/db/schema";
-import { and, eq, gte, lte, inArray, desc, ne, sql } from "drizzle-orm";
+import { and, eq, gte, lte, inArray, desc, ne, or, sql } from "drizzle-orm";
 import { isAssignableType, type AssignableType } from "./assignable";
 import { canEnterTimeFor, canView, visibleResourceIds, type Actor } from "./access";
 import { resolveActor, type Person } from "./access-server";
@@ -25,6 +25,11 @@ import {
   isSubmittableStatus, decideEntry, MAX_HOURS_PER_DAY,
 } from "./time-entry-rules";
 import { addDays } from "@/lib/accounting/report-periods";
+import {
+  leadsForEntries, projectsLedBy, openReturn,
+  planVsActual, planActualKey,
+} from "./approval-server";
+import { weekStartOf } from "./time-entry-rules";
 import { NextResponse } from "next/server";
 
 export type TimeEntryRow = typeof timeEntries.$inferSelect;
@@ -249,7 +254,7 @@ export async function submitWeek(ctx: TimeCtx, weekStart: unknown): Promise<Resu
 export async function approveEntry(ctx: TimeCtx, id: string): Promise<Result<TimeEntryRow>> {
   const existing = await loadEntry(ctx.orgId, id);
   if (!existing) return fail("Time entry not found", 404);
-  const d = decideEntry(ctx.actor, existing, ctx.people);
+  const d = decideEntry(ctx.actor, existing, ctx.people, await leadsForEntries(ctx.orgId, [existing]));
   if ("error" in d) return fail(d.error, d.status);
 
   const [row] = await db.update(timeEntries)
@@ -279,11 +284,20 @@ export async function rejectEntry(ctx: TimeCtx, id: string, reasonRaw: unknown):
   if ("error" in reason) return fail(reason.error);
   const existing = await loadEntry(ctx.orgId, id);
   if (!existing) return fail("Time entry not found", 404);
-  const d = decideEntry(ctx.actor, existing, ctx.people);
+  const d = decideEntry(ctx.actor, existing, ctx.people, await leadsForEntries(ctx.orgId, [existing]));
   if ("error" in d) return fail(d.error, d.status);
   const [row] = await db.update(timeEntries).set({ status: "rejected", rejectedReason: reason.reason, updatedAt: new Date() })
     .where(and(eq(timeEntries.id, id), eq(timeEntries.orgId, ctx.orgId), eq(timeEntries.status, "submitted"))).returning();
   if (!row) return fail("That entry was already decided", 409);
+
+  // Returning is a conversation: the reason opens a thread the person can
+  // acknowledge and answer. Written AFTER the entry moved, so a losing race on
+  // the status update never leaves a return against time nobody returned.
+  // Its own failure must not undo a decision that already stands.
+  await openReturn(ctx.orgId, {
+    timeEntryId: row.id, resourceId: row.resourceId, returnedBy: ctx.userId, reason: reason.reason,
+  }).catch((e) => { console.error("[timesheet-return] could not open thread for entry", row.id, e); });
+
   return { ok: true, value: row };
 }
 
@@ -307,7 +321,10 @@ export async function decideMany(ctx: TimeCtx, ids: string[], action: "approve" 
 
 export interface ApprovalRow {
   id: string; resourceId: string; personName: string; date: string; hours: number;
-  typeName: string; assignableType: string | null; assignableName: string | null; description: string | null;
+  typeName: string; assignableType: string | null; assignableId: string | null;
+  assignableName: string | null; description: string | null;
+  /** The plan and the logged total for this person, booking and WEEK. Null when the line has no booking. */
+  planned: number | null; actual: number | null;
 }
 
 async function assignableNames(orgId: string, rows: TimeEntryRow[]): Promise<Map<string, string>> {
@@ -333,29 +350,53 @@ async function assignableNames(orgId: string, rows: TimeEntryRow[]): Promise<Map
   return names;
 }
 
-/** Submitted entries the caller may decide, oldest first. */
+/**
+ * Submitted entries the caller may decide, oldest first.
+ *
+ * The candidate set is the people they can SEE **or** anything booked to a
+ * project they LEAD — a lead is routinely not in their people's management
+ * chain, so narrowing to visible people first would hide the very rows this
+ * phase exists to route to them.
+ */
 export async function approvalQueue(ctx: TimeCtx): Promise<ApprovalRow[]> {
-  if (ctx.actor.level === "none" || ctx.actor.level === "self") return [];
+  if (ctx.actor.level === "none") return [];
   const visible = visibleResourceIds(ctx.actor, ctx.people);
-  const conds = [eq(timeEntries.orgId, ctx.orgId), eq(timeEntries.status, "submitted")];
+  const led = ctx.actor.resourceId ? await projectsLedBy(ctx.orgId, ctx.actor.resourceId) : [];
+
+  const conds: any[] = [eq(timeEntries.orgId, ctx.orgId), eq(timeEntries.status, "submitted")];
   if (visible !== "all") {
-    if (visible.size === 0) return [];
-    conds.push(inArray(timeEntries.resourceId, Array.from(visible)));
+    const scopes: any[] = [];
+    if (visible.size > 0) scopes.push(inArray(timeEntries.resourceId, Array.from(visible)));
+    if (led.length > 0) scopes.push(and(eq(timeEntries.assignableType, "project"), inArray(timeEntries.assignableId, led)));
+    if (scopes.length === 0) return [];
+    conds.push(scopes.length === 1 ? scopes[0] : or(...scopes));
   }
   const rows = await db.select().from(timeEntries).where(and(...conds)).orderBy(timeEntries.date);
-  const mine = rows.filter((r) => decideEntry(ctx.actor, r, ctx.people).ok);
+
+  const leads = await leadsForEntries(ctx.orgId, rows);
+  const mine = rows.filter((r) => decideEntry(ctx.actor, r, ctx.people, leads).ok);
   if (mine.length === 0) return [];
+
   const typeIds = Array.from(new Set(mine.map((r) => r.timesheetTypeId)));
   const types = await db.select({ id: timesheetTypes.id, name: timesheetTypes.name }).from(timesheetTypes)
     .where(and(eq(timesheetTypes.orgId, ctx.orgId), inArray(timesheetTypes.id, typeIds)));
   const typeName = new Map(types.map((t) => [t.id, t.name]));
   const personName = new Map(ctx.people.map((p) => [p.id, p.name]));
   const aNames = await assignableNames(ctx.orgId, mine);
-  return mine.map((r) => ({
-    id: r.id, resourceId: r.resourceId, personName: personName.get(r.resourceId) ?? "-", date: r.date,
-    hours: Number(r.hours), typeName: typeName.get(r.timesheetTypeId) ?? "-", assignableType: r.assignableType,
-    assignableName: r.assignableId ? aNames.get(r.assignableId) ?? null : null, description: r.description,
-  }));
+  const pa = await planVsActual(ctx.orgId, mine.map((r) => ({
+    resourceId: r.resourceId, assignableType: r.assignableType, assignableId: r.assignableId, date: r.date,
+  })));
+
+  return mine.map((r) => {
+    const fig = r.assignableId ? pa.get(planActualKey(r.resourceId, r.assignableId, weekStartOf(r.date))) : undefined;
+    return {
+      id: r.id, resourceId: r.resourceId, personName: personName.get(r.resourceId) ?? "-", date: r.date,
+      hours: Number(r.hours), typeName: typeName.get(r.timesheetTypeId) ?? "-",
+      assignableType: r.assignableType, assignableId: r.assignableId,
+      assignableName: r.assignableId ? aNames.get(r.assignableId) ?? null : null, description: r.description,
+      planned: fig?.planned ?? null, actual: fig?.actual ?? null,
+    };
+  });
 }
 
 export interface MyOptions {

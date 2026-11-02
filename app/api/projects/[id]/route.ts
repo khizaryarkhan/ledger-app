@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects, customers } from "@/db/schema";
+import { projects, customers, resources } from "@/db/schema";
 import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 
@@ -10,13 +10,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Allowlist editable columns — never let the client rewrite id/orgId/createdAt
   // or sync-derived fields (qboId/xeroId) via a blind spread of the loaded row
   // (the edit modal round-trips the whole loaded project as its form state).
-  const EDITABLE = ["customerId", "name", "code", "ownerId", "status", "repId"] as const;
+  const EDITABLE = ["customerId", "name", "code", "ownerId", "leadResourceId", "status", "repId"] as const;
   const set: Record<string, any> = {};
   for (const k of EDITABLE) if (k in body) set[k] = body[k];
   // The new customer must belong to this org — don't let a project get reassigned
   // to another tenant's customer via this route.
   if (set.customerId && !(await ownsInOrg(customers, set.customerId, orgId!))) {
     return bad("Customer not found in this organisation", 404);
+  }
+  // Same tenancy check for the lead: naming someone from another org as the
+  // approver of this project's time would hand them its timesheets.
+  if (set.leadResourceId && !(await ownsInOrg(resources, set.leadResourceId, orgId!))) {
+    return bad("That project lead was not found in this organisation", 404);
   }
   const [updated] = await db.update(projects).set(set).where(and(eq(projects.id, params.id), eq(projects.orgId, orgId!))).returning();
   if (!updated) return bad("Not found", 404);

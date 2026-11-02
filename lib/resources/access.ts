@@ -147,3 +147,61 @@ export function canApprove(actor: Actor, targetId: string, nodes: readonly Perso
 export function canOpenTeamReports(actor: Actor): boolean {
   return actor.level === "team" || actor.level === "all";
 }
+
+// ── Who approves THIS entry (Phase A, 2026-11-02) ────────────────────────────
+
+export interface ApprovableEntry {
+  resourceId: string;
+  assignableType: string | null;
+  assignableId: string | null;
+}
+
+/**
+ * The lead who owns this entry's approval, or null when nobody does.
+ *
+ * Only a project has a lead. A Manufacturing Order and a Job Work Order are
+ * work the floor runs, not an engagement somebody is accountable for, so they
+ * fall to the line manager — as does a project whose lead is unset, or set to
+ * a person who is no longer active.
+ */
+export function leadForEntry(
+  entry: Pick<ApprovableEntry, "assignableType" | "assignableId">,
+  leadOfProject: ReadonlyMap<string, string>,
+): string | null {
+  if (entry.assignableType !== "project" || !entry.assignableId) return null;
+  return leadOfProject.get(entry.assignableId) ?? null;
+}
+
+/**
+ * Approve or reject one entry. The rule, in order:
+ *
+ *   an org admin always may (nobody sits above them to ask);
+ *   never your own, otherwise;
+ *   an `all` designation is the org-wide approver and may act on anything;
+ *   time on a project WITH a lead is that lead's to decide, and only theirs —
+ *     a line manager does not approve work they are not accountable for;
+ *   everything else (no project, or no lead named) is the line manager's,
+ *     exactly as it was before this rule existed.
+ *
+ * That last clause is what makes this safe to ship: `projects.leadResourceId`
+ * starts null everywhere, so until an org names a lead nothing moves.
+ */
+export function canApproveEntry(
+  actor: Actor,
+  entry: ApprovableEntry,
+  people: readonly PersonNode[],
+  leadOfProject: ReadonlyMap<string, string>,
+): boolean {
+  if (actor.isOrgAdmin) return true;
+  if (actor.level === "none" || !actor.resourceId) return false;
+  if (actor.resourceId === entry.resourceId) return false;
+  if (actor.level === "all") return true;
+  const lead = leadForEntry(entry, leadOfProject);
+  // Being named a project's lead IS the grant, whatever the designation says.
+  // Requiring `team` on top would mean naming a lead did nothing until someone
+  // also changed their designation — two unrelated settings, one of them
+  // silently load-bearing.
+  if (lead) return actor.resourceId === lead;
+  if (actor.level === "self") return false;
+  return canApprove(actor, entry.resourceId, people);
+}
