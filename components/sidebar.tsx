@@ -458,6 +458,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/resources/approvals", label: "Approvals", icon: ClipboardList },
         { href: "/resources/reports", label: "Team Reports", icon: ScrollText },
         { href: "/resources/timesheets", label: "Timesheets", icon: Clock },
+        { href: "/resources/compliance", label: "Timesheet Compliance", icon: ClipboardList },
         { href: "/resources/utilization", label: "Utilization", icon: Gauge },
         { href: "/resources/cost", label: "Resource Cost", icon: Scale },
       ],

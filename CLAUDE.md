@@ -4692,6 +4692,55 @@ once proven impossible; read this before trying again.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
 
+## Resources Phase C: timesheet compliance (2026-11-02)
+
+Phase C of the five-phase plan. **No migration** — it reads what Phases A and B
+already record. `/resources/compliance`, `GET /api/resources/compliance`, rules
+in `lib/resources/compliance.ts` (pure, 16 tests).
+
+- **Two failures, reported apart, and a week can be both**: NOT SUBMITTED (the
+  hours handed in fall short of what that person was contracted to work) and
+  NOT APPROVED (something was handed in and nobody has decided it). The second
+  is the approver's failure, not the person's, so folding them together would
+  blame the wrong party.
+- **It reports the SHORTFALL, not a yes/no.** A week with nothing on it, a week
+  in draft and a week only partly handed in are the same failure in different
+  sizes, and "7 hours short" is actionable where "non-compliant" is not.
+- **Expected hours are the person's OWN capacity for that week**, via Phase B's
+  `capacityOver` — the same function the Utilization report uses, so the two can
+  never disagree. Deliberately NOT a flat company-wide number (EDC uses a flat
+  39 because it has no reliable per-person capacity; we do): chasing a four-day
+  person for five days' hours is how a report like this loses its audience. It
+  already nets off public holidays, so nobody is chased for a shutdown.
+  - **The denominator's softness is carried through from Phase B.** A row whose
+    expectation rests on `resources.daily_capacity` rather than a dated row is
+    marked `est.` and counted in a caveat line. This matters more here than
+    anywhere else: that column defaults to **1 hour/day**, so an untouched
+    person would appear compliant after logging five hours a week. Say so
+    rather than quietly accusing or quietly excusing.
+- **Handed in = `submitted` | `approved` | `posted`.** Draft is not handed in,
+  and **rejected is not either** — it came back, so the person owes it again.
+- **Only the active are chased.** Someone who has logged nothing but public
+  holidays for 8 weeks is listed apart as dormant and produces no rows: a
+  leaver whose login is still enabled would otherwise head the list every week
+  forever, which is exactly how this kind of report stops being read. A
+  public-holiday line lands on everybody and is never evidence of activity.
+- **Nobody is chased for a week before their first ever logged day**
+  (`startedOn`). That min is taken over ALL history, not the report window —
+  taking the window's own earliest entry would quietly excuse a long-tenured
+  person for every week before they next happened to log something.
+- **Scope**: team and above (`canOpenTeamReports`), narrowed to
+  `visibleResourceIds` — the same gate and scope as the Project and Employee
+  reports, so this cannot become a side door onto another manager's team.
+  Bounded at 26 weeks because the expected figure walks days per person-week.
+- **Proven against two real defects**: counting draft/rejected as handed in
+  fails exactly the two tests that say otherwise, and letting a public holiday
+  count as activity fails the dormant test.
+- **Not done / not verified**: nothing was clicked through in a browser. No
+  email or alert chases anyone — this is a screen someone has to open; wiring
+  it to the alert bell or a weekly digest is its own piece. Phases D and E
+  (hours-over-plan enquiries, scope tiers) are not built.
+
 ## Resources Phase B: contracted hours that know when they applied (2026-11-02)
 
 Phase B of the five-phase plan (see Phase A below). Migration `0121`, additive,
