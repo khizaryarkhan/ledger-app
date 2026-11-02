@@ -36,6 +36,7 @@ function monthLabel(month: string): string {
 export function HoursVariancePanel() {
   const [status, setStatus] = useState("open");
   const [rows, setRows] = useState<Enquiry[] | null>(null);
+  const [scope, setScope] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -46,7 +47,8 @@ export function HoursVariancePanel() {
       const r = await fetch(`/api/resources/enquiries?status=${status}`);
       const body = await r.json().catch(() => null);
       if (!r.ok) { setMsg(body?.error || "Could not load enquiries"); setRows([]); return; }
-      setRows(Array.isArray(body) ? body : []);
+      setRows(Array.isArray(body?.rows) ? body.rows : []);
+      setScope(typeof body?.scope === "string" ? body.scope : null);
     } catch { setMsg("Network problem. Try again."); setRows([]); }
   }, [status]);
   useEffect(() => { load(); }, [load]);
@@ -81,6 +83,9 @@ export function HoursVariancePanel() {
 
       <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
         {msg && <div className="text-[13px] text-rose-400">{msg}</div>}
+        {/* Say who this page covers, so a narrowed view never reads as the
+            whole organisation. */}
+        {scope && <p className="text-[12px] text-stone-500">Showing {scope}.</p>}
         {rows === null && <p className="text-[13px] text-stone-500">Loading…</p>}
 
         {rows && rows.length === 0 && (

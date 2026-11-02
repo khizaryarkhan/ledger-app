@@ -7,8 +7,8 @@
  */
 
 import { db } from "@/db";
-import { resources, resourceDesignations } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
+import { resources, resourceDesignations, projects, resourceAssignments, timeEntries } from "@/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
 import { buildActor, type Actor, type PersonNode } from "./access";
 
 export interface Person extends PersonNode {
@@ -45,6 +45,41 @@ export async function loadPeople(orgId: string): Promise<Person[]> {
   }));
 }
 
+/**
+ * Everyone working on the projects this person LEADS (Phase E).
+ *
+ * Two cheap queries, and the second only runs when they actually lead
+ * something — so the overwhelming majority of callers pay one indexed lookup
+ * that returns nothing. Both who is assigned to the project and who has logged
+ * time to it count: a lead is accountable for the work, not only for the plan.
+ */
+export async function ledPeopleFor(orgId: string, resourceId: string): Promise<Set<string>> {
+  const led = await db.select({ id: projects.id }).from(projects)
+    .where(and(eq(projects.orgId, orgId), eq(projects.leadResourceId, resourceId)));
+  if (led.length === 0) return new Set();
+  const ids = led.map((p) => p.id);
+
+  const [assigned, logged] = await Promise.all([
+    db.select({ resourceId: resourceAssignments.resourceId }).from(resourceAssignments)
+      .where(and(
+        eq(resourceAssignments.orgId, orgId),
+        eq(resourceAssignments.assignableType, "project"),
+        inArray(resourceAssignments.assignableId, ids),
+      )),
+    db.select({ resourceId: timeEntries.resourceId }).from(timeEntries)
+      .where(and(
+        eq(timeEntries.orgId, orgId),
+        eq(timeEntries.assignableType, "project"),
+        inArray(timeEntries.assignableId, ids),
+      )),
+  ]);
+
+  const out = new Set<string>();
+  for (const r of assigned) out.add(r.resourceId);
+  for (const r of logged) out.add(r.resourceId);
+  return out;
+}
+
 /** The caller's actor plus the people list it was resolved against. */
 export async function resolveActor(
   orgId: string,
@@ -54,6 +89,13 @@ export async function resolveActor(
   const people = await loadPeople(orgId);
   // A deactivated person keeps their row (history) but not their access.
   const me = userId ? people.find((p) => p.userId === userId && p.status === "active") ?? null : null;
-  const actor = buildActor(orgRole, me?.id ?? null, me?.accessLevel ?? null);
+  // Resolved for everyone with a person record, not opt-in per route: a route
+  // that forgot to ask would silently show a lead less than they may see,
+  // and a scope that changes with the caller is worse than one extra query.
+  const ledPeopleIds = me ? await ledPeopleFor(orgId, me.id) : undefined;
+  const actor = buildActor(orgRole, me?.id ?? null, me?.accessLevel ?? null, {
+    department: me?.department ?? null,
+    ledPeopleIds,
+  });
   return { actor, people, me };
 }

@@ -4,7 +4,7 @@
  * share one definition.
  */
 
-import type { DesignationLevel } from "./access";
+import { DESIGNATION_LEVELS, type DesignationLevel } from "./access";
 
 export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_DESIGNATION_NAME = 80;
@@ -62,10 +62,12 @@ export function parseDesignation(body: unknown, partial: boolean): Parsed<Partia
     out.name = name;
   }
   if (b.accessLevel !== undefined) {
-    if (b.accessLevel !== "self" && b.accessLevel !== "team" && b.accessLevel !== "all") {
-      return { ok: false, error: "accessLevel must be self, team or all" };
+    // Checked against the one list in access.ts, so a new tier cannot be
+    // added there and silently stay unacceptable here.
+    if (!DESIGNATION_LEVELS.includes(b.accessLevel as DesignationLevel)) {
+      return { ok: false, error: `accessLevel must be one of ${DESIGNATION_LEVELS.join(", ")}` };
     }
-    out.accessLevel = b.accessLevel;
+    out.accessLevel = b.accessLevel as DesignationLevel;
   } else if (!partial) {
     out.accessLevel = "self";
   }

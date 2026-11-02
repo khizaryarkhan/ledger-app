@@ -21,7 +21,7 @@ interface Row {
   notSubmitted: boolean; notApproved: boolean; capacityOnRecord: boolean;
 }
 interface DormantRow { resourceId: string; name: string; lastLoggedOn: string | null }
-interface Payload { weeks: string[]; rows: Row[]; dormant: DormantRow[]; clear: number }
+interface Payload { weeks: string[]; rows: Row[]; dormant: DormantRow[]; clear: number; scope?: string }
 
 const hrs = (n: number) => String(Math.round(n * 100) / 100);
 
@@ -76,6 +76,10 @@ export function TimesheetComplianceReport() {
               <span className="text-stone-500">{data.clear} fully up to date</span>
               {data.dormant.length > 0 && <span className="text-stone-500">{data.dormant.length} not logging time</span>}
             </div>
+
+            {/* Say who this page covers, so a narrowed view never reads as the
+                whole organisation. */}
+            {data.scope && <p className="text-[12px] text-stone-500">Showing {data.scope}.</p>}
 
             {softCount > 0 && (
               // Phase B's rule carried through: say when the bar someone is

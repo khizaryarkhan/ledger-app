@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   actorLevel, buildActor, reportIds, managerChain, wouldCreateCycle,
   visibleResourceIds, canView, canEnterTimeFor, canApprove, canOpenTeamReports,
+  scopeLabel, normaliseDesignationLevel,
   type PersonNode,
 } from "@/lib/resources/access";
 
@@ -129,5 +130,80 @@ describe("entering and approving time", () => {
   });
   it("an org admin approves anyone", () => {
     expect(canApprove(admin, "dev1", nodes)).toBe(true);
+  });
+});
+
+/**
+ * Phase E: the visible set is a UNION of every reason you have to see
+ * someone, not a position on a scale — a lead's project team and their own
+ * reports are different sets and neither contains the other.
+ */
+describe("department scope and project leadership", () => {
+  //        ceo
+  //       /    \
+  //    lead     lead2
+  //    /  \        \
+  //  dev1 dev2     dev3
+  const withDepts: PersonNode[] = [
+    { id: "ceo", managerId: null, department: "Exec" },
+    { id: "lead", managerId: "ceo", department: "Engineering" },
+    { id: "lead2", managerId: "ceo", department: "Design" },
+    { id: "dev1", managerId: "lead", department: "Engineering" },
+    { id: "dev2", managerId: "lead", department: "Engineering" },
+    { id: "dev3", managerId: "lead2", department: "Design" },
+    { id: "solo", managerId: null, department: "Engineering" },
+  ];
+
+  it("accepts department as a designation level", () => {
+    expect(normaliseDesignationLevel("department")).toBe("department");
+    expect(actorLevel("company_user", "lead", "department")).toBe("department");
+    expect(normaliseDesignationLevel("nonsense")).toBe("self");
+  });
+
+  it("adds the whole department on top of the reporting chain", () => {
+    const actor = buildActor("company_user", "lead", "department", { department: "Engineering" });
+    const seen = visibleResourceIds(actor, withDepts) as Set<string>;
+    // Own reports, plus a colleague in the same department who reports to nobody.
+    expect(Array.from(seen).sort()).toEqual(["dev1", "dev2", "lead", "solo"]);
+    // Another department stays out.
+    expect(seen.has("dev3")).toBe(false);
+  });
+
+  it("falls back to the team when no department is set on the record", () => {
+    const actor = buildActor("company_user", "lead", "department", { department: null });
+    const seen = visibleResourceIds(actor, withDepts) as Set<string>;
+    expect(Array.from(seen).sort()).toEqual(["dev1", "dev2", "lead"]);
+    expect(scopeLabel(actor)).toContain("none is set on your record");
+  });
+
+  it("adds people from a led project at ANY level, including self", () => {
+    const actor = buildActor("company_user", "dev1", "self", { ledPeopleIds: new Set(["dev3", "lead2"]) });
+    const seen = visibleResourceIds(actor, withDepts) as Set<string>;
+    expect(Array.from(seen).sort()).toEqual(["dev1", "dev3", "lead2"]);
+  });
+
+  it("lets a project lead open team reports whatever their designation says", () => {
+    expect(canOpenTeamReports(buildActor("company_user", "dev1", "self"))).toBe(false);
+    expect(canOpenTeamReports(buildActor("company_user", "dev1", "self", { ledPeopleIds: new Set(["dev3"]) }))).toBe(true);
+    expect(canOpenTeamReports(buildActor("company_user", "lead", "department"))).toBe(true);
+  });
+
+  it("does NOT let a department view approve for people outside the chain", () => {
+    // Seeing a colleague's hours and having authority over them are different
+    // rights; widening one must not quietly widen the other.
+    const actor = buildActor("company_user", "lead", "department", { department: "Engineering" });
+    expect(canView(actor, "solo", withDepts)).toBe(true);
+    expect(canApprove(actor, "solo", withDepts)).toBe(false);
+    expect(canApprove(actor, "dev1", withDepts)).toBe(true);
+  });
+
+  it("names the scope it is showing, so a narrowed page cannot read as the whole org", () => {
+    expect(scopeLabel(buildActor("company_admin", "ceo", "self"))).toBe("everyone in the organisation");
+    expect(scopeLabel(buildActor("company_user", "lead", "department", { department: "Engineering" })))
+      .toContain("Engineering");
+    expect(scopeLabel(buildActor("company_user", null, "all"))).toContain("not linked to a person");
+    expect(scopeLabel(buildActor("company_user", "dev1", "self"))).toBe("just you");
+    expect(scopeLabel(buildActor("company_user", "dev1", "self", { ledPeopleIds: new Set(["x"]) })))
+      .toContain("projects you lead");
   });
 });

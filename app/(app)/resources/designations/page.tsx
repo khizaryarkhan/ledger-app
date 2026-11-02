@@ -14,7 +14,7 @@ import {
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
 
-type Level = "self" | "team" | "all";
+type Level = "self" | "team" | "department" | "all";
 
 interface Designation {
   id: string;
@@ -28,6 +28,7 @@ interface Designation {
 const LEVELS: { value: Level; label: string; plain: string }[] = [
   { value: "self", label: "Self", plain: "Own timesheet and reports only." },
   { value: "team", label: "Team", plain: "Self, plus everyone reporting to them, directly or indirectly. Can approve their time." },
+  { value: "department", label: "Department", plain: "Their team, plus everyone in the same department. Can SEE that department's time, but still only approves for their own reports." },
   { value: "all", label: "All", plain: "Everyone in the organisation." },
 ];
 

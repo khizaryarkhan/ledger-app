@@ -12,7 +12,7 @@ import { db } from "@/db";
 import { hoursVarianceEnquiries, resources, projects } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { visibleResourceIds } from "@/lib/resources/access";
+import { visibleResourceIds, scopeLabel } from "@/lib/resources/access";
 import { resolveActor } from "@/lib/resources/access-server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
@@ -29,7 +29,8 @@ export async function GET(req: Request) {
   if (!STATUSES.includes(status)) return bad(`status must be one of ${STATUSES.join(", ")}`);
 
   const { actor, people } = await resolveActor(orgId!, (session as any)?.user?.id ?? null, role);
-  if (actor.level === "none") return ok([]);
+  const scope = scopeLabel(actor);
+  if (actor.level === "none") return ok({ scope, rows: [] });
   const visible = visibleResourceIds(actor, people);
 
   const conds = [eq(hoursVarianceEnquiries.orgId, orgId!)];
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
 
   const mine = rows.filter((r) =>
     visible === "all" || visible.has(r.resourceId) || (!!actor.resourceId && r.assignedTo === actor.resourceId));
-  if (mine.length === 0) return ok([]);
+  if (mine.length === 0) return ok({ scope, rows: [] });
 
   const projectIds = Array.from(new Set(mine.filter((r) => r.assignableType === "project").map((r) => r.assignableId)));
   const names = new Map<string, string>();
@@ -61,10 +62,13 @@ export async function GET(req: Request) {
     for (const p of ps) names.set(p.id, `${p.code} · ${p.name}`);
   }
 
-  return ok(mine.map((r) => ({
-    ...r,
-    plannedHours: Number(r.plannedHours), actualHours: Number(r.actualHours),
-    bookingName: names.get(r.assignableId) ?? null,
-    canAnswer: !!actor.resourceId && (r.assignedTo === actor.resourceId || actor.isOrgAdmin),
-  })));
+  return ok({
+    scope,
+    rows: mine.map((r) => ({
+      ...r,
+      plannedHours: Number(r.plannedHours), actualHours: Number(r.actualHours),
+      bookingName: names.get(r.assignableId) ?? null,
+      canAnswer: !!actor.resourceId && (r.assignedTo === actor.resourceId || actor.isOrgAdmin),
+    })),
+  });
 }

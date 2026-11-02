@@ -10,7 +10,7 @@
 
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { canOpenTeamReports, visibleResourceIds } from "@/lib/resources/access";
+import { canOpenTeamReports, visibleResourceIds, scopeLabel } from "@/lib/resources/access";
 import { resolveActor } from "@/lib/resources/access-server";
 import { isRealDate } from "@/lib/resources/time-entry-rules";
 import { loadCompliance, DEFAULT_WEEKS, MAX_WEEKS } from "@/lib/resources/compliance-server";
@@ -35,5 +35,7 @@ export async function GET(req: Request) {
   if (weeksRaw > MAX_WEEKS) return bad(`weeks cannot exceed ${MAX_WEEKS}`);
 
   const visible = visibleResourceIds(actor, people);
-  return ok(await loadCompliance(orgId!, visible, endDate, Math.floor(weeksRaw)));
+  const result = await loadCompliance(orgId!, visible, endDate, Math.floor(weeksRaw));
+  // A narrowed page must never read as the whole organisation.
+  return ok({ ...result, scope: scopeLabel(actor) });
 }

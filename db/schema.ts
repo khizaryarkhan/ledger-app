@@ -3900,14 +3900,19 @@ export type Resource = typeof resources.$inferSelect;
 // A designation (Dynamics' bookable-resource "default role") — "Software
 // Engineer", "Team Lead", "Head of Delivery". `accessLevel` is what the
 // designation lets its holder see and approve:
-//   self = own timesheet and reports only
-//   team = self + everyone who reports to them, directly or indirectly
-//   all  = every person in the organisation
+//   self       = own timesheet and reports only
+//   team       = self + everyone who reports to them, directly or indirectly
+//   department = team + everyone in the same department (Phase E)
+//   all        = every person in the organisation
+//
+// Leading a project is a separate, ADDITIVE grant on top of any of these —
+// see lib/resources/access.ts. varchar(16), not (8): "department" is ten
+// characters and the original width would have refused it outright.
 export const resourceDesignations = pgTable("resource_designations", {
   id:          uuid("id").defaultRandom().primaryKey(),
   orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   name:        varchar("name", { length: 80 }).notNull(),
-  accessLevel: varchar("access_level", { length: 8 }).notNull().default("self"), // self | team | all
+  accessLevel: varchar("access_level", { length: 16 }).notNull().default("self"), // self | team | department | all
   sortOrder:   integer("sort_order").notNull().default(0),
   status:      varchar("status", { length: 16 }).notNull().default("active"),
   createdAt:   timestamp("created_at").notNull().defaultNow(),

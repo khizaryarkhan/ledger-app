@@ -1497,8 +1497,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0122` at `when`
-  `1793000000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0123` at `when`
+  `1793100000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -4691,6 +4691,48 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Resources Phase E: scope tiers (2026-11-02)
+
+The last of the five phases. Migration `0123` — a **widening only**,
+`resource_designations.access_level` from `varchar(8)` to `varchar(16)`,
+because "department" is ten characters and the original width would have
+refused the value outright. Check the column width before adding an enum value.
+
+- **Visibility is a UNION of every reason you have to see someone, not a
+  position on a scale.** The designation gives a linear tier (self -> team ->
+  department -> all); **leading a project adds the people on it at ANY tier,
+  including `self`**. Ordering those two against each other would invent a
+  hierarchy that does not exist: a lead's project team and their own reports
+  are different sets and neither contains the other. Same reasoning as Phase
+  A's "leading a project IS the grant".
+- **`department` widens what you SEE, never what you may APPROVE.** `canApprove`
+  deliberately falls through to the management chain for it. A department-wide
+  view must not quietly hand someone authority over people who do not report
+  to them — two different rights, widened separately.
+- **`ledPeopleIds` is resolved in `resolveActor` for everyone, not opt-in per
+  route.** A route that forgot to ask would silently show a lead less than they
+  may see, and a scope that changes depending on the caller is worse than one
+  extra indexed query. `ledPeopleFor` costs one lookup that returns nothing for
+  the overwhelming majority; the second query only runs when they actually lead
+  something. Both the assigned and the people who logged time count — a lead is
+  accountable for the work, not only for the plan.
+- **Every narrowed page names its own scope** (`scopeLabel`, returned by the
+  Compliance and Hours-Over-Plan routes and shown on both screens). A tier that
+  resolves to nothing still says what it tried to show — "your department (none
+  is set on your record)" beats a page that is empty for no apparent reason.
+- `canOpenTeamReports` now also returns true for anyone leading a project: a
+  lead needs the reports for work they are accountable for, whatever their
+  designation says.
+- **Proven against two real defects**: letting `department` confer approval
+  fails exactly the test that separates seeing from approving, and making led
+  people conditional on tier fails the one that says the grant is additive.
+- **Not done / not verified**: migration `0123` has NOT been run against any
+  database and nothing was clicked through in a browser. Department is a free
+  varchar typed per person (`resources.department`) with no picker, so two
+  spellings are two departments — a real risk worth a lookup table if anyone
+  uses this seriously. Only the two Phase C/D screens print their scope; the
+  older Resources reports do not yet.
 
 ## Resources Phase D: hours over plan (2026-11-02)
 
