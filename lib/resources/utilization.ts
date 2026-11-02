@@ -7,13 +7,15 @@
  */
 
 import { overlaps } from "@/lib/resources/assignable";
-import { workingDaysInRange, DEFAULT_WORKING_DAYS } from "@/lib/resources/capacity";
+import { capacityOver, hasDatedHours, type WorkingHoursRow } from "@/lib/resources/working-hours";
 
 export type UtilizationResource = {
   id: string; name: string; type: string;
   dailyCapacity: number;
   workingDays: number[] | null;
   holidayCalendarId: string | null;
+  /** Dated contracted hours (Phase B). Optional: with none, capacity is what it was. */
+  workingHours?: readonly WorkingHoursRow[];
 };
 
 export type UtilizationAssignment = {
@@ -31,6 +33,13 @@ export type UtilizationRow = {
   capacity: number; plannedHours: number; plannedPercent: number;
   actualHours: number; billableHours: number; leaveHours: number;
   utilizationPercent: number; billableUtilizationPercent: number;
+  /**
+   * Did dated contracted hours decide this capacity, or did it fall back to
+   * the resource's current-value column? A percentage is only as trustworthy
+   * as its denominator, so the caller can say which it is instead of
+   * presenting both with equal confidence.
+   */
+  capacityOnRecord: boolean;
 };
 
 export function computeResourceUtilization(
@@ -44,9 +53,7 @@ export function computeResourceUtilization(
 ): UtilizationRow {
   const calendarId = resource.holidayCalendarId ?? defaultCalendarId ?? null;
   const holidaySet = calendarId ? (holidaysByCalendar.get(calendarId) ?? new Set<string>()) : new Set<string>();
-  const workingDays = resource.workingDays && resource.workingDays.length ? resource.workingDays : DEFAULT_WORKING_DAYS;
-  const workingDayCount = workingDaysInRange(from, to, workingDays, holidaySet);
-
+  const rows = resource.workingHours ?? [];
   const resourceEntries = entries.filter(e => e.resourceId === resource.id);
   let leaveHours = 0, actualHours = 0, billableHours = 0;
   for (const e of resourceEntries) {
@@ -55,7 +62,9 @@ export function computeResourceUtilization(
     else if (type?.category === "work") { actualHours += e.hours; if (type.billable) billableHours += e.hours; }
   }
 
-  const capacity = Math.max(0, workingDayCount * resource.dailyCapacity - leaveHours);
+  // Booked leave is capacity the person does not have, so it comes off the
+  // contracted total rather than counting against them as idle time.
+  const capacity = Math.max(0, capacityOver(from, to, rows, resource, holidaySet) - leaveHours);
 
   const overlapping = assignments.filter(a => a.resourceId === resource.id && a.status !== "cancelled" && overlaps(a.startDate, a.endDate, from, to));
   const plannedPercent = overlapping.reduce((s, a) => s + (a.allocationPercent || 0), 0);
@@ -70,5 +79,6 @@ export function computeResourceUtilization(
     leaveHours: Math.round(leaveHours * 100) / 100,
     utilizationPercent: capacity > 0 ? Math.round((actualHours / capacity) * 10000) / 100 : 0,
     billableUtilizationPercent: capacity > 0 ? Math.round((billableHours / capacity) * 10000) / 100 : 0,
+    capacityOnRecord: hasDatedHours(rows, from, to),
   };
 }

@@ -8,7 +8,7 @@
  * from their own text ("A date is a date"); weeks start on Monday (ISO).
  */
 
-import { workingDaysInRange, DEFAULT_WORKING_DAYS } from "@/lib/resources/capacity";
+import { capacityOver, hoursOn, type WorkingHoursRow } from "@/lib/resources/working-hours";
 import { overlaps } from "@/lib/resources/assignable";
 
 // ── numbers & dates ───────────────────────────────────────────────────────────
@@ -80,6 +80,14 @@ export type PersonCalendar = {
   dailyCapacity: number;
   workingDays: readonly number[] | null;
   holidays: ReadonlySet<string>;
+  /**
+   * Dated contracted hours (Phase B). OPTIONAL on purpose: with none, every
+   * figure here is exactly what it was before dated hours existed, so an org
+   * that has not set any is unaffected and no existing caller had to change.
+   * Unlike decideEntry's lead map, forgetting this degrades to today's answer
+   * rather than producing a wrong one.
+   */
+  workingHours?: readonly WorkingHoursRow[];
 };
 
 export type EntryRow = {
@@ -113,14 +121,15 @@ export const assignmentKey = (a: Pick<AssignmentRow, "assignableType" | "assigna
 
 // ── planned hours & capacity ──────────────────────────────────────────────────
 
-function workingDaysFor(cal: PersonCalendar, from: string, to: string): number {
-  const days = cal.workingDays && cal.workingDays.length ? cal.workingDays : DEFAULT_WORKING_DAYS;
-  return workingDaysInRange(from, to, days, cal.holidays);
-}
-
-/** Gross capacity hours of a person over a window: working days (minus holidays) x daily capacity. */
+/**
+ * Gross capacity hours of a person over a window.
+ *
+ * Walks the days through the dated-hours rule, so a contract change inside the
+ * window is counted exactly. With no dated rows this is the old
+ * "working days x daily capacity" to the penny.
+ */
 export function capacityHours(cal: PersonCalendar, from: string, to: string): number {
-  return round2(workingDaysFor(cal, from, to) * cal.dailyCapacity);
+  return capacityOver(from, to, cal.workingHours ?? [], cal, cal.holidays);
 }
 
 /**
@@ -134,7 +143,7 @@ export function plannedHours(a: AssignmentRow, cal: PersonCalendar, w: DateWindo
   const start = a.startDate > w.from ? a.startDate : w.from;
   const end = a.endDate && a.endDate < w.to ? a.endDate : w.to;
   if (start > end) return 0;
-  return round2((a.allocationPercent / 100) * cal.dailyCapacity * workingDaysFor(cal, start, end));
+  return round2((a.allocationPercent / 100) * capacityHours(cal, start, end));
 }
 
 const inWin = (d: string, w: DateWindow): boolean => d >= w.from && d <= w.to;
@@ -176,17 +185,16 @@ export type DayRow = { date: string; weekday: number; capacity: number; planned:
 export function daysOfWeek(
   startMonday: string, entries: readonly EntryRow[], assignments: readonly AssignmentRow[], cal: PersonCalendar,
 ): DayRow[] {
-  const workDays = cal.workingDays && cal.workingDays.length ? cal.workingDays : DEFAULT_WORKING_DAYS;
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(startMonday, i);
-    const weekday = isoWeekday(date);
-    const working = workDays.includes(weekday) && !cal.holidays.has(date);
     const split = emptySplit();
     for (const e of entries) if (e.date === date) addTo(split, statusBucket(e.status), e.hours);
     const planned = assignments.reduce((s, a) => s + plannedHours(a, cal, { from: date, to: date }), 0);
     return {
-      date, weekday, isHoliday: cal.holidays.has(date),
-      capacity: working ? round2(cal.dailyCapacity) : 0,
+      date, weekday: isoWeekday(date), isHoliday: cal.holidays.has(date),
+      // The day's own pattern, so a four-day week shows a zero on its own
+      // non-working day even when the contract changed mid-week.
+      capacity: round2(hoursOn(date, cal.workingHours ?? [], cal, cal.holidays)),
       planned: round2(planned), ...roundSplit(split),
     };
   });

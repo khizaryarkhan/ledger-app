@@ -6,10 +6,11 @@
 import { db } from "@/db";
 import {
   resources, resourceAssignments, timeEntries, timesheetTypes, holidayCalendars, publicHolidays,
-  projects, manufacturingOrders, jobWorkOrders,
+  resourceWorkingHours, projects, manufacturingOrders, jobWorkOrders,
 } from "@/db/schema";
 import { and, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { AssignmentRow, EntryRow, PersonCalendar } from "./reports";
+import type { WorkingHoursRow } from "./working-hours";
 import { isRealDate } from "./time-entry-rules";
 
 export type ResourceIds = readonly string[];
@@ -25,13 +26,30 @@ export async function loadCalendars(orgId: string, ids: ResourceIds) {
   const rates = new Map<string, number | null>();
   const meta = new Map<string, { name: string; dailyCapacity: number }>();
   if (!ids.length) return { calendars, rates, meta };
-  const [rows, cals] = await Promise.all([
+  const [rows, cals, hours] = await Promise.all([
     db.select({
       id: resources.id, name: resources.name, dailyCapacity: resources.dailyCapacity, workingDays: resources.workingDays,
       holidayCalendarId: resources.holidayCalendarId, costRatePerHour: resources.costRatePerHour,
     }).from(resources).where(and(eq(resources.orgId, orgId), inArray(resources.id, [...ids]))),
     db.select({ id: holidayCalendars.id, isDefault: holidayCalendars.isDefault }).from(holidayCalendars).where(eq(holidayCalendars.orgId, orgId)),
+    // Dated contracted hours (Phase B). Loaded for the whole set in one read;
+    // a person with no rows simply falls back to their own capacity columns.
+    db.select({
+      resourceId: resourceWorkingHours.resourceId, hoursPerDay: resourceWorkingHours.hoursPerDay,
+      workingDays: resourceWorkingHours.workingDays,
+      effectiveFrom: resourceWorkingHours.effectiveFrom, effectiveTo: resourceWorkingHours.effectiveTo,
+    }).from(resourceWorkingHours)
+      .where(and(eq(resourceWorkingHours.orgId, orgId), inArray(resourceWorkingHours.resourceId, [...ids]))),
   ]);
+  const hoursByResource = new Map<string, WorkingHoursRow[]>();
+  for (const h of hours) {
+    const list = hoursByResource.get(h.resourceId) ?? [];
+    list.push({
+      hoursPerDay: Number(h.hoursPerDay) || 0, workingDays: h.workingDays ?? null,
+      effectiveFrom: h.effectiveFrom, effectiveTo: h.effectiveTo ?? null,
+    });
+    hoursByResource.set(h.resourceId, list);
+  }
   const defaultId = cals.find((c) => c.isDefault)?.id ?? null;
   const calIds = cals.map((c) => c.id);
   const days = calIds.length
@@ -47,7 +65,11 @@ export async function loadCalendars(orgId: string, ids: ResourceIds) {
   for (const r of rows) {
     const calId = r.holidayCalendarId ?? defaultId;
     const dailyCapacity = Number(r.dailyCapacity) || 0;
-    calendars.set(r.id, { dailyCapacity, workingDays: r.workingDays ?? null, holidays: (calId && byCal.get(calId)) || new Set<string>() });
+    calendars.set(r.id, {
+      dailyCapacity, workingDays: r.workingDays ?? null,
+      holidays: (calId && byCal.get(calId)) || new Set<string>(),
+      workingHours: hoursByResource.get(r.id) ?? [],
+    });
     rates.set(r.id, r.costRatePerHour == null ? null : Number(r.costRatePerHour));
     meta.set(r.id, { name: r.name, dailyCapacity });
   }

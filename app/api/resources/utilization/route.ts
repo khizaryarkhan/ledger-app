@@ -7,7 +7,7 @@
  */
 
 import { db } from "@/db";
-import { resources, resourceAssignments, timeEntries, timesheetTypes, holidayCalendars, publicHolidays } from "@/db/schema";
+import { resources, resourceAssignments, timeEntries, timesheetTypes, holidayCalendars, publicHolidays, resourceWorkingHours } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, inArray } from "drizzle-orm";
@@ -31,12 +31,23 @@ export async function GET(req: Request) {
   if (!resourceRows.length) return ok([]);
   const resourceIds = resourceRows.map(r => r.id);
 
-  const [assignments, entries, types, calendars] = await Promise.all([
+  const [assignments, entries, types, calendars, hours] = await Promise.all([
     db.select().from(resourceAssignments).where(and(eq(resourceAssignments.orgId, orgId!), inArray(resourceAssignments.resourceId, resourceIds))),
     db.select().from(timeEntries).where(and(eq(timeEntries.orgId, orgId!), inArray(timeEntries.resourceId, resourceIds), inArray(timeEntries.status, ["approved", "posted"]))),
     db.select({ id: timesheetTypes.id, category: timesheetTypes.category, billable: timesheetTypes.billable }).from(timesheetTypes).where(eq(timesheetTypes.orgId, orgId!)),
     db.select().from(holidayCalendars).where(eq(holidayCalendars.orgId, orgId!)),
+    // Dated contracted hours (Phase B): one read for everyone in scope.
+    db.select().from(resourceWorkingHours).where(and(eq(resourceWorkingHours.orgId, orgId!), inArray(resourceWorkingHours.resourceId, resourceIds))),
   ]);
+  const hoursByResource = new Map<string, { hoursPerDay: number; workingDays: number[] | null; effectiveFrom: string; effectiveTo: string | null }[]>();
+  for (const h of hours) {
+    const list = hoursByResource.get(h.resourceId) ?? [];
+    list.push({
+      hoursPerDay: Number(h.hoursPerDay) || 0, workingDays: h.workingDays ?? null,
+      effectiveFrom: h.effectiveFrom, effectiveTo: h.effectiveTo ?? null,
+    });
+    hoursByResource.set(h.resourceId, list);
+  }
   const typeById = new Map(types.map(t => [t.id, t]));
   const defaultCalendar = calendars.find(c => c.isDefault) ?? null;
   const calendarIds = [...new Set([...calendars.map(c => c.id)])];
@@ -57,7 +68,11 @@ export async function GET(req: Request) {
   const entryRows = entries.map(e => ({ resourceId: e.resourceId, timesheetTypeId: e.timesheetTypeId, hours: Number(e.hours) || 0 }));
 
   const rows = resourceRows.map(r => computeResourceUtilization(
-    { id: r.id, name: r.name, type: r.type, dailyCapacity: Number(r.dailyCapacity) || 0, workingDays: r.workingDays ?? null, holidayCalendarId: r.holidayCalendarId ?? null },
+    {
+      id: r.id, name: r.name, type: r.type, dailyCapacity: Number(r.dailyCapacity) || 0,
+      workingDays: r.workingDays ?? null, holidayCalendarId: r.holidayCalendarId ?? null,
+      workingHours: hoursByResource.get(r.id) ?? [],
+    },
     from, to, defaultCalendar?.id ?? null, holidaysByCalendar, assignmentRows, entryRows, typeById,
   ));
 

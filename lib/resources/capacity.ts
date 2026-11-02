@@ -5,7 +5,8 @@
  * planned (resource_assignments) or actual (time_entries) hours.
  */
 
-function isoWeekday(dateStr: string): number {
+/** 1 = Monday … 7 = Sunday, read from the string's parts — never a local Date. */
+export function isoWeekday(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map(Number);
   const js = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat
   return js === 0 ? 7 : js;

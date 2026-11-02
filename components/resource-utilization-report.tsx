@@ -29,6 +29,19 @@ export function ResourceUtilizationReport() {
         <div>
           <h1 className="text-[18px] font-semibold text-stone-100">Utilization</h1>
           <p className="text-[13px] text-stone-500">Capacity, planned and actual hours per resource for the chosen range.</p>
+          {/* A percentage is only as good as its denominator. Say how much of
+              this one rests on dated contracted hours rather than on each
+              resource's current capacity field, instead of presenting both
+              with equal confidence. */}
+          {rows && rows.length > 0 && (() => {
+            const known = rows.filter(r => r.capacityOnRecord).length;
+            if (known === rows.length) return null;
+            return (
+              <p className="text-[12px] text-amber-400/90 mt-0.5">
+                Contracted hours on record for {known} of {rows.length}. The rest use each resource&apos;s current daily capacity, which moves if it is edited.
+              </p>
+            );
+          })()}
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-stone-900 border border-stone-800 rounded-lg px-2.5 py-1.5 text-[13px] text-stone-200" />
@@ -57,7 +70,12 @@ export function ResourceUtilizationReport() {
           <tbody>
             {rows.map(r => (
               <tr key={r.resourceId} className="border-b border-stone-900">
-                <td className="py-2 pr-2 text-stone-200">{r.name}</td>
+                <td className="py-2 pr-2 text-stone-200">
+                  {r.name}
+                  {!r.capacityOnRecord && (
+                    <span className="text-stone-600" title="No contracted hours on record — capacity comes from this resource's current daily capacity"> ·&nbsp;est.</span>
+                  )}
+                </td>
                 <td className="py-2 pr-2 text-right text-stone-300">{r.capacity}</td>
                 <td className="py-2 pr-2 text-right text-stone-400">{r.plannedHours}h ({r.plannedPercent}%)</td>
                 <td className="py-2 pr-2 text-right text-stone-300">{r.actualHours}</td>

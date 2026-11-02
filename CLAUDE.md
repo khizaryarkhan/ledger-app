@@ -1497,8 +1497,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0120` at `when`
-  `1792800000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0121` at `when`
+  `1792900000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -4691,6 +4691,65 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Resources Phase B: contracted hours that know when they applied (2026-11-02)
+
+Phase B of the five-phase plan (see Phase A below). Migration `0121`, additive,
+nothing back-filled.
+
+- **The problem**: `resources.daily_capacity` / `working_days` are a
+  current-value pair. Edit them and every past figure moves — last quarter's
+  utilisation silently becomes a different number than it was. A column cannot
+  say *when* it was true.
+- **`resource_working_hours`** says when: hours/day, an optional working
+  pattern, `effective_from` and a nullable `effective_to`. The columns on
+  `resources` stay as the **fallback**, so a person with no rows is costed
+  exactly as before and an org that never opens the screen is unaffected.
+- **`lib/resources/working-hours.ts` (pure) is the whole rule**, and two parts
+  of it each have an obvious wrong answer:
+  - **Overlap takes the HIGHEST, never the sum.** Two rows covering one day
+    describe the same person's week twice; adding them invents a sixteen-hour
+    day out of two eight-hour contracts.
+  - **Capacity is WALKED PER DAY**, not a day count times one rate. Someone who
+    moves from four days to five mid-quarter has two patterns inside one
+    window, and a single multiplication has to pick one and be wrong for the
+    rest of the range. `capacityOver` therefore sums `hoursOn` per date.
+  - A row with no working days of its own **inherits the resource's** pattern,
+    not the org default — a row that only changes the hours must not quietly
+    also change which days are worked.
+- **Wired in at the two places capacity was ever computed**, so nothing else
+  had to change: `capacityHours`/`plannedHours`/`daysOfWeek` in
+  `lib/resources/reports.ts`, and `computeResourceUtilization` in
+  `lib/resources/utilization.ts`. Both now take the dated rows; `loadCalendars`
+  and the utilisation route load them in one read each.
+  - **`PersonCalendar.workingHours` and `UtilizationResource.workingHours` are
+    OPTIONAL**, deliberately unlike `decideEntry`'s lead map in Phase A. The
+    difference is the failure mode: forgetting these degrades to exactly
+    today's answer, while forgetting the lead map would route an approval to
+    the wrong person. Required where being wrong is silent; optional where the
+    default is already correct.
+- **Coverage is reported, never assumed** (`hasDatedHours`, `coverageOf`,
+  `UtilizationRow.capacityOnRecord`). The Utilization report says "Contracted
+  hours on record for N of M" and marks the rest `est.`. A percentage is only
+  as good as its denominator; a figure resting on a current-value column should
+  not be presented with the same confidence as one resting on a dated record.
+- **A period is added or removed, never edited** — there is no PATCH route on
+  purpose. Editing a span in place restates history, which is the exact thing
+  these rows exist to prevent. Close the old row and add the new one.
+  `components/working-hours-panel.tsx` sits in the person drawer (edit only — a
+  dated row needs a resource id).
+- **Tests**: 16 in `tests/resource-working-hours.test.ts`, with dates anchored
+  on a **verified** Monday rather than an assumed one. **Proven against two
+  real defects**: summing overlaps instead of taking the max fails exactly the
+  overlap test, and ignoring dated rows fails six. The pre-existing
+  `resources-utilization` and `resource-reports` suites pass **unchanged**,
+  which is the evidence that the no-rows path is byte-identical to before.
+- **Not done / not verified**: migration `0121` has NOT been run against any
+  database and nothing was clicked through in a browser. Equipment can use the
+  same table but no UI offers it. Nothing back-fills a first row from the
+  existing `daily_capacity`, so every org starts at zero coverage — deliberate,
+  since inventing a start date for a contract nobody recorded would be the same
+  guess this phase removes. Phases C–E are not built.
 
 ## Resources Phase A: approval follows the project's lead (2026-11-02)
 

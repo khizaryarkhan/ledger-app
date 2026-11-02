@@ -3975,6 +3975,36 @@ export const publicHolidays = pgTable("public_holidays", {
 }));
 export type PublicHoliday = typeof publicHolidays.$inferSelect;
 
+// Contracted hours WITH DATES (Resources, Phase B 2026-11-02).
+//
+// `resources.daily_capacity` / `working_days` are a current-value column pair:
+// a person moving from four days to five rewrites their own history, so last
+// quarter's utilisation silently restates itself. These rows say WHEN a
+// pattern applied, so a figure for a past period stays what it was.
+//
+// The columns on `resources` are kept as the fallback for anyone these rows do
+// not cover — nobody loses capacity they already had, and an org that never
+// opens this screen behaves exactly as it does today.
+//
+// Overlapping rows resolve to the HIGHEST hours_per_day, never the sum:
+// overlapping contracts describe the same person's week, they do not stack
+// into a longer one.
+export const resourceWorkingHours = pgTable("resource_working_hours", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId:    uuid("resource_id").notNull().references((): any => resources.id, { onDelete: "cascade" }),
+  hoursPerDay:   numeric("hours_per_day", { precision: 6, scale: 2 }).notNull(),
+  workingDays:   integer("working_days").array(),   // ISO 1=Mon..7=Sun; null = the resource's own pattern, else org default Mon-Fri
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo:   date("effective_to"),              // null = still in force
+  note:          varchar("note", { length: 160 }),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgResourceFrom: index("resource_working_hours_org_resource_from_idx").on(t.orgId, t.resourceId, t.effectiveFrom),
+}));
+export type ResourceWorkingHours = typeof resourceWorkingHours.$inferSelect;
+
 // A Timesheet Type is the single, org-configurable vocabulary a time entry is
 // logged against — "Work", "Sick time", "Holiday - UK", "R&D", ... (the same
 // list Dynamics calls "Type"). Deliberately NOT ap_items: these aren't
