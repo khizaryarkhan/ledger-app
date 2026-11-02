@@ -71,6 +71,14 @@ describe("downtimeMinutes", () => {
   it("never goes negative", () => {
     expect(downtimeMinutes("2026-10-01T09:00:00Z", "2026-10-01T08:00:00Z")).toBe(0);
   });
+  it("counts only the time that has elapsed, so a window still ahead is not downtime yet", () => {
+    // A planned maintenance window next week has an end date too; measuring it
+    // start-to-end would put hours that have not happened into this week's total.
+    const now = new Date("2026-11-02T10:00:00Z");
+    expect(downtimeMinutes("2026-11-09T08:00:00Z", "2026-11-09T12:00:00Z", now)).toBe(0);
+    // Half way through: only the elapsed half counts.
+    expect(downtimeMinutes("2026-11-02T08:00:00Z", "2026-11-02T12:00:00Z", now)).toBe(120);
+  });
 });
 
 describe("reasons", () => {

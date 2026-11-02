@@ -23,6 +23,8 @@
  * Dates are YYYY-MM-DD strings compared as strings ("a date is a date").
  */
 
+import { downtimeMinutes } from "@/lib/inventory/production-performance";
+
 export interface RunHours {
   operationId: string;
   hours: number;
@@ -95,6 +97,55 @@ export function usageForWorkCentre(
     estimatedHours: r2(out.estimatedHours), notRecordedHours: r2(out.notRecordedHours),
     runs: out.runs,
   };
+}
+
+// ── Downtime ─────────────────────────────────────────────────────────────────
+
+export interface MachineDowntimeRow {
+  id: string;
+  startedAt: Date | string;
+  endedAt: Date | string | null;
+  reason: string;
+  /** From DOWNTIME_REASONS: changeover and planned maintenance are planned, the rest are not. */
+  planned: boolean;
+}
+
+export interface MachineDowntime<R extends MachineDowntimeRow = MachineDowntimeRow> {
+  /** Not started yet — planned windows still ahead, soonest first. Counted nowhere. */
+  upcoming: R[];
+  /** Started already, newest first, each with the minutes that have elapsed. */
+  happened: (R & { minutes: number })[];
+  plannedMinutes: number;
+  unplannedMinutes: number;
+}
+
+/**
+ * Split a machine's downtime into what is booked ahead and what has happened.
+ *
+ * A window that has not started is a booking, not downtime, so it adds no
+ * minutes however long it is. Minutes for one still running run to `now`, and a
+ * known end that is still ahead is clamped to `now` by `downtimeMinutes`.
+ */
+export function splitDowntime<R extends MachineDowntimeRow>(
+  rows: readonly R[],
+  now: Date,
+): MachineDowntime<R> {
+  const upcoming: R[] = [];
+  const happened: (R & { minutes: number })[] = [];
+  let plannedMinutes = 0;
+  let unplannedMinutes = 0;
+
+  for (const r of rows) {
+    const start = new Date(r.startedAt).getTime();
+    if (!Number.isFinite(start)) continue;
+    if (start > now.getTime()) { upcoming.push(r); continue; }
+    const minutes = downtimeMinutes(r.startedAt, r.endedAt, now);
+    happened.push({ ...r, minutes });
+    if (r.planned) plannedMinutes += minutes; else unplannedMinutes += minutes;
+  }
+  upcoming.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+  happened.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  return { upcoming, happened, plannedMinutes, unplannedMinutes };
 }
 
 // ── Links ────────────────────────────────────────────────────────────────────

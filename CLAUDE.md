@@ -4735,6 +4735,39 @@ not in org / 409 already linked to <name>) only gives the friendly message, and
   and Q3 (utilisation, downtime Pareto) are not built. The performance report
   still has its own inline per-work-centre aggregation, left untouched.
 
+## Equipment Phase Q2: downtime and maintenance windows per machine (2026-11-02)
+
+**No migration.** `production_downtime` is already recorded against a work
+centre, so a linked machine's downtime is whatever is recorded against its work
+centre (`loadMachineDowntime`) — no copy, no new column. A **planned maintenance
+window is a downtime row whose start is still in the future** (reason
+`maintenance`), so a booking and a stoppage share one table, one write path
+(`/api/production/downtime`) and the Production performance report.
+
+- **A window still ahead is a booking, not downtime.** `splitDowntime`
+  (`lib/resources/machine.ts`, pure) puts a row that has not started into
+  `upcoming` and counts it in no minutes however long it is. Past rows get
+  elapsed minutes, split planned vs unplanned by `DOWNTIME_REASONS`.
+- **Real bug fixed on the way: `downtimeMinutes` now clamps a known end to
+  `asOf`.** It measured start-to-end, so a window booked for next week with an
+  end date added its whole length to this week's total in the performance
+  report. Finished stoppages read the same as before. Pinned in
+  `tests/production-performance.test.ts`, proven to fail first (240 min counted
+  for a window not yet started).
+- `GET /api/resources/[id]/downtime?from=` (default 30 days back, max 366) ->
+  `{ linked, workCentre, upcoming, happened, plannedMinutes, unplannedMinutes }`.
+  `linked: false` for a machine with no work centre. Booking/logging/removing
+  reuses the existing production downtime routes (Manufacturing module,
+  `canPostInventoryTxn`), so writes keep their existing permission.
+- UI: `components/machine-downtime-panel.tsx` in the equipment drawer — booked
+  ahead, recent, and an add form. `datetime-local` is read as the viewer's local
+  time and sent as an ISO instant.
+- **Not done / not verified**: nothing clicked through in a browser. The performance
+  report still counts a booked future row in its reason counts (minutes are 0).
+  Nothing stops a booked window overlapping an MO's dates (MOs have no times), and
+  nothing notifies anyone of an upcoming window. Q3 (utilisation, downtime Pareto
+  per machine, work-centre rate beside depreciation) is not built.
+
 ## Resources Phase E: scope tiers (2026-11-02)
 
 The last of the five phases. Migration `0123` — a **widening only**,

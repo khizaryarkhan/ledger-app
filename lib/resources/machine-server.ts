@@ -8,12 +8,13 @@
  */
 
 import { db } from "@/db";
-import { resources, workCentres, fixedAssets, productionRuns, moOperations } from "@/db/schema";
-import { and, eq, gte, inArray, lte, ne } from "drizzle-orm";
+import { resources, workCentres, fixedAssets, productionRuns, moOperations, productionDowntime } from "@/db/schema";
+import { and, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import {
-  usageForWorkCentre, isFirm,
-  type CompletionRun, type MachineUsage, type RunHours,
+  usageForWorkCentre, isFirm, splitDowntime,
+  type CompletionRun, type MachineUsage, type RunHours, type MachineDowntime,
 } from "./machine";
+import { DOWNTIME_REASONS, reasonLabel } from "@/lib/inventory/production-performance";
 
 export type LinkOutcome =
   | { ok: true }
@@ -110,4 +111,55 @@ export async function loadMachineUsage(
 
   const usage = usageForWorkCentre(wc.id, runs, operationWorkCentre, from, to);
   return { linked: true, workCentre: wc, from, to, usage, firm: isFirm(usage) };
+}
+
+export interface MachineDowntimeItem {
+  id: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  reason: string;
+  reasonLabel: string;
+  planned: boolean;
+  notes: string | null;
+}
+
+export type MachineDowntimeResult =
+  | { linked: false }
+  | ({ linked: true; workCentre: { id: string; name: string; code: string | null }; from: string } & MachineDowntime<MachineDowntimeItem>);
+
+/** Never return an unbounded history; the window already narrows it, this is the backstop. */
+const DOWNTIME_ROW_CAP = 500;
+
+/**
+ * A machine's stoppages since `from`, plus everything booked ahead.
+ *
+ * Downtime is recorded against a work centre, so a machine's is whatever is
+ * recorded against the work centre it is linked to — no second record, no copy.
+ * Planned maintenance is simply a downtime row with the `maintenance` reason
+ * whose start is still in the future, which is why a booking and a stoppage
+ * share one table and one report.
+ */
+export async function loadMachineDowntime(
+  orgId: string, resourceId: string, from: string, now: Date = new Date(),
+): Promise<MachineDowntimeResult> {
+  const [res] = await db.select({ workCentreId: resources.workCentreId }).from(resources)
+    .where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId), eq(resources.type, "equipment"))).limit(1);
+  if (!res?.workCentreId) return { linked: false };
+
+  const [wc] = await db.select({ id: workCentres.id, name: workCentres.name, code: workCentres.code }).from(workCentres)
+    .where(and(eq(workCentres.id, res.workCentreId), eq(workCentres.orgId, orgId))).limit(1);
+  if (!wc) return { linked: false };
+
+  const rows = await db.select().from(productionDowntime).where(and(
+    eq(productionDowntime.orgId, orgId), eq(productionDowntime.workCentreId, wc.id),
+    gte(productionDowntime.startedAt, new Date(`${from}T00:00:00Z`)),
+  )).orderBy(desc(productionDowntime.startedAt)).limit(DOWNTIME_ROW_CAP);
+
+  const items: MachineDowntimeItem[] = rows.map((r) => ({
+    id: r.id, startedAt: r.startedAt, endedAt: r.endedAt, reason: r.reason,
+    reasonLabel: reasonLabel(DOWNTIME_REASONS, r.reason),
+    planned: !!DOWNTIME_REASONS.find((d) => d.code === r.reason)?.planned,
+    notes: r.notes ?? null,
+  }));
+  return { linked: true, workCentre: wc, from, ...splitDowntime(items, now) };
 }

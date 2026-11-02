@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Loader, Check, Trash2, KeyRound } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { WorkingHoursPanel } from "@/components/working-hours-panel";
+import { MachineDowntimePanel } from "@/components/machine-downtime-panel";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
@@ -362,6 +363,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
           {/* Only on an existing person: a dated row has to hang off a resource
               id, and the capacity above is what a brand-new person starts on. */}
           {type === "equipment" && isEdit && id && <MachineUsagePanel resourceId={id} linkKey={form.workCentreId} />}
+          {type === "equipment" && isEdit && id && <MachineDowntimePanel resourceId={id} linkKey={form.workCentreId} />}
 
           {type === "person" && isEdit && id && (
             <Section title="Contracted hours">

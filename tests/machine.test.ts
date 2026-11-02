@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  usageForWorkCentre, isFirm, readMachineLinks, emptyUsage,
+  usageForWorkCentre, isFirm, readMachineLinks, emptyUsage, splitDowntime,
   type CompletionRun,
 } from "@/lib/resources/machine";
 
@@ -119,6 +119,51 @@ describe("whether the hours are real", () => {
   it("is not firm when there are no hours at all", () => {
     // Nothing used is not the same claim as "used for zero hours, confirmed".
     expect(isFirm(emptyUsage())).toBe(false);
+  });
+});
+
+describe("a machine's downtime", () => {
+  const NOW = new Date("2026-11-02T10:00:00Z");
+  const row = (id: string, startedAt: string, endedAt: string | null, planned: boolean) =>
+    ({ id, startedAt, endedAt, reason: planned ? "maintenance" : "breakdown", planned });
+
+  it("keeps a window still ahead out of the minutes entirely", () => {
+    const d = splitDowntime([row("m", "2026-11-09T08:00:00Z", "2026-11-09T12:00:00Z", true)], NOW);
+    expect(d.upcoming.map(r => r.id)).toEqual(["m"]);
+    expect(d.happened).toHaveLength(0);
+    expect(d.plannedMinutes).toBe(0);
+    expect(d.unplannedMinutes).toBe(0);
+  });
+
+  it("separates planned from unplanned minutes", () => {
+    const d = splitDowntime([
+      row("a", "2026-11-01T08:00:00Z", "2026-11-01T09:00:00Z", false),  // 60 breakdown
+      row("b", "2026-11-01T10:00:00Z", "2026-11-01T10:30:00Z", true),   // 30 maintenance
+    ], NOW);
+    expect(d.unplannedMinutes).toBe(60);
+    expect(d.plannedMinutes).toBe(30);
+  });
+
+  it("runs a stoppage with no end up to now", () => {
+    const d = splitDowntime([row("a", "2026-11-02T09:00:00Z", null, false)], NOW);
+    expect(d.unplannedMinutes).toBe(60);
+  });
+
+  it("orders what is booked soonest first and what happened newest first", () => {
+    const d = splitDowntime([
+      row("late", "2026-11-20T08:00:00Z", null, true),
+      row("soon", "2026-11-05T08:00:00Z", null, true),
+      row("old", "2026-10-01T08:00:00Z", "2026-10-01T09:00:00Z", false),
+      row("new", "2026-11-01T08:00:00Z", "2026-11-01T09:00:00Z", false),
+    ], NOW);
+    expect(d.upcoming.map(r => r.id)).toEqual(["soon", "late"]);
+    expect(d.happened.map(r => r.id)).toEqual(["new", "old"]);
+  });
+
+  it("skips a row whose start is not a date", () => {
+    const d = splitDowntime([row("bad", "not a date", null, false)], NOW);
+    expect(d.upcoming).toHaveLength(0);
+    expect(d.happened).toHaveLength(0);
   });
 });
 

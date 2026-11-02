@@ -85,7 +85,9 @@ export function applyReschedule(cur: { dueDate?: string | null; originalDueDate?
 /** Minutes between two instants; an open stoppage runs to `asOf`. Never negative. */
 export function downtimeMinutes(start: Date | string, end: Date | string | null, asOf: Date = new Date()): number {
   const s = new Date(start).getTime();
-  const e = end ? new Date(end).getTime() : asOf.getTime();
+  // Only elapsed time is downtime: an end date still ahead (a planned window)
+  // is clamped to asOf, so a stoppage that has not happened adds nothing.
+  const e = end ? Math.min(new Date(end).getTime(), asOf.getTime()) : asOf.getTime();
   if (!Number.isFinite(s) || !Number.isFinite(e)) return 0;
   return Math.max(0, Math.round((e - s) / 60_000));
 }
