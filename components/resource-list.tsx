@@ -365,6 +365,15 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
           {type === "equipment" && isEdit && id && <MachineUsagePanel resourceId={id} linkKey={form.workCentreId} />}
           {type === "equipment" && isEdit && id && <MachineDowntimePanel resourceId={id} linkKey={form.workCentreId} />}
 
+          {/* A machine's available hours are what its utilisation is measured
+              against. Its "Daily capacity" above is SLOTS, not hours, so this
+              dated record is the only source the report will use. */}
+          {type === "equipment" && isEdit && id && (
+            <Section title="Available hours">
+              <WorkingHoursPanel resourceId={id} canEdit />
+            </Section>
+          )}
+
           {type === "person" && isEdit && id && (
             <Section title="Contracted hours">
               <WorkingHoursPanel resourceId={id} canEdit />

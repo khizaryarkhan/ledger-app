@@ -4768,6 +4768,42 @@ window is a downtime row whose start is still in the future** (reason
   nothing notifies anyone of an upcoming window. Q3 (utilisation, downtime Pareto
   per machine, work-centre rate beside depreciation) is not built.
 
+## Equipment Phase Q3: machine utilisation report (2026-11-02)
+
+`/resources/machines`, `GET /api/resources/machines/report?from&to` (default 30
+days, max 366). **No migration.** Pure rules in `lib/resources/machine-report.ts`
+(15 tests), db half in `machine-report-server.ts`, screen
+`components/machine-utilisation-report.tsx`, sidebar link under Resources.
+
+- **The denominator is NOT `resources.daily_capacity`.** For equipment that
+  column is SLOTS per day (default 1), not hours; read as hours every machine is
+  "1 hour a day". Available hours come only from dated `resource_working_hours`
+  rows (the existing Phase B panel, now also shown for equipment as "Available
+  hours"; its route already accepted equipment). A day no row covers contributes
+  ZERO, via a forced `dailyCapacity: 0` fallback — proven to fail if the slots
+  column leaks in.
+- **A utilisation figure is stated only when dated hours cover EVERY day of the
+  window.** Partial coverage shrinks the denominator and inflates the
+  percentage, so the screen says "not stated" with the reason
+  (no hours on record / partly on record / no working days). Over 100% is shown,
+  not capped. Run hours that are not all typed read `est.` (same
+  firm/estimated/not-recorded rule as Q1).
+- **Running cost and depreciation are two columns, never summed.** Running cost
+  = run hours x the work centre's labour + overhead rates (what production
+  absorbs); depreciation = straight-line charge for the months the window
+  touches (a month counts whole), NBV as at the window end. **Admins only** —
+  the labour rate is a wage rate and NBV a balance-sheet figure; non-admins get
+  no `cost` block at all.
+- Downtime per machine reuses Q2 (`splitDowntime`) and the existing
+  `paretoByReason`; only stoppages that STARTED in the window count (one that
+  began before and runs into it is not apportioned). Run + operation read is the
+  shared `loadCompletionRuns`, also used by the single-machine usage panel.
+- **Not done / not verified**: the report ran against the dev database without
+  error but no org there has a linked machine, so the per-machine fold, downtime
+  and cost paths have only unit tests behind them. Not clicked through in a
+  browser. No export, no per-machine drill-down, no OEE (no quality/performance
+  factor — only availability-style utilisation).
+
 ## Resources Phase E: scope tiers (2026-11-02)
 
 The last of the five phases. Migration `0123` — a **widening only**,

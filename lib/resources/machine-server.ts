@@ -86,6 +86,17 @@ export async function loadMachineUsage(
     .where(and(eq(workCentres.id, res.workCentreId), eq(workCentres.orgId, orgId))).limit(1);
   if (!wc) return { linked: false };
 
+  const { runs, operationWorkCentre } = await loadCompletionRuns(orgId, from, to);
+  const usage = usageForWorkCentre(wc.id, runs, operationWorkCentre, from, to);
+  return { linked: true, workCentre: wc, from, to, usage, firm: isFirm(usage) };
+}
+
+/**
+ * Completed MO runs produced in [from, to], and which work centre each of their
+ * operations ran at. Shared by the single-machine panel and the report so the
+ * two cannot read "a run that counts" differently.
+ */
+export async function loadCompletionRuns(orgId: string, from: string, to: string) {
   const runRows = await db.select({
     id: productionRuns.id, producedDate: productionRuns.producedDate,
     moId: productionRuns.moId, operationHours: productionRuns.operationHours,
@@ -108,9 +119,7 @@ export async function loadMachineUsage(
     // an array of {operationId, hours} contributes nothing rather than throwing.
     operationHours: Array.isArray(r.operationHours) ? (r.operationHours as RunHours[]) : [],
   }));
-
-  const usage = usageForWorkCentre(wc.id, runs, operationWorkCentre, from, to);
-  return { linked: true, workCentre: wc, from, to, usage, firm: isFirm(usage) };
+  return { runs, operationWorkCentre };
 }
 
 export interface MachineDowntimeItem {

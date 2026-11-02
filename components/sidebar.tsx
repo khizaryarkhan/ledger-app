@@ -461,6 +461,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/resources/compliance", label: "Timesheet Compliance", icon: ClipboardList },
         { href: "/resources/enquiries", label: "Hours Over Plan", icon: Scale },
         { href: "/resources/utilization", label: "Utilization", icon: Gauge },
+        { href: "/resources/machines", label: "Machine Utilisation", icon: Wrench },
         { href: "/resources/cost", label: "Resource Cost", icon: Scale },
       ],
     },
