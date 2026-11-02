@@ -159,6 +159,44 @@ function LoginDrawer({ person, defaultEmail, onClose, onSaved }: { person: any; 
   );
 }
 
+/**
+ * Hours a linked machine ran in the last 30 days, read from completed runs.
+ * Not linked is a different statement from zero hours, so they read differently;
+ * and hours that were defaulted from the plan are never presented as measured.
+ * `linkKey` is the picker's current value: it re-reads after a save changes the link.
+ */
+function MachineUsagePanel({ resourceId, linkKey }: { resourceId: string; linkKey: string }) {
+  const [u, setU] = useState<any>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/resources/${resourceId}/usage`).then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live) setU(d); }).catch(() => { if (live) setU(null); });
+    return () => { live = false; };
+  }, [resourceId, linkKey]);
+  if (!u) return null;
+
+  return (
+    <Section title="Usage, last 30 days">
+      {!u.linked ? (
+        <p className="text-[13px] text-stone-500">Not linked to a work centre, so no usage is read for this machine.</p>
+      ) : (
+        <div className="text-[13px] text-stone-300 space-y-1">
+          <p>
+            <span className="text-white font-medium">{u.usage.hours} h</span> across {u.usage.runs} run{u.usage.runs === 1 ? "" : "s"} at {u.workCentre.name}
+            {u.usage.hours > 0 && !u.firm && <span className="text-amber-400"> · not all measured</span>}
+          </p>
+          {u.usage.hours > 0 && (
+            <p className="text-stone-500">
+              Entered {u.usage.firmHours} h · defaulted from plan {u.usage.estimatedHours} h · not recorded {u.usage.notRecordedHours} h
+            </p>
+          )}
+          {u.usage.hours === 0 && <p className="text-stone-500">No completed run booked time here in this period.</p>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 const WEEKDAYS = [{ v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" }, { v: 7, l: "Sun" }];
 const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5];
 
@@ -168,7 +206,22 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
     employeeId: "", name: "", category: "", dailyCapacity: type === "person" ? "8" : "1", status: "active", notes: "",
     costRatePerHour: "", holidayCalendarId: "", workingDays: DEFAULT_WORKING_DAYS as number[],
     designationId: "", managerId: "", department: "",
+    // Equipment only. "" means not linked; the server refuses a link on a person.
+    workCentreId: "", fixedAssetId: "",
   });
+
+  // Each list sits behind a module the org may not have (work centres need
+  // Manufacturing, fixed assets need Accounting), so a failed fetch leaves that
+  // picker out rather than showing an error.
+  const [workCentres, setWorkCentres] = useState<{ id: string; name: string; code: string | null }[] | null>(null);
+  const [assets, setAssets] = useState<{ id: string; name: string; code: string | null }[] | null>(null);
+  useEffect(() => {
+    if (type !== "equipment") return;
+    fetch("/api/production/work-centres").then(r => (r.ok ? r.json() : null))
+      .then(rows => setWorkCentres(Array.isArray(rows) ? rows : null)).catch(() => setWorkCentres(null));
+    fetch("/api/accounting/fixed-assets").then(r => (r.ok ? r.json() : null))
+      .then(b => setAssets(Array.isArray(b?.assets) ? b.assets : null)).catch(() => setAssets(null));
+  }, [type]);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
 
@@ -180,6 +233,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
         costRatePerHour: d.costRatePerHour != null ? String(d.costRatePerHour) : "", holidayCalendarId: d.holidayCalendarId || "",
         workingDays: Array.isArray(d.workingDays) && d.workingDays.length ? d.workingDays : DEFAULT_WORKING_DAYS,
         designationId: d.designationId || "", managerId: d.managerId || "", department: d.department || "",
+        workCentreId: d.workCentreId || "", fixedAssetId: d.fixedAssetId || "",
       });
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -277,6 +331,22 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
                   </Field>
                 </>
               )}
+              {type === "equipment" && workCentres && (
+                <Field label="Work centre" className="col-span-2" hint="Link a machine to the work centre its production hours are charged to, and its usage is read from completed runs — no second place to type hours">
+                  <SelectField inset value={form.workCentreId} onChange={e => setForm(f => ({ ...f, workCentreId: e.target.value }))}>
+                    <option value="">Not linked</option>
+                    {workCentres.map(w => <option key={w.id} value={w.id}>{w.code ? `${w.code} · ` : ""}{w.name}</option>)}
+                  </SelectField>
+                </Field>
+              )}
+              {type === "equipment" && assets && (
+                <Field label="Fixed asset" className="col-span-2" hint="The asset this machine depreciates as. Shown beside running cost, never added to it">
+                  <SelectField inset value={form.fixedAssetId} onChange={e => setForm(f => ({ ...f, fixedAssetId: e.target.value }))}>
+                    <option value="">Not linked</option>
+                    {assets.map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
+                  </SelectField>
+                </Field>
+              )}
               <Field label="Status" className="col-span-2">
                 <SelectField inset value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                   <option value="active">Active</option>
@@ -291,6 +361,8 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
 
           {/* Only on an existing person: a dated row has to hang off a resource
               id, and the capacity above is what a brand-new person starts on. */}
+          {type === "equipment" && isEdit && id && <MachineUsagePanel resourceId={id} linkKey={form.workCentreId} />}
+
           {type === "person" && isEdit && id && (
             <Section title="Contracted hours">
               <WorkingHoursPanel resourceId={id} canEdit />

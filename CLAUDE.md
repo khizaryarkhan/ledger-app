@@ -1497,8 +1497,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0123` at `when`
-  `1793100000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0124` at `when` `1793200000000`;
+  keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -4691,6 +4691,49 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Equipment Phase Q1: a machine is linked, not re-entered (2026-11-02)
+
+Shop-floor machines only. A machine was already three records — the bookable
+`resources` row (type equipment), the `work_centres` row production hours are
+charged to, and the `fixed_assets` row it depreciates as. Migration `0124` joins
+them with two nullable FKs on `resources` (`work_centre_id`, `fixed_asset_id`,
+`on delete set null`). **Partial unique indexes are the real guard** that a work
+centre/asset belongs to one machine; the API pre-check (`checkMachineLinks`, 404
+not in org / 409 already linked to <name>) only gives the friendly message, and
+`isLinkRace` turns a racing save's 23505 into the same 409.
+
+- **Usage is derived, never typed.** `lib/resources/machine.ts`
+  (`usageForWorkCentre`, pure, 14 tests) reads completed MO runs
+  (`production_runs.operation_hours` -> `mo_operations.work_centre_id`). Only
+  Completed runs with an MO and a `producedDate` inside the window count; an
+  undated run is never guessed into one. `GET /api/resources/[id]/usage`
+  (default last 30 days, max 366).
+- **Firm / estimated / not recorded.** An untouched completion defaults each
+  operation's hours to the plan's share, so a figure built from defaults is the
+  plan read back. `mo-completion.ts` now stores `entered` per operation
+  (true = typed, false = defaulted); a run from before 0124 has none and is
+  "not recorded". **A missing flag must never read as firm** — pinned by test.
+  Only runs completed after deploy carry the flag.
+- **Links are equipment-only and a person's attempt is REFUSED**, not silently
+  dropped (an ignored field reads as saved). `undefined` leaves a link alone,
+  null/"" clears, so an edit form that omits them cannot unlink a machine.
+- **Cost is reporting-only, no posting**: MO completion already absorbs the work
+  centre's overhead rate, so posting machine cost again would double count. For a
+  linked machine show the work-centre rate; ignore `resources.cost_rate_per_hour`;
+  depreciation is shown beside running cost, never summed with it.
+- **Units trap for Q3**: equipment `daily_capacity` is slots/day (default 1), not
+  hours. Available hours must come from `resource_working_hours.hours_per_day`
+  (Phase B table; works for equipment but has no UI yet), with `est.` coverage
+  honesty like the Utilization report.
+- UI: Work centre / Fixed asset pickers and a "Usage, last 30 days" panel in the
+  equipment drawer (`components/resource-list.tsx`). Each picker hides quietly if
+  its list 403s (work centres need Manufacturing, fixed assets need Accounting).
+- **Not done / not verified**: migration `0124` has NOT been run against any
+  database; nothing clicked through in a browser (dev server cannot reach Neon).
+  Q2 (planned maintenance windows, per-machine downtime via `production_downtime`)
+  and Q3 (utilisation, downtime Pareto) are not built. The performance report
+  still has its own inline per-work-centre aggregation, left untouched.
 
 ## Resources Phase E: scope tiers (2026-11-02)
 

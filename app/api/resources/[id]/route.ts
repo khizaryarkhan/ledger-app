@@ -14,6 +14,8 @@ import { requireModule } from "@/lib/modules-server";
 import { isAdminRole, wouldCreateCycle } from "@/lib/resources/access";
 import { loadPeople } from "@/lib/resources/access-server";
 import { normaliseDepartment, stripCostRate } from "@/lib/resources/people-rules";
+import { readMachineLinks } from "@/lib/resources/machine";
+import { checkMachineLinks, isLinkRace } from "@/lib/resources/machine-server";
 import { and, eq, ne } from "drizzle-orm";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -47,8 +49,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const isPerson = existing.type === "person";
 
   const body = await req.json().catch(() => ({}));
-  const { employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays, managerId, designationId, department } = body ?? {};
+  const { employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays, managerId, designationId, department, workCentreId, fixedAssetId } = body ?? {};
   const patch: Record<string, any> = { updatedAt: new Date() };
+
+  // Links are equipment-only. `undefined` leaves a link alone and null/"" clears
+  // it, so an edit form that does not mention them cannot unlink a machine.
+  const links = readMachineLinks(!isPerson, { workCentreId, fixedAssetId });
+  if ("error" in links) return bad(links.error);
+  const linkCheck = await checkMachineLinks(orgId!, links, params.id);
+  if ("error" in linkCheck) return bad(linkCheck.error, linkCheck.status);
+  if (links.workCentreId !== undefined) patch.workCentreId = links.workCentreId;
+  if (links.fixedAssetId !== undefined) patch.fixedAssetId = links.fixedAssetId;
   if (name != null) { if (!String(name).trim()) return bad("name cannot be empty"); patch.name = String(name).trim(); }
   if (category !== undefined) patch.category = category || null;
   if (dailyCapacity !== undefined) patch.dailyCapacity = String(dailyCapacity);
@@ -97,7 +108,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     }
   }
 
-  const [row] = await db.update(resources).set(patch).where(and(eq(resources.id, params.id), eq(resources.orgId, orgId!))).returning();
+  let row;
+  try {
+    [row] = await db.update(resources).set(patch).where(and(eq(resources.id, params.id), eq(resources.orgId, orgId!))).returning();
+  } catch (e) {
+    // Two saves racing for the same work centre: the unique index is the guard.
+    if (isLinkRace(e)) return bad("That work centre or fixed asset was just linked to another machine", 409);
+    throw e;
+  }
   const { userId: _userId, ...safe } = row;
   return ok(safe);
 }

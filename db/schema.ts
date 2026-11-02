@@ -3886,6 +3886,13 @@ export const resources = pgTable("resources", {
   managerId:     uuid("manager_id").references((): any => resources.id, { onDelete: "set null" }),
   designationId: uuid("designation_id").references((): any => resourceDesignations.id, { onDelete: "set null" }),
   department:    varchar("department", { length: 80 }),
+  // Equipment only (Phase Q1, 2026-11-03). One physical machine is already
+  // three records with three jobs — this bookable resource, the work centre
+  // production hours and rates are charged to, and the fixed asset it
+  // depreciates as. These two nullable links join them rather than adding a
+  // fourth record. Both null = nothing changes for the resource.
+  workCentreId:  uuid("work_centre_id").references(() => workCentres.id, { onDelete: "set null" }),
+  fixedAssetId:  uuid("fixed_asset_id").references((): any => fixedAssets.id, { onDelete: "set null" }),
   status:        varchar("status", { length: 16 }).notNull().default("active"), // active | inactive
   notes:         text("notes"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
@@ -3894,6 +3901,10 @@ export const resources = pgTable("resources", {
   orgTypeStatus: index("resources_org_type_status_idx").on(t.orgId, t.type, t.status),
   orgManagerIdx: index("resources_org_manager_idx").on(t.orgId, t.managerId),
   orgUserUnique: uniqueIndex("resources_org_user_unique").on(t.orgId, t.userId).where(sql`${t.userId} is not null`),
+  // A work centre / asset IS one machine in this model. Two resources linked to
+  // the same one would each show the same usage and look like two machines.
+  orgWorkCentreUnique: uniqueIndex("resources_org_work_centre_unique").on(t.orgId, t.workCentreId).where(sql`${t.workCentreId} is not null`),
+  orgFixedAssetUnique: uniqueIndex("resources_org_fixed_asset_unique").on(t.orgId, t.fixedAssetId).where(sql`${t.fixedAssetId} is not null`),
 }));
 export type Resource = typeof resources.$inferSelect;
 

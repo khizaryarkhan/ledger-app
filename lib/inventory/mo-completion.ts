@@ -155,8 +155,12 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   const runBase = goodBase + rejectedBase;
   const hoursIn = new Map((input.hours ?? []).map(h => [String(h.operationId), roundQty(Math.max(0, Number(h.hours) || 0))]));
   const operations = ops.map(o => {
-    const hours = hoursIn.has(o.id) ? hoursIn.get(o.id)! : proportionalHours(num(o.plannedHours), runBase, plannedBase);
-    return { id: o.id, name: o.name, hours, labour: round2(hours * num(o.labourRate)), overhead: round2(hours * num(o.overheadRate)) };
+    // Whether a person TYPED these hours is a fact worth keeping: an untouched
+    // run defaults to the plan's share, and a machine-usage figure built on
+    // defaults is the plan read back to us, not what the machine did.
+    const entered = hoursIn.has(o.id);
+    const hours = entered ? hoursIn.get(o.id)! : proportionalHours(num(o.plannedHours), runBase, plannedBase);
+    return { id: o.id, name: o.name, hours, entered, labour: round2(hours * num(o.labourRate)), overhead: round2(hours * num(o.overheadRate)) };
   });
   const labourCost = round2(operations.reduce((s, o) => s + o.labour, 0));
   const overheadCost = round2(operations.reduce((s, o) => s + o.overhead, 0));
@@ -240,7 +244,7 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
     outputLocationId,
     rejectReason: p.rejectedBase > 0 ? input.rejectReason : null,
     rejectNote: p.rejectedBase > 0 ? (input.rejectNote?.trim().slice(0, 2000) || null) : null,
-    operationHours: p.operations.map(o => ({ operationId: o.id, name: o.name, hours: o.hours })),
+    operationHours: p.operations.map(o => ({ operationId: o.id, name: o.name, hours: o.hours, entered: o.entered })),
   } as any).returning({ id: productionRuns.id });
 
   // Stock side. Failures here are loud, not swallowed: the entry has posted,

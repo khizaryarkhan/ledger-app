@@ -13,6 +13,8 @@ import { requireModule } from "@/lib/modules-server";
 import { isAdminRole } from "@/lib/resources/access";
 import { loadPeople } from "@/lib/resources/access-server";
 import { normaliseDepartment, stripCostRate } from "@/lib/resources/people-rules";
+import { readMachineLinks } from "@/lib/resources/machine";
+import { checkMachineLinks, isLinkRace } from "@/lib/resources/machine-server";
 import { and, eq, desc, inArray } from "drizzle-orm";
 
 export async function GET(req: Request) {
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
   if (!isAdminRole(role)) return bad("Only organisation admins can add people or equipment", 403);
 
   const body = await req.json().catch(() => ({}));
-  const { type, employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays, managerId, designationId, department } = body ?? {};
+  const { type, employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays, managerId, designationId, department, workCentreId, fixedAssetId } = body ?? {};
   if (type !== "person" && type !== "equipment") return bad("type must be 'person' or 'equipment'");
   if (!name || typeof name !== "string" || !name.trim()) return bad("name is required");
   if (costRatePerHour != null && costRatePerHour !== "" && !Number.isFinite(Number(costRatePerHour))) return bad("costRatePerHour must be a number");
@@ -95,9 +97,19 @@ export async function POST(req: Request) {
     if (d.status !== "active") return bad("That designation is inactive");
   }
 
-  const [row] = await db.insert(resources).values({
+  // `"error" in`, not `!ok`: strictNullChecks is off, so a boolean discriminant does not narrow.
+  const links = readMachineLinks(!isPerson, { workCentreId, fixedAssetId });
+  if ("error" in links) return bad(links.error);
+  const linkCheck = await checkMachineLinks(orgId!, links);
+  if ("error" in linkCheck) return bad(linkCheck.error, linkCheck.status);
+
+  let row;
+  try {
+    [row] = await db.insert(resources).values({
     orgId: orgId!,
     type,
+    workCentreId: links.workCentreId ?? null,
+    fixedAssetId: links.fixedAssetId ?? null,
     employeeId: isPerson && employeeId ? employeeId : null,
     name: name.trim(),
     category: category || null,
@@ -110,7 +122,13 @@ export async function POST(req: Request) {
     managerId: isPerson && managerId ? managerId : null,
     designationId: isPerson && designationId ? designationId : null,
     department: isPerson ? dept.value : null,
-  }).returning();
+    }).returning();
+  } catch (e) {
+    // Two saves racing for the same work centre: the unique index is the guard,
+    // this only turns its error into something a person can act on.
+    if (isLinkRace(e)) return bad("That work centre or fixed asset was just linked to another machine", 409);
+    throw e;
+  }
   const { userId: _userId, ...safe } = row;
   return ok(safe);
 }
