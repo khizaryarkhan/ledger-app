@@ -8,6 +8,7 @@ import {
   runBatchCommit, runBatchUndo, scheduledImportScan, runScheduledImportFn,
   runBatchChunkLoop, batchJobWatchdog,
   recurringDocScheduler, processOrgRecurring,
+  hoursVarianceScheduler, assessOrgVariance,
 } from "@/inngest";
 
 export const { GET, POST, PUT } = serve({
@@ -30,5 +31,7 @@ export const { GET, POST, PUT } = serve({
     batchJobWatchdog,
     recurringDocScheduler,
     processOrgRecurring,
+    hoursVarianceScheduler,
+    assessOrgVariance,
   ],
 });

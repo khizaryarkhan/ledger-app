@@ -848,6 +848,13 @@
       "when": 1792900000000,
       "tag": "0121_resource_working_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1793000000000,
+      "tag": "0122_hours_variance_enquiries",
+      "breakpoints": true
     }
   ]
 }

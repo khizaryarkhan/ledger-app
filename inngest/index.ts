@@ -7,3 +7,4 @@ export {
   runBatchChunkLoop, batchJobWatchdog,
 } from "./functions/batch";
 export { recurringDocScheduler, processOrgRecurring } from "./functions/recurring";
+export { hoursVarianceScheduler, assessOrgVariance } from "./functions/variance";

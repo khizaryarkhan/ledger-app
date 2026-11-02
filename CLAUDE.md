@@ -1497,8 +1497,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0121` at `when`
-  `1792900000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0122` at `when`
+  `1793000000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -4691,6 +4691,63 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Resources Phase D: hours over plan (2026-11-02)
+
+Phase D of the five-phase plan. Migration `0122`, additive. Rules in
+`lib/resources/variance.ts` (pure, 15 tests), assessor in `variance-server.ts`,
+nightly job in `inngest/functions/variance.ts`, screen at `/resources/enquiries`.
+
+- **Over plan is a variance; UNDER plan is not an enquiry.** Someone who spent
+  less than planned has not done anything that needs explaining, and a report
+  that asks about both is a report nobody answers.
+- **`unplanned` is kept apart from `over_plan`.** Against a zero baseline every
+  hour is infinitely over, so folding them together would make a genuine
+  overrun look like a rounding error beside work that had no plan at all.
+- **A month is assessed only once it has ENDED and settled.** Assessing one
+  still running accuses people of being behind on work they have not finished;
+  assessing one with time still awaiting approval counts hours nobody has
+  agreed to. "Settled" is checked PER PERSON — one straggler must not hold
+  everybody else's month back — and a **fallback day (10th of the following
+  month)** assesses regardless, because otherwise a single unapproved line
+  keeps a month out of the report forever. That is the failure mode of every
+  "wait until it is clean" rule.
+- **The assessor keeps no state.** Every enquiry is keyed
+  `(org, person, booking, month)` by a unique index and inserted with
+  `ON CONFLICT DO NOTHING`, so a retry, a replay or two runs in a day open
+  nothing twice. That index is the mechanism, not a safety net — do not
+  replace it with application-side bookkeeping.
+- **Planned hours come from Phase B's `plannedHours`**, so this agrees with the
+  Utilization and Compliance reports by construction rather than by care.
+  Actual is `approved` + `posted` only. A booking that was planned but never
+  worked is an under-spend and raises nothing.
+- **Who answers is Phase A's rule reused**: the project's lead where there is
+  one, else the person's line manager, so nobody is asked by one manager and
+  approved by another. Null when neither exists, counted as `withoutOwner`
+  rather than guessed.
+- **Answering and closing are separate actions**, because "explained" and
+  "accepted" are separate facts. An open enquiry nobody answers for 14 days is
+  stamped `escalatedAt` and reads amber; escalation is visible, not a
+  notification.
+- **The enquiry list widens the same way Phase A's approval queue had to**:
+  visible when the enquiry is about someone you may see OR it was assigned to
+  you, since a project lead is routinely not in their people's management
+  chain.
+- **The job** mirrors `chase.ts`/`recurring.ts`'s two-function shape (cron
+  fans out one event per org; the per-org handler runs in isolation), fans out
+  only to orgs that have the `resources` module, and uses `today()` (UTC) not
+  `localToday()` — it runs with no viewer, same precedent as chase.
+- **Proven against two real defects**: treating under-plan as a variance fails
+  exactly the two tests that say otherwise, and assessing a month still running
+  fails the two that guard the timing. A third bug was caught by the tests
+  themselves — 1 Nov to 14 Nov is 13 elapsed days, not 14, and the expectation
+  was wrong rather than the code.
+- **Not done / not verified**: migration `0122` has NOT been run against any
+  database, the nightly job has never executed, and nothing was clicked through
+  in a browser. **Nobody is told an enquiry exists** — no email, no alert bell;
+  it is a screen someone opens. There is no manual "assess this month" button,
+  so the first enquiries appear only after the job's first nightly run. Phase E
+  (project-lead and department scope tiers) is not built.
 
 ## Resources Phase C: timesheet compliance (2026-11-02)
 

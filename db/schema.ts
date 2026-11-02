@@ -4146,6 +4146,44 @@ export const timesheetReturns = pgTable("timesheet_returns", {
 }));
 export type TimesheetReturn = typeof timesheetReturns.$inferSelect;
 
+// Hours over plan (Resources, Phase D 2026-11-02). One enquiry per person,
+// booking and MONTH, opened at most once — the unique index is what makes the
+// nightly assessor safe to re-run rather than something that must be tracked.
+//
+// `assignable_type`/`assignable_id` are the same no-FK polymorphic pair as
+// time_entries and resource_assignments, for the same reason.
+//
+// A month is assessed only once it has ENDED and settled; the figures are
+// frozen onto the row at that point, so later edits to a closed month cannot
+// silently restate an enquiry somebody has already answered.
+export const hoursVarianceEnquiries = pgTable("hours_variance_enquiries", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId:     uuid("resource_id").notNull().references((): any => resources.id, { onDelete: "cascade" }),
+  assignableType: varchar("assignable_type", { length: 24 }).notNull(),
+  assignableId:   uuid("assignable_id").notNull(),
+  month:          varchar("month", { length: 7 }).notNull(),           // YYYY-MM
+  kind:           varchar("kind", { length: 16 }).notNull(),           // over_plan | unplanned
+  plannedHours:   numeric("planned_hours", { precision: 10, scale: 2 }).notNull().default("0"),
+  actualHours:    numeric("actual_hours", { precision: 10, scale: 2 }).notNull().default("0"),
+  // Who should answer: the project's lead where there is one, else the
+  // person's line manager. Null when neither exists — reported, not guessed.
+  assignedTo:     uuid("assigned_to").references((): any => resources.id, { onDelete: "set null" }),
+  status:         varchar("status", { length: 16 }).notNull().default("open"), // open | answered | closed
+  response:       text("response"),
+  respondedBy:    uuid("responded_by").references(() => users.id, { onDelete: "set null" }),
+  respondedAt:    timestamp("responded_at"),
+  closedBy:       uuid("closed_by").references(() => users.id, { onDelete: "set null" }),
+  closedAt:       timestamp("closed_at"),
+  escalatedAt:    timestamp("escalated_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  onceUnique: uniqueIndex("hours_variance_once_unique").on(t.orgId, t.resourceId, t.assignableType, t.assignableId, t.month),
+  orgStatus:  index("hours_variance_org_status_idx").on(t.orgId, t.status, t.month),
+  orgAssigned: index("hours_variance_org_assigned_idx").on(t.orgId, t.assignedTo, t.status),
+}));
+export type HoursVarianceEnquiry = typeof hoursVarianceEnquiries.$inferSelect;
+
 export type CrmFieldValue = typeof crmFieldValues.$inferSelect;
 
 // ── Budgets (2026-11-01) ─────────────────────────────────────────────────────
