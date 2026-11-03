@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3, SunMoon, Coins, CalendarRange, Hash } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3, SunMoon, Coins, CalendarRange, Hash, Bot } from "lucide-react";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
@@ -16,8 +16,13 @@ export default function SettingsPage() {
   const [qboStatus, setQboStatus]     = useState<any>(null);
   const [xeroStatus, setXeroStatus]   = useState<any>(null);
   const [emailStatus, setEmailStatus] = useState<any>(null);
+  const [aiCount, setAiCount] = useState<number | null>(null);
 
   useEffect(() => {
+    fetch("/api/mcp/connections")
+      .then(r => r.json())
+      .then(d => setAiCount(Array.isArray(d?.connections) ? d.connections.length : 0))
+      .catch(() => setAiCount(0));
     fetch("/api/qbo/sync")
       .then(r => r.json()).then(setQboStatus)
       .catch(() => setQboStatus({ connected: false }));
@@ -148,6 +153,17 @@ export default function SettingsPage() {
           title: "Email",
           description: "Gmail, Microsoft or SMTP for outbound collection emails.",
           badge: emailStatus === null ? { state: "loading", label: "" } : emailStatus,
+        },
+        {
+          href: "/settings/ai-connections",
+          icon: Bot,
+          title: "AI connections",
+          description: "Let Claude, ChatGPT or another AI assistant work in your account for you. Connect in a few clicks and disconnect any time.",
+          badge: aiCount === null
+            ? { state: "loading", label: "" }
+            : aiCount > 0
+            ? { state: "ok", label: `${aiCount} connected` }
+            : { state: "off", label: "None connected" },
         },
       ],
     },

@@ -4739,8 +4739,18 @@ OAuth 2.1 with dynamic client registration and PKCE S256. Migration `0125`.
   client + method + path), because with writes gated, reading is how data leaves.
 - **Gotcha**: `tsconfig` has `strict:false`, so `!x.ok` does NOT narrow a discriminated
   union; write `x.ok === false`.
-- **Not built / not verified**: no Settings screen for connections (the API exists:
-  `GET/DELETE /api/mcp/connections`); no rate limit on tool calls (register/token are
+- **Users find it at Settings → AI connections** (`/settings/ai-connections`, a card in
+  the hub's Connections section). It shows the connection address built from
+  `window.location.origin` (so it is right on any domain or white-label subdomain),
+  step-by-step setup for Claude, Claude Code (`claude mcp add --transport http …`) and
+  ChatGPT/others, and lists/revokes the user's own connections. OAuth means there is
+  nothing to copy but the URL: the client discovers `/.well-known/*`, registers itself,
+  and sends the user to the consent screen. Verified on a dev server: both discovery
+  documents, the 401 + `WWW-Authenticate` header, CORS preflight and the malformed-request
+  page respond correctly; the DB-backed parts could not be exercised (see below).
+- **Not built / not verified**: the connections list and a full connect have not been
+  clicked through (the dev server cannot reach Neon over TLS here, and 0125 is unapplied);
+  no rate limit on tool calls (register/token are
   limited per IP); no refresh-token reuse detection; clients are self-registered and
   unverified (the consent screen says so); nothing has run against a database or a real
   client — **migration 0125 has not been applied anywhere**; `NEXTAUTH_URL` must be set in
