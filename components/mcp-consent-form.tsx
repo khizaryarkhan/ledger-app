@@ -18,6 +18,7 @@ export function McpConsentForm(props: {
   const [write, setWrite] = useState(false);
   const [del, setDel] = useState(false);
   const [sensitive, setSensitive] = useState(false);
+  const [books, setBooks] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -25,7 +26,7 @@ export function McpConsentForm(props: {
     setBusy(true);
     setError("");
     try {
-      const scope = ["mcp:read", write ? "mcp:write" : "", del ? "mcp:delete" : "", sensitive ? "mcp:sensitive" : ""].filter(Boolean).join(" ");
+      const scope = ["mcp:read", write ? "mcp:write" : "", del ? "mcp:delete" : "", sensitive ? "mcp:sensitive" : "", books ? "mcp:accounting_system" : ""].filter(Boolean).join(" ");
       const res = await fetch("/api/mcp/oauth/approve", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -70,11 +71,15 @@ export function McpConsentForm(props: {
           </label>
           <label className="flex items-start gap-2 text-[13px] text-stone-300">
             <input type="checkbox" checked={write} onChange={(e) => setWrite(e.target.checked)} className="mt-1" />
-            <span><span className="text-stone-100">Create and change</span> — add and edit records, send emails, and change QuickBooks / Xero data.</span>
+            <span><span className="text-stone-100">Create and change</span> — add and edit records in Prime Accountax.</span>
           </label>
           <label className="flex items-start gap-2 text-[13px] text-stone-300">
             <input type="checkbox" checked={del} onChange={(e) => setDel(e.target.checked)} className="mt-1" />
             <span><span className="text-stone-100">Delete</span> — remove records. Each delete still needs confirming in the AI client.</span>
+          </label>
+          <label className="flex items-start gap-2 text-[13px] text-stone-300">
+            <input type="checkbox" checked={books} onChange={(e) => setBooks(e.target.checked)} className="mt-1" />
+            <span><span className="text-stone-100">Change QuickBooks / Xero</span> — edit or delete records in your connected books through Data Studio. At most 100 records per request, and each change is described and confirmed before it runs.</span>
           </label>
           <label className="flex items-start gap-2 text-[13px] text-stone-300">
             <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} className="mt-1" />

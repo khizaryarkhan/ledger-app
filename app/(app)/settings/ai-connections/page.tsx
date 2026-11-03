@@ -20,6 +20,7 @@ const ACCESS_LABELS: { scope: string; label: string; risky?: boolean }[] = [
   { scope: "mcp:write", label: "Create & change" },
   { scope: "mcp:delete", label: "Delete", risky: true },
   { scope: "mcp:sensitive", label: "Send email & settings", risky: true },
+  { scope: "mcp:accounting_system", label: "Change QuickBooks / Xero", risky: true },
 ];
 
 /** A read-only box with a Copy button. Clicking the box selects it, so a blocked clipboard still works by hand. */
@@ -182,8 +183,9 @@ export default function AiConnectionsPage() {
             <h2 className="text-[13px] font-semibold text-white">You stay in control</h2>
             <ul className="mt-2 space-y-1.5 text-[13px] text-stone-400 leading-relaxed list-disc pl-4">
               <li>It acts <strong className="text-stone-200">as you</strong>. Anything your role cannot do in the app, it cannot do either.</li>
-              <li>You choose, per connection, whether it may only read, also create and change, also delete, and — separately — send email and change settings.</li>
-              <li>Deleting always needs a second confirmation, and everything it does is recorded in the audit trail under your name.</li>
+              <li>You choose, per connection, whether it may only read, also create and change, also delete, and — separately — change QuickBooks / Xero, or send email and change settings.</li>
+              <li>Personal identifiers (such as SSN and date of birth) and credentials are never passed to it, and QuickBooks employee records are off limits.</li>
+              <li>Deleting, and any change to QuickBooks / Xero, needs a second confirmation (at most 100 records at a time), and everything it reads or does is recorded in the audit trail under your name.</li>
               <li>You can disconnect at any time below. It stops working immediately.</li>
               <li>Text inside invoices and emails comes from other people. Keep <em>send email</em> switched off unless you need it.</li>
             </ul>

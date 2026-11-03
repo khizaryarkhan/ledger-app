@@ -17,7 +17,8 @@ import { CORS_HEADERS, json, preflight } from "@/lib/mcp/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Above one call's 55s timeout (lib/mcp/api-call.ts) times the batch cap.
+export const maxDuration = 120;
 
 const MAX_BODY_BYTES = 1_000_000;
 // Calls in a batch run one after another, each up to 25s, inside a 60s function —
@@ -61,7 +62,9 @@ function contextFor(req: NextRequest, id: McpIdentity, confirmSecret: string): M
         eventType: e.method === "DELETE" ? "mcp_delete" : e.method === "GET" ? "mcp_read" : "mcp_write",
         actorId: id.userId,
         actorName: claims?.email ?? null,
-        meta: { via: "mcp", clientId: id.clientId, method: e.method, path: e.path, status: e.status },
+        // `ref` ties the row to what was done — for Data Studio it is the job id,
+        // so a QuickBooks change made by an AI is traceable from its job record.
+        meta: { via: "mcp", clientId: id.clientId, method: e.method, path: e.path, status: e.status, ref: e.ref ?? null },
       });
     },
   };

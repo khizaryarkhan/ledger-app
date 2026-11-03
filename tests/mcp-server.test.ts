@@ -84,7 +84,7 @@ describe("api_write", () => {
     const { c, callApi, audit } = ctx(["mcp:read", "mcp:write"]);
     await call(c, "api_write", { method: "PATCH", path: "/api/customers/9", body: { name: "X" } });
     expect(callApi).toHaveBeenCalledTimes(1);
-    expect(audit).toHaveBeenCalledWith({ method: "PATCH", path: "/api/customers/9", scope: "mcp:write", status: 200 });
+    expect(audit).toHaveBeenCalledWith({ method: "PATCH", path: "/api/customers/9", scope: "mcp:write", status: 200, ref: null });
   });
   it("cannot be used to read or to delete", async () => {
     const { c, callApi } = ctx(FULL);
@@ -124,7 +124,7 @@ describe("api_delete", () => {
     const first = await call(c, "api_delete", { path: "/api/invoices/1" });
     await call(c, "api_delete", { path: "/api/invoices/1", confirm: tokenFrom(first) });
     expect(callApi).toHaveBeenCalledTimes(1);
-    expect(audit).toHaveBeenCalledWith({ method: "DELETE", path: "/api/invoices/1", scope: "mcp:delete", status: 200 });
+    expect(audit).toHaveBeenCalledWith({ method: "DELETE", path: "/api/invoices/1", scope: "mcp:delete", status: 200, ref: null });
   });
   it("a token is bound to the exact arguments — it cannot confirm a different delete", async () => {
     const { c, callApi } = ctx(FULL);
@@ -181,11 +181,76 @@ describe("sensitive routes need the separate grant", () => {
   });
 });
 
+describe("QuickBooks/Xero changes through Data Studio", () => {
+  const BOOKS: McpScope[] = ["mcp:read", "mcp:write", "mcp:accounting_system"];
+
+  it("are refused without the grant", async () => {
+    const { c, callApi } = ctx(["mcp:read", "mcp:write"]);
+    const r = await call(c, "api_write", { method: "POST", path: "/api/batch/bulk-edit/apply", body: { ids: [1] } });
+    expect(r.result.isError).toBe(true);
+    expect(callApi).not.toHaveBeenCalled();
+  });
+  it("are described first and run only with the issued token", async () => {
+    const { c, callApi } = ctx(BOOKS);
+    const args = { method: "POST", path: "/api/batch/bulk-edit/apply", body: { entity: "invoice", ids: ["1", "2"] } };
+    const first = await call(c, "api_write", args);
+    expect(first.result.content[0].text).toMatch(/NOT EXECUTED.*changed in QuickBooks\/Xero/s);
+    expect(callApi).not.toHaveBeenCalled();
+    await call(c, "api_write", { ...args, confirm: tokenFrom(first) });
+    expect(callApi).toHaveBeenCalledTimes(1);
+  });
+  it("are capped at 100 records per call, before any token is issued", async () => {
+    const { c, callApi } = ctx(BOOKS);
+    const r = await call(c, "api_write", { method: "POST", path: "/api/batch/delete/commit", body: { ids: Array(101).fill("x") } });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toMatch(/at most 100/);
+    expect(callApi).not.toHaveBeenCalled();
+  });
+  it("never reach employee records, even read-only", async () => {
+    const { c, callApi } = ctx([...BOOKS, "mcp:delete"]);
+    const r = await call(c, "api_write", { method: "POST", path: "/api/batch/bulk-edit/search", body: { entity: "employee" } });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toMatch(/personal identifiers/);
+    expect(callApi).not.toHaveBeenCalled();
+  });
+  it("a Data Studio search runs straight away with plain write", async () => {
+    const { c, callApi } = ctx(["mcp:read", "mcp:write"]);
+    await call(c, "api_write", { method: "POST", path: "/api/batch/bulk-edit/search", body: { entity: "invoice" } });
+    expect(callApi).toHaveBeenCalledTimes(1);
+  });
+  it("records the job id the app returned, so the change is traceable", async () => {
+    const { c, callApi, audit } = ctx(BOOKS);
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: '{"jobId":"job-42"}', truncated: false });
+    const args = { method: "POST", path: "/api/batch/bulk-edit/apply", body: { ids: ["1"] } };
+    const first = await call(c, "api_write", args);
+    await call(c, "api_write", { ...args, confirm: tokenFrom(first) });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ path: "/api/batch/bulk-edit/apply", ref: "job-42" }));
+  });
+});
+
+describe("output", () => {
+  it("redacts personal identifiers before the model sees them, and says so", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: '[{"name":"A","ssn":"123-45-6789"}]', truncated: false });
+    const r = await call(c, "api_get", { path: "/api/x" });
+    expect(r.result.content[0].text).not.toContain("123-45-6789");
+    expect(r.result.content[0].text).toMatch(/1 personal or credential value\(s\) redacted/);
+  });
+  it("redacts BEFORE truncating, so a long body is still clean", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    const rows = Array.from({ length: 4000 }, (_, i) => ({ i, filler: "x".repeat(40), ssn: `SSN-${i}` }));
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: JSON.stringify(rows), truncated: false });
+    const out = (await call(c, "api_get", { path: "/api/x" })).result.content[0].text;
+    expect(out).toMatch(/truncated/);
+    expect(out).not.toMatch(/SSN-\d/);
+  });
+});
+
 describe("audit", () => {
   it("records reads as well as writes, because reading is how data leaves", async () => {
     const { c, audit } = ctx(["mcp:read"]);
     await call(c, "api_get", { path: "/api/invoices" });
-    expect(audit).toHaveBeenCalledWith({ method: "GET", path: "/api/invoices", scope: "mcp:read", status: 200 });
+    expect(audit).toHaveBeenCalledWith({ method: "GET", path: "/api/invoices", scope: "mcp:read", status: 200, ref: null });
   });
   it("does not record a refused call as if it ran", async () => {
     const { c, audit } = ctx(["mcp:read"]);

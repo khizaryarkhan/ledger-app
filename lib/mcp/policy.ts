@@ -37,6 +37,27 @@ export const BLOCKED_PREFIXES: readonly { prefix: string; why: string }[] = [
   { prefix: "/api/user",            why: "account/session helpers" },
 ];
 
+/**
+ * Exact paths refused, each with the reason an AI is told. These are not
+ * dangerous so much as useless or misleading through an API: the root of each
+ * integration route STARTS a browser sign-in (a 307 to Intuit/Xero/Google), the
+ * consolidated group views read a group picked in the browser (so they always
+ * answered 401 to a connection — reported as a bug), and Data Studio's download
+ * and upload move spreadsheet FILES, which a tool call cannot carry.
+ */
+export const REFUSED_PATHS: readonly { path: string; prefix?: boolean; why: string }[] = [
+  { path: "/api/qbo", why: "it starts the QuickBooks sign-in in a browser. To check the connection use GET /api/qbo/verify or GET /api/qbo/sync" },
+  { path: "/api/xero", why: "it starts the Xero sign-in in a browser. To check the connection use GET /api/xero/sync" },
+  { path: "/api/gmail", why: "it starts the Gmail sign-in in a browser" },
+  { path: "/api/microsoft", why: "it starts the Microsoft sign-in in a browser" },
+  { path: "/api/google-sheets", why: "it starts the Google sign-in in a browser" },
+  { path: "/api/group", prefix: true, why: "consolidated group views need a group picked in the browser; ask about one organisation at a time instead" },
+  { path: "/api/batch/download", why: "it returns a spreadsheet file, which cannot be passed back through a connection. Read the records with api_get instead" },
+  { path: "/api/batch/upload", prefix: true, why: "it imports a spreadsheet uploaded in the browser. Make changes with /api/batch/bulk-edit instead" },
+  { path: "/api/batch/template", why: "it returns a spreadsheet file" },
+  { path: "/api/batch/debug", prefix: true, why: "diagnostic route" },
+];
+
 /** Any path SEGMENT with one of these names is an integration hand-shake or a credential flow. */
 export const BLOCKED_SEGMENTS: ReadonlySet<string> = new Set([
   "callback", "connect", "disconnect", "reset-password", "forgot-password", "mfa", "webhook", "webhooks",
@@ -76,6 +97,12 @@ export function checkApiPath(raw: unknown): PathCheck {
   for (const seg of lower.split("/")) {
     if (BLOCKED_SEGMENTS.has(seg)) return { ok: false, reason: `"${seg}" routes are not available to AI connections` };
   }
+  const trimmed = lower.length > 5 && lower.endsWith("/") ? lower.slice(0, -1) : lower;
+  for (const r of REFUSED_PATHS) {
+    if (trimmed === r.path || (r.prefix && trimmed.startsWith(r.path + "/"))) {
+      return { ok: false, reason: `${r.path} is not available to AI connections: ${r.why}` };
+    }
+  }
   return { ok: true, path: raw.length > 5 && raw.endsWith("/") ? raw.slice(0, -1) : raw };
 }
 
@@ -97,6 +124,97 @@ export function isSensitiveRoute(path: string): boolean {
   return p.split("/").some((seg) => SENSITIVE_SEGMENT.test(seg));
 }
 
+/**
+ * Routes that change records in QuickBooks/Xero themselves (Data Studio jobs, and
+ * anything that "pushes" a document out). These need their own grant,
+ * `mcp:accounting_system`, because they edit the client's real books in bulk —
+ * a plain "create and change" grant is about this app's own records.
+ * A Data Studio SEARCH is a read sent as POST, so it is not a change.
+ */
+export function isAccountingSystemWrite(path: string): boolean {
+  const p = path.toLowerCase();
+  if (p.endsWith("/search")) return false;
+  if (p === "/api/batch" || p.startsWith("/api/batch/")) return true;
+  return p.split("/").includes("push");
+}
+
+/** Most records one call may change in QuickBooks/Xero. A bigger job is done in the app, where a person reviews it. */
+export const MAX_ACCOUNTING_SYSTEM_ROWS = 100;
+
+/** Length of the largest array in a request body, looking two levels deep (`{ ids: [...] }`, `{ changes: { ids: [...] } }`). */
+export function largestArray(body: unknown, depth = 2): number {
+  // reduce, not Math.max(...spread): a 1 MB body can hold more items than a call's argument limit.
+  if (Array.isArray(body)) {
+    return (body as unknown[]).reduce<number>((m, b) => Math.max(m, depth > 0 ? largestArray(b, depth - 1) : 0), body.length);
+  }
+  if (body && typeof body === "object" && depth > 0) {
+    return Object.values(body as Record<string, unknown>).reduce<number>((m, v) => Math.max(m, largestArray(v, depth - 1)), 0);
+  }
+  return 0;
+}
+
+/**
+ * Data Studio entities an AI connection may not touch at all. QuickBooks
+ * employees carry SSN, date of birth and home address; the app's own payroll
+ * screens are where those belong.
+ */
+export const REFUSED_ENTITIES: ReadonlySet<string> = new Set(["employee"]);
+
+export function refusedEntity(path: string, query: unknown, body: unknown): string | null {
+  if (!path.toLowerCase().startsWith("/api/batch")) return null;
+  const pick = (o: unknown) => (o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>).entity : undefined);
+  for (const e of [pick(query), pick(body)]) {
+    if (typeof e === "string" && REFUSED_ENTITIES.has(e.toLowerCase())) return e;
+  }
+  return null;
+}
+
+/**
+ * Field names whose VALUES never leave through an AI connection, whatever route
+ * returned them: personal identifiers, credentials and bank details. Matched on
+ * the name with case, spaces and punctuation removed, so `ssn`, `SSN` and the
+ * Data Studio column "Birth Date" are all caught. Redacting the value, not
+ * dropping the key, keeps the shape so the model can say the field exists.
+ */
+const SENSITIVE_KEY = /^(ssn|sin|socialsecurity(no|number)?|nino|ninumber|nationalinsurance(no|number)?|nationalid(no|number)?|dob|dateofbirth|birthdate|birthday|passport(no|number)?|password|passwordhash|accesstoken|refreshtoken|idtoken|apikey|clientsecret|secret|iban|bankaccount(no|number)?|sortcode|routingnumber|cardnumber|cvv|cvc)$/;
+export const isSensitiveKey = (key: string): boolean => SENSITIVE_KEY.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
+export const REDACTED = "[redacted]";
+
+function redactValue(v: unknown, count: { n: number }, depth: number): unknown {
+  if (depth > 40) return v;
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, count, depth + 1));
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (isSensitiveKey(k) && x !== null && x !== "" && x !== undefined) { out[k] = REDACTED; count.n++; }
+      else out[k] = redactValue(x, count, depth + 1);
+    }
+    return out;
+  }
+  return v;
+}
+
+/**
+ * Redact a response body. JSON is parsed and walked; anything else (or JSON too
+ * damaged to parse) falls back to a pattern over `"key": value` pairs, so a body
+ * that is not clean JSON is still not a way round the rule.
+ */
+export function redactText(text: string): { text: string; redacted: number } {
+  const count = { n: 0 };
+  try {
+    const parsed = JSON.parse(text);
+    const clean = redactValue(parsed, count, 0);
+    return { text: count.n ? JSON.stringify(clean) : text, redacted: count.n };
+  } catch {
+    const out = text.replace(/"([^"\\]{1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*)/g, (m, key: string, sep: string) => {
+      if (!isSensitiveKey(key)) return m;
+      count.n++;
+      return `"${key}"${sep}"${REDACTED}"`;
+    });
+    return { text: out, redacted: count.n };
+  }
+}
+
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
@@ -106,8 +224,13 @@ export function scopeForMethod(method: HttpMethod): McpScope {
   return "mcp:write";
 }
 
-/** A delete is described back to the caller and needs an explicit `confirm: true`. */
-export const requiresConfirmation = (method: HttpMethod): boolean => method === "DELETE";
+/**
+ * Calls that are described first and run only when the issued confirmation
+ * token is echoed back: every delete, and every change to QuickBooks/Xero (the
+ * "preview before any QBO write" the first live user asked for).
+ */
+export const requiresConfirmation = (method: HttpMethod, path = ""): boolean =>
+  method === "DELETE" || (method !== "GET" && isAccountingSystemWrite(path));
 
 export type Decision = { ok: true; path: string; method: HttpMethod; scope: McpScope } | { ok: false; reason: string };
 
@@ -119,6 +242,9 @@ export function authorizeCall(granted: readonly McpScope[], method: unknown, raw
   const scope = scopeForMethod(m);
   if (!granted.includes(scope)) {
     return { ok: false, reason: `this connection was not granted ${scope.replace("mcp:", "")} access — the user can reconnect and allow it` };
+  }
+  if (m !== "GET" && isAccountingSystemWrite(p.path) && !granted.includes("mcp:accounting_system")) {
+    return { ok: false, reason: "this route changes records in QuickBooks/Xero, which needs the separate 'Change QuickBooks / Xero' access — the user can reconnect and allow it" };
   }
   if (m !== "GET" && isSensitiveRoute(p.path) && !granted.includes("mcp:sensitive")) {
     return { ok: false, reason: "this route sends email or changes organisation settings/logins, which needs the separate 'sensitive' access — the user can reconnect and allow it" };

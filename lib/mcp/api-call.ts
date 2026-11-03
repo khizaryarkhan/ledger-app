@@ -7,8 +7,17 @@ import { signAccessToken } from "@/lib/mobile-auth";
 import { internalOrigin } from "./origin";
 import { resolveLiveClaims } from "./auth";
 
-export const MAX_RESPONSE_CHARS = 100_000;
-const CALL_TIMEOUT_MS = 25_000;
+/**
+ * The most this layer reads from a response. It is deliberately much larger
+ * than what reaches the model (server.ts truncates AFTER redacting): truncating
+ * first would leave half a JSON document that can no longer be parsed, and so
+ * could no longer be redacted.
+ */
+export const MAX_RESPONSE_CHARS = 2_000_000;
+// Several report and sync routes run 30-60s; 25s cut them off and read as a
+// failure (reported for /api/batch/download). The MCP route's maxDuration is
+// set above this.
+const CALL_TIMEOUT_MS = 55_000;
 /** Lives just long enough for the one call it was minted for. */
 const INTERNAL_TOKEN_TTL_S = 60;
 
@@ -71,7 +80,7 @@ export async function callInternalApi(a: ApiCallArgs): Promise<ApiCallResult> {
       return { ok: true, status: res.status, contentType, text: `[${contentType || "binary"} response, not returned — open it in the app instead]`, truncated: false };
     }
     // Don't buffer a huge body just to throw most of it away.
-    if (Number(res.headers.get("content-length") ?? 0) > MAX_RESPONSE_CHARS * 20) {
+    if (Number(res.headers.get("content-length") ?? 0) > MAX_RESPONSE_CHARS * 5) {
       return { ok: true, status: res.status, contentType, text: "[response too large to return — ask for a narrower query]", truncated: true };
     }
     const raw = await res.text();

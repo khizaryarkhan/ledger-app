@@ -10,7 +10,11 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 // prompt-injected model into a data-exfiltration channel or a persistence
 // mechanism: sending email, and changing organisation settings / logins. A user
 // who allows "create and change" has NOT allowed these.
-export const MCP_SCOPES = ["mcp:read", "mcp:write", "mcp:delete", "mcp:sensitive"] as const;
+//
+// `mcp:accounting_system` is the same idea for the client's books themselves:
+// Data Studio edits and deletes QuickBooks/Xero records in bulk, which a grant
+// to change this app's own records should not quietly include.
+export const MCP_SCOPES = ["mcp:read", "mcp:write", "mcp:delete", "mcp:sensitive", "mcp:accounting_system"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const ACCESS_TOKEN_TTL_S = 60 * 60;              // 1 hour

@@ -4739,6 +4739,30 @@ OAuth 2.1 with dynamic client registration and PKCE S256. Migration `0125`.
   client + method + path), because with writes gated, reading is how data leaves.
 - **Gotcha**: `tsconfig` has `strict:false`, so `!x.ok` does NOT narrow a discriminated
   union; write `x.ok === false`.
+- **Hardened after the first live user's report (2026-11-03)** — EDC, `company_admin`:
+  - **Fifth scope, `mcp:accounting_system`** ("Change QuickBooks / Xero"), off by default:
+    every non-GET under `/api/batch` and any `/push` route (`isAccountingSystemWrite`). A
+    Data Studio `/search` is a POST that reads, so it is NOT gated. These writes are capped
+    at **100 records per call** (`largestArray` over the body) and go through the SAME
+    describe-then-confirm token as a delete — the "preview before a QBO write" asked for.
+  - **PII**: response values under keys like SSN / date of birth / NI number / passport /
+    password / tokens / IBAN are redacted (`redactText`, keys normalised so Data Studio's
+    "Birth Date" column is caught) — and redaction runs BEFORE truncation, because a
+    truncated JSON body can't be parsed and so couldn't be redacted (api-call now reads up
+    to 2 MB; server.ts cuts to 100k after). The Data Studio `employee` entity is refused
+    outright (`REFUSED_ENTITIES`).
+  - **Several "bugs" were MCP-layer artefacts, now refused with a reason** (`REFUSED_PATHS`):
+    `/api/qbo` and `/api/xero` roots START a browser OAuth (the reported 307 + binary);
+    `/api/group/**` reads a browser-picked group via `requireGroupScope()`'s cookie-only
+    `auth()`, so a connection always got 401; `/api/batch/download|template|upload` move
+    spreadsheet FILES. The download "timeout" was our 25s call cap — now 55s, route
+    `maxDuration` 120.
+  - **Attribution**: every audit row carries `ref` = the id the app returned (a Data Studio
+    `jobId`), so a QBO change made by AI is traceable from its job.
+  - **Not done from that report**: `limit`/`fields` paging, per-route parameter docs,
+    `/api/projects` ignoring `search`, `bulk-edit/meta`'s misleading `connected:false`,
+    live QBO reads, and the data-integrity questions (sync-log `qboTotalAR`, count drift,
+    €0.01 balances) — the last need a read-only look at production, not MCP changes.
 - **Users find it at Settings → AI connections** (`/settings/ai-connections`, a card in
   the hub's Connections section). It shows the connection address built from
   `window.location.origin` (so it is right on any domain or white-label subdomain),

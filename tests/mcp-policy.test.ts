@@ -1,5 +1,100 @@
 import { describe, it, expect } from "vitest";
-import { checkApiPath, authorizeCall, scopeForMethod, requiresConfirmation, isSensitiveRoute } from "@/lib/mcp/policy";
+import {
+  checkApiPath, authorizeCall, scopeForMethod, requiresConfirmation, isSensitiveRoute,
+  isAccountingSystemWrite, largestArray, refusedEntity, redactText, isSensitiveKey,
+} from "@/lib/mcp/policy";
+
+describe("refused paths — reported by the first live user", () => {
+  it.each([
+    "/api/qbo",            // was a 307 to Intuit with a binary body
+    "/api/xero", "/api/gmail", "/api/microsoft", "/api/google-sheets",
+    "/api/group/receivables", // always 401: needs a group picked in the browser
+    "/api/batch/download",    // returns a spreadsheet; timed out
+    "/api/batch/upload/start", "/api/batch/upload/preview", "/api/batch/template", "/api/batch/debug/record",
+  ])("refuses %s with a reason, not a confusing status", (p) => {
+    const r = checkApiPath(p);
+    expect(r.ok).toBe(false);
+    expect((r as any).reason).toMatch(/not available to AI connections: /);
+  });
+  it("still allows the status routes it points the AI to", () => {
+    for (const p of ["/api/qbo/verify", "/api/qbo/sync", "/api/xero/sync", "/api/batch/jobs", "/api/batch/entities"]) {
+      expect(checkApiPath(p).ok, p).toBe(true);
+    }
+  });
+});
+
+describe("changes to QuickBooks/Xero", () => {
+  it("are Data Studio writes and pushes, but not Data Studio searches", () => {
+    expect(isAccountingSystemWrite("/api/batch/bulk-edit/apply")).toBe(true);
+    expect(isAccountingSystemWrite("/api/batch/delete/commit")).toBe(true);
+    expect(isAccountingSystemWrite("/api/batch/jobs/1/undo")).toBe(true);
+    expect(isAccountingSystemWrite("/api/payables/purchase-orders/1/push")).toBe(true);
+    expect(isAccountingSystemWrite("/api/batch/bulk-edit/search")).toBe(false);
+    expect(isAccountingSystemWrite("/api/invoices")).toBe(false);
+  });
+  it("need their own grant — create-and-change is not enough", () => {
+    const write = ["mcp:read", "mcp:write"] as const;
+    expect(authorizeCall(write, "POST", "/api/batch/bulk-edit/apply").ok).toBe(false);
+    expect((authorizeCall(write, "POST", "/api/batch/bulk-edit/apply") as any).reason).toMatch(/QuickBooks\/Xero/);
+    expect(authorizeCall([...write, "mcp:accounting_system"], "POST", "/api/batch/bulk-edit/apply").ok).toBe(true);
+  });
+  it("a Data Studio search needs only write (it is a POST that reads)", () => {
+    expect(authorizeCall(["mcp:read", "mcp:write"], "POST", "/api/batch/bulk-edit/search").ok).toBe(true);
+  });
+  it("always go through the describe-then-confirm step, like a delete", () => {
+    expect(requiresConfirmation("POST", "/api/batch/bulk-edit/apply")).toBe(true);
+    expect(requiresConfirmation("POST", "/api/batch/bulk-edit/search")).toBe(false);
+    expect(requiresConfirmation("POST", "/api/invoices")).toBe(false);
+  });
+});
+
+describe("largestArray", () => {
+  it("finds the row count however the body nests it", () => {
+    expect(largestArray({ ids: [1, 2, 3] })).toBe(3);
+    expect(largestArray({ changes: { ids: Array(150).fill(0) } })).toBe(150);
+    expect(largestArray([1, 2])).toBe(2);
+    expect(largestArray({ a: 1 })).toBe(0);
+    expect(largestArray(undefined)).toBe(0);
+  });
+  it("does not blow the argument limit on a very large array", () => {
+    expect(largestArray({ ids: Array(300_000).fill(1) })).toBe(300_000);
+  });
+});
+
+describe("refusedEntity", () => {
+  it("refuses Data Studio employee records in the query or the body, any case", () => {
+    expect(refusedEntity("/api/batch/bulk-edit/search", undefined, { entity: "employee" })).toBe("employee");
+    expect(refusedEntity("/api/batch/refs", { entity: "Employee" }, undefined)).toBe("Employee");
+    expect(refusedEntity("/api/batch/bulk-edit/search", undefined, { entity: "invoice" })).toBeNull();
+    expect(refusedEntity("/api/resources", { entity: "employee" }, undefined)).toBeNull();
+  });
+});
+
+describe("redaction", () => {
+  it("recognises the names however they are written", () => {
+    for (const k of ["ssn", "SSN", "Birth Date", "dateOfBirth", "DOB", "national_insurance_number", "passwordHash", "refreshToken", "IBAN", "sort-code", "apiKey"]) {
+      expect(isSensitiveKey(k), k).toBe(true);
+    }
+    for (const k of ["name", "email", "total", "accountId", "taxRateId", "secretary"]) expect(isSensitiveKey(k), k).toBe(false);
+  });
+  it("redacts values anywhere in JSON and counts them, keeping the keys", () => {
+    const r = redactText(JSON.stringify({ rows: [{ name: "A", SSN: "123-45-6789", "Birth Date": "1990-01-01" }], token: { refreshToken: "x" } }));
+    expect(r.redacted).toBe(3);
+    expect(r.text).not.toContain("123-45-6789");
+    expect(r.text).not.toContain("1990-01-01");
+    expect(JSON.parse(r.text).rows[0].name).toBe("A");
+    expect(JSON.parse(r.text).rows[0].SSN).toBe("[redacted]");
+  });
+  it("leaves clean JSON byte-identical", () => {
+    const s = '{"a":1,"b":[{"c":"d"}]}';
+    expect(redactText(s)).toEqual({ text: s, redacted: 0 });
+  });
+  it("still redacts when the body is not parseable JSON", () => {
+    const r = redactText('{"rows":[{"ssn":"123-45-6789","name":"A"},{"ssn": 99');
+    expect(r.text).not.toContain("123-45-6789");
+    expect(r.redacted).toBeGreaterThanOrEqual(1);
+  });
+});
 
 describe("checkApiPath — what may be reached", () => {
   it.each([
