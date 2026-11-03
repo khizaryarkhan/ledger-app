@@ -46,7 +46,9 @@ export async function signPreAuthToken(userId: string): Promise<string> {
     .sign(secretKey());
 }
 
-export async function signAccessToken(claims: MobileAccessClaims): Promise<string> {
+// `ttlSeconds` exists for the MCP server, which mints a ~60s token per tool call
+// to replay a request against our own API; everything else keeps the default.
+export async function signAccessToken(claims: MobileAccessClaims, ttlSeconds: number = ACCESS_TOKEN_TTL): Promise<string> {
   return new SignJWT({
     typ: "mobile_access",
     role: claims.role,
@@ -57,7 +59,7 @@ export async function signAccessToken(claims: MobileAccessClaims): Promise<strin
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(claims.sub)
     .setIssuedAt()
-    .setExpirationTime(`${ACCESS_TOKEN_TTL}s`)
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(secretKey());
 }
 

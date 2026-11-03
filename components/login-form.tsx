@@ -5,7 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export function LoginForm({ brandName, brandLogo }: { brandName: string; brandLogo: string | null }) {
+export function LoginForm({ brandName, brandLogo, next = "/dashboard" }: { brandName: string; brandLogo: string | null; next?: string }) {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -28,7 +28,7 @@ export function LoginForm({ brandName, brandLogo }: { brandName: string; brandLo
           ? "Invalid email, password, or authentication code"
           : "Invalid email or password");
       } else {
-        router.push("/dashboard");
+        router.push(next);
         router.refresh();
       }
     } catch {

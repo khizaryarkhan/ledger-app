@@ -4692,6 +4692,60 @@ once proven impossible; read this before trying again.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
 
+## MCP server — users connect their own Claude / ChatGPT / any MCP client (2026-11-03)
+
+Decision: the integration is an MCP server that the user's own AI client connects to
+(not an in-app chat that takes their API key). The model's cost is their subscription,
+and their AI can combine us with their other connectors. Endpoint `POST /api/mcp`;
+OAuth 2.1 with dynamic client registration and PKCE S256. Migration `0125`.
+
+- **Permissions are NOT re-implemented.** Every tool call is replayed over HTTP against
+  our own `/api` under a 60-second token for the user's CURRENT role
+  (`lib/mcp/api-call.ts`), so `requireOrg()`, role checks and module gating answer as in
+  the browser. Membership/status are re-read per call, so removing access bites at once.
+  The origin called is pinned to config (`NEXTAUTH_URL` …, `lib/mcp/origin.ts`), never the
+  Host header, or the internal token could be sent to an attacker.
+- **Tools are generic on purpose** (`lib/mcp/server.ts`): `whoami`, `list_api_routes`,
+  `api_get` / `api_write` / `api_delete`, each offered only if its scope was granted.
+  ~500 routes are already permissioned, and every QBO/Xero operation (Data Studio, syncs)
+  is one of them; a wrapper per route would drift. `lib/mcp/route-manifest.ts` is
+  GENERATED (`npm run mcp:manifest`) because Vercel cannot glob `app/api` at runtime;
+  `tests/mcp-manifest.test.ts` fails if it is stale and if any credential/identity/billing
+  route is reachable.
+- **Four scopes**: read, write, delete, and `mcp:sensitive` (sends email, changes org
+  settings / email settings / employee logins — `isSensitiveRoute`, matched on path
+  SEGMENTS so a future `/…/send` is caught). Sensitive exists because the review showed a
+  prompt-injected model plus plain "write" could email customer data out or add a silent
+  CC. **Nothing beyond read is ever pre-ticked on the consent screen, and never from URL
+  parameters** — a link from an attacker must not be one click from full access.
+- **Delete confirmation is a signed token** bound to the connection and the exact
+  arguments (5 min). It proves the call was SEEN, not that a human agreed — the client's
+  own tool-approval prompt is the human control. `api_delete` is marked destructive so
+  clients ask.
+- **Deny-list** (`lib/mcp/policy.ts`): admin, auth, mobile, billing, cron, webhooks,
+  mailbox credentials, user/role management, and any path segment named
+  `callback|connect|disconnect|mfa|reset-password|webhook`. Paths with ANY percent-encoding
+  are refused: an encoded letter routes to the real handler while module gating (matched on
+  the raw `x-app-path`) would not recognise it.
+- **Tokens** are opaque, stored as SHA-256 only, individually revocable (the mobile JWTs
+  are not); codes and refresh rotation are one atomic UPDATE each (neon-http has no
+  transactions). Redirect URIs: https, loopback http, or an ALLOWLISTED app scheme
+  (`ALLOWED_APP_SCHEMES`) — never an arbitrary custom scheme (OS protocol handlers).
+- **Middleware** lets `/api/mcp/**`, `/.well-known/**`, `/oauth/authorize` through
+  unauthenticated; each authenticates itself. `/api/mcp/oauth/approve` is the one
+  cookie-authenticated POST and requires a same-origin `Origin` header. Login honours
+  `?next=` ONLY for `/oauth/authorize?…` with no control characters.
+- **Audit**: reads, writes and deletes are all logged (`mcp_read|write|delete`, meta has
+  client + method + path), because with writes gated, reading is how data leaves.
+- **Gotcha**: `tsconfig` has `strict:false`, so `!x.ok` does NOT narrow a discriminated
+  union; write `x.ok === false`.
+- **Not built / not verified**: no Settings screen for connections (the API exists:
+  `GET/DELETE /api/mcp/connections`); no rate limit on tool calls (register/token are
+  limited per IP); no refresh-token reuse detection; clients are self-registered and
+  unverified (the consent screen says so); nothing has run against a database or a real
+  client — **migration 0125 has not been applied anywhere**; `NEXTAUTH_URL` must be set in
+  production or the server cannot call itself.
+
 ## Equipment Phase Q1: a machine is linked, not re-entered (2026-11-02)
 
 Shop-floor machines only. A machine was already three records — the bookable

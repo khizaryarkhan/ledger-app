@@ -67,6 +67,13 @@ export default auth((req) => {
     || path.startsWith("/supplier-portal/") || path.startsWith("/api/supplier-portal/")
     || path.startsWith("/approver/") || path.startsWith("/api/approver/");
   const isLegal = path === "/privacy" || path === "/terms";
+  // MCP server (AI clients). Each of these authenticates itself: /api/mcp checks
+  // its own bearer token (so it can answer 401 with the OAuth discovery header),
+  // the OAuth endpoints are public by definition (PKCE-protected), the discovery
+  // documents are public, and /oauth/authorize + /api/mcp/connections check the
+  // user's session themselves. None of them may depend on the cookie-or-bearer
+  // gate below, which only knows the mobile JWT format.
+  const isMcp = path === "/api/mcp" || path.startsWith("/api/mcp/") || path.startsWith("/.well-known/") || path === "/oauth/authorize";
   const isHome = path === "/"; // public marketing landing (Google verification needs this)
   // Public SEO / marketing pages (solution landing pages + blog)
   const MARKETING_PATHS = new Set([
@@ -82,7 +89,7 @@ export default auth((req) => {
     path === "/alternatives" ||
     path.endsWith("-alternative") ||
     MARKETING_PATHS.has(path);
-  const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/mobile/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || path === "/api/health" || isPortal || isLegal;
+  const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/mobile/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || path === "/api/health" || isPortal || isLegal || isMcp;
   // Cron/webhook paths bypass session auth (they authenticate via CRON_SECRET /
   // signed payloads instead). The sequence processor lives under /api/admin for
   // historical reasons but is a Vercel cron — let it through so it actually runs.

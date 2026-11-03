@@ -4260,3 +4260,46 @@ export const fixedAssetDepreciation = pgTable("fixed_asset_depreciation", {
   journalEntryId: uuid("journal_entry_id"),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ uniq: uniqueIndex("fixed_asset_dep_asset_period_uq").on(t.assetId, t.period) }));
+
+// =========================================================================
+// MCP SERVER — OAuth clients, authorization codes, issued tokens (0125)
+// =========================================================================
+// A user connects their own AI client (Claude, ChatGPT, …) to the app over MCP.
+// Tokens are OPAQUE and stored only as SHA-256 hashes, so a database read cannot
+// replay one, and — unlike the mobile JWTs — each can be revoked individually.
+export const mcpClients = pgTable("mcp_clients", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  clientId:     varchar("client_id", { length: 64 }).notNull().unique(),
+  clientName:   varchar("client_name", { length: 200 }).notNull(),
+  redirectUris: jsonb("redirect_uris").notNull().default([]),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+});
+
+export const mcpAuthCodes = pgTable("mcp_auth_codes", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  codeHash:      varchar("code_hash", { length: 64 }).notNull().unique(),
+  clientId:      varchar("client_id", { length: 64 }).notNull(),
+  userId:        uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  scopes:        text("scopes").notNull(),
+  codeChallenge: varchar("code_challenge", { length: 128 }).notNull(),
+  redirectUri:   text("redirect_uri").notNull(),
+  expiresAt:     timestamp("expires_at").notNull(),
+  usedAt:        timestamp("used_at"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+});
+
+export const mcpTokens = pgTable("mcp_tokens", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  clientId:         varchar("client_id", { length: 64 }).notNull(),
+  userId:           uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId:            uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  scopes:           text("scopes").notNull(),
+  accessHash:       varchar("access_hash", { length: 64 }).notNull().unique(),
+  refreshHash:      varchar("refresh_hash", { length: 64 }).notNull().unique(),
+  accessExpiresAt:  timestamp("access_expires_at").notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at").notNull(),
+  revokedAt:        timestamp("revoked_at"),
+  lastUsedAt:       timestamp("last_used_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ byUser: index("mcp_tokens_user_idx").on(t.userId) }));

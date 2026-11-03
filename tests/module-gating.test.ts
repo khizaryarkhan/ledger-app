@@ -199,6 +199,7 @@ const UNOWNED_API: readonly AllowEntry[] = [
   { path: "/api/guide", why: "in-app help content, not module-specific" },
   { path: "/api/health", why: "health check" },
   { path: "/api/inngest", why: "background job runner's own webhook endpoint" },
+  { path: "/api/mcp", why: "MCP server for AI clients — authenticates by its own opaque bearer token; every tool call is replayed against the owned routes under the user's identity, so module gating still applies there (lib/mcp)" },
   { path: "/api/interest", why: "public marketing 'request access' form, unauthenticated" },
   { path: "/api/invoices", why: "loaded by the app-wide data provider on every page (same carve-out reasoning as /api/customers)" },
   { path: "/api/ledger/journal/[id]", why: "a single journal entry — read by the shared document detail page; only the list is Accounting-owned (see the exact:true carve-out above)" },

@@ -26,7 +26,26 @@ async function resolveBrand(): Promise<{ name: string; logo: string | null }> {
   }
 }
 
-export default async function LoginPage() {
+// Where to go after signing in. Only a same-site path is honoured (one leading
+// slash, never `//host` or `/\host`), so ?next= cannot be used as an open
+// redirect. Used by the MCP consent flow to return to /oauth/authorize.
+// Only the MCP consent screen needs this, so only that exact path is honoured —
+// no control characters or whitespace (a `/%09/host` style value is read by some
+// browsers as `//host`), and the path part must stay clean once decoded too.
+function safeNext(raw: string | string[] | undefined): string {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  const fallback = "/dashboard";
+  if (!v || v.length >= 2000 || !v.startsWith("/oauth/authorize?")) return fallback;
+  const CLEAN = /^\/(?![/\\])[^\s\u0000-\u001f]*$/;
+  if (!CLEAN.test(v)) return fallback;
+  try {
+    return CLEAN.test(decodeURIComponent(v.split("?")[0])) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export default async function LoginPage({ searchParams }: { searchParams: { next?: string | string[] } }) {
   const brand = await resolveBrand();
-  return <LoginForm brandName={brand.name} brandLogo={brand.logo} />;
+  return <LoginForm brandName={brand.name} brandLogo={brand.logo} next={safeNext(searchParams?.next)} />;
 }

@@ -7,6 +7,7 @@
     "build": "next build",
     "vercel-build": "npm run db:migrate && next build",
     "start": "next start",
+    "mcp:manifest": "tsx scripts/gen-mcp-manifest.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:verify": "tsx scripts/verify-schema.ts",

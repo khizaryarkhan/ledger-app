@@ -25,6 +25,9 @@ export type EventType =
   | "integration_connected"    // QBO/Xero/Gmail/MS connection established
   | "integration_disconnected" // QBO/Xero/Gmail/MS connection removed
   | "data_exported"            // audit trail / report exported
+  | "mcp_read"                 // an AI client (MCP) read data as this user
+  | "mcp_write"                // an AI client (MCP) created/changed data as this user
+  | "mcp_delete"               // an AI client (MCP) deleted data as this user
   // ── Payables / Procurement ───────────────────────────────────────────────
   | "purchase_request_created"
   | "purchase_request_submitted"
