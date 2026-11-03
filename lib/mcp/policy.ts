@@ -199,12 +199,17 @@ function redactValue(v: unknown, count: { n: number }, depth: number): unknown {
  * damaged to parse) falls back to a pattern over `"key": value` pairs, so a body
  * that is not clean JSON is still not a way round the rule.
  */
+export function redactJson(value: unknown): { value: unknown; redacted: number } {
+  const count = { n: 0 };
+  const clean = redactValue(value, count, 0);
+  return { value: count.n ? clean : value, redacted: count.n };
+}
+
 export function redactText(text: string): { text: string; redacted: number } {
   const count = { n: 0 };
   try {
-    const parsed = JSON.parse(text);
-    const clean = redactValue(parsed, count, 0);
-    return { text: count.n ? JSON.stringify(clean) : text, redacted: count.n };
+    const { value, redacted } = redactJson(JSON.parse(text));
+    return { text: redacted ? JSON.stringify(value) : text, redacted };
   } catch {
     const out = text.replace(/"([^"\\]{1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*)/g, (m, key: string, sep: string) => {
       if (!isSensitiveKey(key)) return m;

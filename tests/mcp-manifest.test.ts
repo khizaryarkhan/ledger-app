@@ -7,7 +7,15 @@ const sample = (p: string) => p.replace(/\[\.\.\.[^\]]+\]|\[[^\]]+\]/g, "x");
 
 describe("MCP route manifest", () => {
   it("lists exactly the routes under app/api (run `npm run mcp:manifest` if this fails)", () => {
-    expect(API_ROUTES.map((r) => ({ path: r.path, methods: [...r.methods] }))).toEqual(scanApiRoutes());
+    expect(JSON.parse(JSON.stringify(API_ROUTES))).toEqual(scanApiRoutes());
+  });
+
+  it("lists the query parameters a route reads (the ones the first live user had to guess)", () => {
+    const find = (p: string) => API_ROUTES.find((r) => r.path === p);
+    expect(find("/api/reports/ar-snapshot")?.params).toContain("asOf");
+    expect(find("/api/projects")?.params).toEqual(expect.arrayContaining(["customerId", "search"]));
+    // headers.get("authorization") and cookies.get(...) must never read as parameters
+    for (const r of API_ROUTES) expect(r.params ?? [], r.path).not.toContain("authorization");
   });
 
   it("offers an AI connection no route that carries credentials, identity, billing or a hand-shake", () => {

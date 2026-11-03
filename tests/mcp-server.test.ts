@@ -238,11 +238,43 @@ describe("output", () => {
   });
   it("redacts BEFORE truncating, so a long body is still clean", async () => {
     const { c, callApi } = ctx(["mcp:read"]);
-    const rows = Array.from({ length: 4000 }, (_, i) => ({ i, filler: "x".repeat(40), ssn: `SSN-${i}` }));
+    const rows = Array.from({ length: 4000 }, (_, i) => ({ i, filler: "x".repeat(400), ssn: `SSN-${i}` }));
     callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: JSON.stringify(rows), truncated: false });
-    const out = (await call(c, "api_get", { path: "/api/x" })).result.content[0].text;
+    const out = (await call(c, "api_get", { path: "/api/x", limit: 500 })).result.content[0].text;
     expect(out).toMatch(/truncated/);
     expect(out).not.toMatch(/SSN-\d/);
+  });
+});
+
+describe("paging and fields on api_get", () => {
+  const bigList = (n: number) => JSON.stringify({ currency: "EUR", invoices: Array.from({ length: n }, (_, i) => ({ docNumber: `INV-${i}`, total: i, email: `a${i}@b.c`, ssn: `S${i}` })) });
+
+  it("pages a long list by default and tells the model how to continue", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: bigList(6719), truncated: false });
+    const out = (await call(c, "api_get", { path: "/api/invoices" })).result.content[0].text;
+    expect(out).toMatch(/rows 1–100 of 6719 in "invoices" — call again with offset 100/);
+    expect(out).not.toMatch(/truncated/);
+    expect(JSON.parse(out.split("\n")[1]).invoices).toHaveLength(100);
+  });
+  it("applies limit, offset and fields, and still redacts", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: bigList(30), truncated: false });
+    const out = (await call(c, "api_get", { path: "/api/invoices", limit: 2, offset: 10, fields: ["docNumber", "ssn"] })).result.content[0].text;
+    const body = JSON.parse(out.split("\n")[1]);
+    expect(body.invoices).toEqual([{ docNumber: "INV-10", ssn: "[redacted]" }, { docNumber: "INV-11", ssn: "[redacted]" }]);
+    expect(out).not.toMatch(/S1[01]"/);
+  });
+  it("refuses a bad limit without calling the app", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    const r = await call(c, "api_get", { path: "/api/invoices", limit: 9999 });
+    expect(r.result.isError).toBe(true);
+    expect(callApi).not.toHaveBeenCalled();
+  });
+  it("a short answer is returned byte-for-byte", async () => {
+    const { c, callApi } = ctx(["mcp:read"]);
+    callApi.mockResolvedValueOnce({ ok: true, status: 200, contentType: "application/json", text: '{"a":[1,2]}', truncated: false });
+    expect((await call(c, "api_get", { path: "/api/x" })).result.content[0].text).toBe('HTTP 200\n{"a":[1,2]}');
   });
 });
 

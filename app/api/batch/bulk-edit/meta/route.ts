@@ -22,7 +22,16 @@ export async function GET(req: Request) {
 
   const entity = getEntity(new URL(req.url).searchParams.get("entity") || "");
   const supported = !!(entity && entity.qboEntity && entity.qboReadName && entity.supports?.modify);
-  if (!supported) return ok({ supported: false, connected: false });
+  // `connected` describes the QuickBooks connection, which this branch never
+  // checks — so it is null here, not false. Reporting false read as "QuickBooks
+  // is not connected" while /api/qbo/verify was returning live counts.
+  if (!supported) {
+    return ok({
+      supported: false,
+      connected: null,
+      reason: entity ? `"${entity.id}" records cannot be bulk-edited.` : "Pass ?entity= with a Data Studio record type (see /api/batch/entities).",
+    });
+  }
 
   const token = await getOrgQboToken(orgId!).catch(() => null);
   if (!token) return ok({ supported: true, connected: false });

@@ -16,7 +16,8 @@ const thRight = "px-2 py-2 text-right text-[11px] font-medium text-stone-500 whi
 type Ref = { id: string; name: string };
 type CFDef = { definitionId: string; name: string };
 type Meta = {
-  supported: boolean; connected: boolean; classPerLine: boolean;
+  // connected is null when the record type is unsupported (the connection was never checked); reason says why.
+  supported: boolean; connected: boolean | null; reason?: string; classPerLine: boolean;
   classes: Ref[]; locations: Ref[]; customers: Ref[];
   customFields: CFDef[]; supportsEmail: boolean;
   statuses: string[]; label: string;
@@ -156,7 +157,8 @@ function BulkEditInner() {
 
       {metaLoading && <div className="text-sm text-stone-500 py-6">Loading Class / Location lists…</div>}
 
-      {meta && !meta.connected && <div className="text-sm text-amber-400 py-4">QuickBooks isn't connected for this organisation.</div>}
+      {meta && meta.supported === false && <div className="text-sm text-stone-400 py-4">{meta.reason || "This record type can't be bulk-edited."}</div>}
+      {meta && meta.supported !== false && !meta.connected && <div className="text-sm text-amber-400 py-4">QuickBooks isn't connected for this organisation.</div>}
       {meta && meta.connected && meta.classes.length === 0 && meta.locations.length === 0 && (
         <div className="text-sm text-stone-400 py-4">This company has no Class or Location lists set up, so there's nothing to bulk-edit here.</div>
       )}

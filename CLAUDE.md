@@ -4759,10 +4759,21 @@ OAuth 2.1 with dynamic client registration and PKCE S256. Migration `0125`.
     `maxDuration` 120.
   - **Attribution**: every audit row carries `ref` = the id the app returned (a Data Studio
     `jobId`), so a QBO change made by AI is traceable from its job.
-  - **Not done from that report**: `limit`/`fields` paging, per-route parameter docs,
-    `/api/projects` ignoring `search`, `bulk-edit/meta`'s misleading `connected:false`,
-    live QBO reads, and the data-integrity questions (sync-log `qboTotalAR`, count drift,
-    €0.01 balances) — the last need a read-only look at production, not MCP changes.
+  - **Usability pass (same day)**: `api_get` takes `limit` (default 100, max 500),
+    `offset` and `fields`, applied in the MCP layer (`lib/mcp/shape.ts`) to the response's
+    largest list one or two levels down, with a note giving the next offset — so every
+    route pages without being rewritten (the route still runs its full query; this saves
+    the model's context, not the database). Order is redact → page → truncate. The
+    manifest now records each route's query parameters, read from its source with a regex
+    restricted to URLSearchParams receivers (so `headers.get`/`cookies.get` never count);
+    it gives names only, not whether a parameter is required. `/api/projects` honours
+    `search` (code or name, ilike) and `status`. `bulk-edit/meta` returns
+    `connected: null` + `reason` for an unsupported type instead of `false`, and the
+    Bulk Edit page shows the reason.
+  - **Still not done from that report**: live QBO reads for Data Studio entities, a
+    standard async-job pattern, per-currency AR, request-BODY docs per route, and the
+    data-integrity questions (sync-log `qboTotalAR`, count drift, €0.01 balances) — the
+    last need a read-only look at production, not MCP changes.
 - **Users find it at Settings → AI connections** (`/settings/ai-connections`, a card in
   the hub's Connections section). It shows the connection address built from
   `window.location.origin` (so it is right on any domain or white-label subdomain),

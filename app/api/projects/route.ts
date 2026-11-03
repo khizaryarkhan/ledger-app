@@ -3,7 +3,7 @@ import { projects, customers, resources } from "@/db/schema";
 import { requireOrg, requireReadScope, ok, bad, ownsInOrg } from "@/lib/api";
 import { getRepScope } from "@/lib/rep-scope";
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or, ilike } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid(),
@@ -21,10 +21,20 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
+  // `search` matches the project code or name, case-insensitively, anywhere in
+  // it ("G26006" finds "G26006 - Main works"). It used to be ignored silently,
+  // so a filtered request returned the whole list.
+  const search = (searchParams.get("search") ?? "").trim().slice(0, 100);
+  const status = searchParams.get("status");
 
-  const rows = customerId
-    ? await db.select().from(projects).where(and(inArray(projects.orgId, orgIds), eq(projects.customerId, customerId)))
-    : await db.select().from(projects).where(inArray(projects.orgId, orgIds));
+  const conds = [inArray(projects.orgId, orgIds)];
+  if (customerId) conds.push(eq(projects.customerId, customerId));
+  if (status) conds.push(eq(projects.status, status));
+  if (search) {
+    const like = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    conds.push(or(ilike(projects.code, like), ilike(projects.name, like))!);
+  }
+  const rows = await db.select().from(projects).where(and(...conds));
 
   // Reps only see projects in their book (plus any referenced by a visible invoice).
   const scope = await getRepScope(orgId!, role, repId);

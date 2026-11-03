@@ -13,9 +13,10 @@
 
 import { API_ROUTES } from "./route-manifest";
 import {
-  MAX_ACCOUNTING_SYSTEM_ROWS, authorizeCall, checkApiPath, isAccountingSystemWrite, largestArray, redactText,
+  MAX_ACCOUNTING_SYSTEM_ROWS, authorizeCall, checkApiPath, isAccountingSystemWrite, largestArray, redactJson, redactText,
   refusedEntity, requiresConfirmation, type HttpMethod,
 } from "./policy";
+import { describePage, parseShapeArgs, shapeJson, type ShapeOpts } from "./shape";
 import { makeConfirmToken, stableStringify, verifyConfirmToken, type McpScope } from "./oauth";
 import type { ApiCallResult } from "./api-call";
 
@@ -67,7 +68,10 @@ const TOOLS: readonly Tool[] = [
   },
   {
     name: "list_api_routes", scope: null,
-    description: "List the app's API routes with their HTTP methods. Filter by a word in the path (e.g. \"invoice\", \"batch\", \"qbo\"). Routes an AI connection may never use are omitted.",
+    description:
+      "List the app's API routes with their HTTP methods and the query parameters each one reads (shown as ?a&b — pass them in api_get's query). " +
+      "Filter by a word in the path (e.g. \"invoice\", \"batch\", \"qbo\"). Routes an AI connection may never use are omitted. " +
+      "Dates are YYYY-MM-DD; report routes generally need asOf or from/to.",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,8 +85,21 @@ const TOOLS: readonly Tool[] = [
   },
   {
     name: "api_get", scope: "mcp:read",
-    description: "Read data: send a GET to an app API route as the signed-in user. Use for lists, details, reports and search.",
-    inputSchema: { type: "object", properties: { path: pathProp, query: queryProp }, required: ["path"], additionalProperties: false },
+    description:
+      "Read data: send a GET to an app API route as the signed-in user. Use for lists, details, reports and search. " +
+      "Long lists come back 100 rows at a time with a note saying how to get the next page; use limit/offset to page " +
+      "and fields to return only the columns you need. Route-specific filters go in query (list_api_routes shows each route's).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: pathProp,
+        query: queryProp,
+        limit: { type: "number", description: "Rows to return from the response's main list (1-500, default 100)." },
+        offset: { type: "number", description: "Rows to skip first (default 0)." },
+        fields: { type: "array", items: { type: "string" }, description: "Return only these fields of each row, e.g. [\"docNumber\",\"total\",\"balance\",\"currency\"]." },
+      },
+      required: ["path"], additionalProperties: false,
+    },
     annotations: { title: "Read from the app", readOnlyHint: true, openWorldHint: true },
   },
   {
@@ -128,20 +145,42 @@ export function listRoutes(args: Record<string, unknown>): string {
     // Substitute a harmless id so [param] segments are judged like a real call.
     return checkApiPath(r.path.replace(/\[\.\.\.[^\]]+\]|\[[^\]]+\]/g, "x")).ok;
   });
-  const shown = hits.slice(0, limit).map((r) => `${r.methods.join(",")}  ${r.path}`);
+  // Query parameters are read from each route's source, so they are the names the
+  // route actually reads — but not whether each is required, nor its format.
+  const shown = hits.slice(0, limit).map((r) => `${r.methods.join(",")}  ${r.path}${r.params?.length ? `  ?${r.params.join("&")}` : ""}`);
   return `${hits.length} matching route(s)${hits.length > limit ? `, showing ${limit} — narrow the search` : ""}:\n${shown.join("\n")}`;
 }
 
 /** What reaches the model. Applied AFTER redaction, so a cut-off body was already clean. */
 export const MAX_OUTPUT_CHARS = 100_000;
 
-function formatResult(r: ApiCallResult): { content: { type: string; text: string }[]; isError: boolean } {
+/**
+ * Order matters: redact the WHOLE body, then page it, then cut what is left.
+ * Paging before redacting would be fine too, but redacting first means no
+ * future change to paging can ever let an unredacted row through.
+ */
+function formatResult(r: ApiCallResult, shape: ShapeOpts = {}): { content: { type: string; text: string }[]; isError: boolean } {
   if (r.ok === false) return text(r.error, true);
-  const { text: clean, redacted } = redactText(r.text);
+  let clean: string;
+  let redacted: number;
+  let pageNote = "";
+  let parsed: unknown;
+  let isJson = false;
+  if (!r.truncated) { try { parsed = JSON.parse(r.text); isJson = true; } catch { /* not JSON */ } }
+  if (isJson) {
+    const red = redactJson(parsed);
+    redacted = red.redacted;
+    const shaped = shapeJson(red.value, shape);
+    if (shaped.page) pageNote = describePage(shaped.page);
+    clean = shaped.page || redacted ? JSON.stringify(shaped.value) : r.text;
+  } else {
+    ({ text: clean, redacted } = redactText(r.text));
+  }
   const cut = r.truncated || clean.length > MAX_OUTPUT_CHARS;
   const notes = [
+    pageNote,
     redacted ? `[${redacted} personal or credential value(s) redacted]` : "",
-    cut ? "[response truncated — ask for a narrower query]" : "",
+    cut ? "[response truncated — use limit/fields, or a narrower query]" : "",
   ].filter(Boolean).join("\n");
   return text(`HTTP ${r.status}\n${clean.slice(0, MAX_OUTPUT_CHARS)}${notes ? `\n${notes}` : ""}`, r.status >= 400);
 }
@@ -166,6 +205,8 @@ async function runApiTool(name: string, args: Record<string, unknown>, ctx: McpC
 
   const query = isRecord(args.query) ? args.query : undefined;
   const body = args.body;
+  const shapeArgs = parseShapeArgs(args);
+  if (shapeArgs.ok === false) return text(`Refused: ${shapeArgs.error}.`, true);
   if (body !== undefined && !isRecord(body) && !Array.isArray(body)) return text("Refused: body must be a JSON object or array.", true);
 
   const entity = refusedEntity(d.path, query, body);
@@ -196,7 +237,7 @@ async function runApiTool(name: string, args: Record<string, unknown>, ctx: McpC
   const result = await ctx.callApi({ method: d.method, path: d.path, query, body });
   // Reads are audited too: with write access gated, reading is how data leaves.
   await ctx.audit({ method: d.method, path: d.path, scope: d.scope, status: result.ok ? result.status : null, ref: responseRef(result) }).catch(() => {});
-  return formatResult(result);
+  return formatResult(result, shapeArgs.opts);
 }
 
 async function callTool(name: unknown, args: Record<string, unknown>, ctx: McpContext) {
