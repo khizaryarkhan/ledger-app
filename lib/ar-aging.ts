@@ -25,7 +25,7 @@
 
 import { db } from "@/db";
 import { invoices, payments, paymentApplications, journalEntryArLines, deposits, refundReceipts } from "@/db/schema";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 
 export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "90+" | "91+";
 export const BUCKETS: AgingBucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
@@ -133,8 +133,11 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   const isToday = asOf >= today;
 
   // 1. Load all invoices + credit memos dated on or before asOf
+  // Deleted in QuickBooks/Xero → excluded at EVERY as-at date: a deleted document
+  // never existed (lib/qbo-sync.ts). The sync leaves its last balance on the row,
+  // and "Closed" is deliberately not read below, so only this filter keeps it out.
   const allInvs = await db.select().from(invoices)
-    .where(and(eq(invoices.orgId, orgId), lte(invoices.invoiceDate, asOf)));
+    .where(and(eq(invoices.orgId, orgId), lte(invoices.invoiceDate, asOf), isNull(invoices.deletedAt)));
 
   // 2. Load all payments dated on or before asOf
   const validPayments = await db

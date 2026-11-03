@@ -1726,6 +1726,35 @@ and our own machines run east of or on UTC.
   It was **proven to fail on the old implementation** with the exact reported
   symptom, `expected '14 Sep 2026' to be '15 Sep 2026'` — not merely to pass.
 
+## A deleted invoice is not receivable — every AR total filters `deleted_at` (2026-11-03)
+
+Found from EDC's MCP report. When QuickBooks/Xero deletes an invoice, `lib/qbo-sync.ts`
+soft-deletes it (`deleted_at`, stage Closed) but LEAVES its last open balance on the row.
+The Board and `/api/invoices` filtered `deleted_at`; the AR snapshot (Dashboard), AR
+aging, Executive Overview and reconcile did not, and aging deliberately ignores "Closed" —
+so production carried ACC 152 deleted invoices / $93,981, EDC €13,902, EDC London £12 as
+receivable (as at 2026-11-03: ACC $252,089 → $240,093, EDC €2,821,600 → €2,807,690).
+
+- **Any new query that totals receivables must add `isNull(invoices.deletedAt)`.**
+  `tests/ar-deleted-invoices.test.ts` checks every `.from(invoices)` in the listed AR
+  surfaces (proven to fail with the filter removed) — add a new surface to its list.
+- The deletion logic itself was checked and is sound (explicit change-feed deletions, or a
+  full-sync absence sweep with caps), so excluding these never hides genuine debt.
+- **Executive Overview never adds currencies** (`lib/ar-currency.ts`): AR/AP are totalled
+  per currency; the headline is home, or — when everything open is in ONE other currency —
+  that currency (`headlineTotal`), each figure carrying its own `currency`. Working capital
+  adds only a home-currency headline. **ACC's org currency is EUR but all its invoices are
+  USD** — likely a set-up error worth raising with them; the headline rule is what stops
+  that reading as €0 owed. GL figures are `null` (`ledgerHeld: false`) when `isSyncedOrg`.
+- **QBO sync log**: an incremental run's `qboTotalAR` was the balance of only that day's
+  changed invoices (€0–€872k vs a €2.9m ledger). It is now the sum of mirrored
+  `qbo_balance` on live invoices — the same quantity a full sync records.
+- **`/api/qbo/verify`** counts only live, QBO-mirrored rows (natives were never in QBO);
+  `?details=1` names the records behind each mismatch (EDC: 7 invoices / 3 payments
+  still unexplained by counts alone). Not run against a live QBO yet.
+- **Not bugs, reported as such**: €0.01 residuals and unapplied credit memos are real
+  QuickBooks balances; "8850." and duplicate "8614" are numbers as typed in QuickBooks.
+
 ## Receivables are reported AS AT a date (2026-09-12)
 
 **A receivable exists from the day it is invoiced.** An invoice dated after the

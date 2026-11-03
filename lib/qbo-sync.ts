@@ -1727,6 +1727,17 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     )
     .reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
 
+  // On an INCREMENTAL run `openInvoices` is only what changed since the last sync,
+  // so the STEP 6 sum was "balance of today's changes" — €0 to €872k against a
+  // €2.9m ledger, a meaningless ~€2.9m "difference" in every daily log (reported
+  // by EDC). The full-sync figure is the sum of QBO's open balances, which after
+  // this sync is exactly what is mirrored in qbo_balance; use that instead, so
+  // the log compares like with like on every run.
+  if (isIncremental) {
+    results.qboTotalAR = currentInvoices
+      .filter((i) => i.txnType !== "CreditMemo" && !i.deletedAt && i.qboId && (i.qboBalance ?? 0) > 0)
+      .reduce((s, i) => s + (i.qboBalance ?? 0), 0);
+  }
   results.difference = Math.abs(results.qboTotalAR - results.ledgerTotalAR);
 
   // STEP 10: Write sync log

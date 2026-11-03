@@ -23,8 +23,8 @@ interface Overview {
   asOf: string;
   currency: string;
   cash: number;
-  ar: { total: number; overdue: number; openCount: number; glBalance: number };
-  ap: { total: number; overdue: number; openCount: number; glBalance: number };
+  ar: { currency?: string; total: number; overdue: number; openCount: number; glBalance: number | null };
+  ap: { currency?: string; total: number; overdue: number; openCount: number; glBalance: number | null };
   inventoryValue: number;
   pendingApprovals: { count: number; amount: number };
   revenue: { mtd: number; ytd: number };
@@ -79,9 +79,13 @@ export default function AccountingDashboardPage() {
   useEffect(() => { load(); }, []);
 
   const ccy = ov?.currency ?? "PKR";
+  // AR/AP figures carry their own currency (usually home); GL figures are always home.
+  const arCcy = ov?.ar.currency ?? ccy;
+  const apCcy = ov?.ap.currency ?? ccy;
   const booksOk = ov ? ov.ledgerIntegrity.trialBalanceOk && ov.ledgerIntegrity.balanceSheetOk : true;
-  const arVariance = ov ? r2(ov.ar.total - ov.ar.glBalance) : 0;
-  const apVariance = ov ? r2(ov.ap.total - ov.ap.glBalance) : 0;
+  // glBalance is null when the books are kept in QuickBooks/Xero: there is no GL here to compare with.
+  const arVariance = ov && ov.ar.glBalance != null && arCcy === ccy ? r2(ov.ar.total - ov.ar.glBalance) : 0;
+  const apVariance = ov && ov.ap.glBalance != null && apCcy === ccy ? r2(ov.ap.total - ov.ap.glBalance) : 0;
   function r2(n: number) { return Math.round(n * 100) / 100; }
 
   const arMax = arAging ? Math.max(...Object.values(arAging.buckets), 1) : 1;
@@ -170,17 +174,19 @@ export default function AccountingDashboardPage() {
             <div className="grid grid-cols-3 gap-4 divide-x divide-stone-800">
               <div className="pr-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total</div>
-                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ar.total ?? 0, ccy)}</div>
+                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ar.total ?? 0, arCcy)}</div>
                 <div className="mt-1 text-[11px] text-stone-500">{ov?.ar.openCount ?? 0} open</div>
               </div>
               <div className="px-4">
                 <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Overdue</div>
-                <div className="text-xl font-semibold tabular-nums text-rose-400">{fmt.money(ov?.ar.overdue ?? 0, ccy)}</div>
+                <div className="text-xl font-semibold tabular-nums text-rose-400">{fmt.money(ov?.ar.overdue ?? 0, arCcy)}</div>
               </div>
               <div className="pl-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">GL balance</div>
-                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ar.glBalance ?? 0, ccy)}</div>
-                {Math.abs(arVariance) > 0.5 && <div className="mt-1 text-[11px] text-amber-400">Δ {fmt.money(arVariance, ccy)} vs subledger</div>}
+                {ov?.ar.glBalance === null
+                  ? <div className="text-[13px] text-stone-400 mt-1">Kept in QuickBooks / Xero</div>
+                  : <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ar.glBalance ?? 0, ccy)}</div>}
+                {Math.abs(arVariance) > 0.5 && <div className="mt-1 text-[11px] text-amber-400">Δ {fmt.money(arVariance, arCcy)} vs subledger</div>}
               </div>
             </div>
           )}
@@ -191,17 +197,19 @@ export default function AccountingDashboardPage() {
             <div className="grid grid-cols-3 gap-4 divide-x divide-stone-800">
               <div className="pr-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total</div>
-                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ap.total ?? 0, ccy)}</div>
+                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ap.total ?? 0, apCcy)}</div>
                 <div className="mt-1 text-[11px] text-stone-500">{ov?.ap.openCount ?? 0} open</div>
               </div>
               <div className="px-4">
                 <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Overdue</div>
-                <div className="text-xl font-semibold tabular-nums text-rose-400">{fmt.money(ov?.ap.overdue ?? 0, ccy)}</div>
+                <div className="text-xl font-semibold tabular-nums text-rose-400">{fmt.money(ov?.ap.overdue ?? 0, apCcy)}</div>
               </div>
               <div className="pl-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">GL balance</div>
-                <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ap.glBalance ?? 0, ccy)}</div>
-                {Math.abs(apVariance) > 0.5 && <div className="mt-1 text-[11px] text-amber-400">Δ {fmt.money(apVariance, ccy)} vs subledger</div>}
+                {ov?.ap.glBalance === null
+                  ? <div className="text-[13px] text-stone-400 mt-1">Kept in QuickBooks / Xero</div>
+                  : <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ap.glBalance ?? 0, ccy)}</div>}
+                {Math.abs(apVariance) > 0.5 && <div className="mt-1 text-[11px] text-amber-400">Δ {fmt.money(apVariance, apCcy)} vs subledger</div>}
               </div>
             </div>
           )}

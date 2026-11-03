@@ -36,7 +36,7 @@
 import { db } from "@/db";
 import { invoices, qboTokens } from "@/db/schema";
 import { requireReadScope, ok, bad } from "@/lib/api";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
 import type { DetailRow } from "@/lib/ar-aging";
 import { fetchQboAging } from "@/lib/qbo-aging-report";
@@ -208,7 +208,11 @@ async function openInvoicesFromSyncedData(orgId: string, asOf: string) {
     qboBalance:          invoices.qboBalance,
     xeroBalance:         invoices.xeroBalance,
     sageIntacctBalance:  invoices.sageIntacctBalance,
-  }).from(invoices).where(eq(invoices.orgId, orgId));
+  // Deleted in QuickBooks/Xero = never existed (lib/qbo-sync.ts). The sync leaves
+  // the row's last open balance in place, so without this filter a deleted
+  // invoice kept counting as receivable here while the Board and invoice list
+  // (which do filter) had dropped it.
+  }).from(invoices).where(and(eq(invoices.orgId, orgId), isNull(invoices.deletedAt)));
 
   const out: any[] = [];
   for (const inv of rows) {

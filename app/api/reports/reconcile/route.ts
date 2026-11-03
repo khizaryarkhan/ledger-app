@@ -30,7 +30,7 @@ import {
   qboTokens, xeroTokens, sageIntacctCredentials,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, isNull, lte } from "drizzle-orm";
 import { fetchQboAging } from "@/lib/qbo-aging-report";
 import { computeArAging } from "@/lib/ar-aging";
 
@@ -102,7 +102,7 @@ export async function GET(req: Request) {
     qboBalance:         invoices.qboBalance,
     xeroBalance:        invoices.xeroBalance,
     sageIntacctBalance: invoices.sageIntacctBalance,
-  }).from(invoices).where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf)));
+  }).from(invoices).where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf), isNull(invoices.deletedAt)));
 
   // ── Our open AR contribution, grouped by transaction type ──────────────────
   const ourByType = new Map<string, TypeAgg>();

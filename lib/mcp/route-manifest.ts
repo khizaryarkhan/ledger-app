@@ -409,7 +409,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/qbo/modern-check", methods: ["GET"], params: ["asOf"] },
   { path: "/api/qbo/reconcile-customers", methods: ["GET"], params: ["driftOnly","tolerance"] },
   { path: "/api/qbo/sync", methods: ["GET","POST"] },
-  { path: "/api/qbo/verify", methods: ["GET"] },
+  { path: "/api/qbo/verify", methods: ["GET"], params: ["details"] },
   { path: "/api/qbo/verify-ar", methods: ["GET"] },
   { path: "/api/qbo/verify-invoice-nums", methods: ["GET"], params: ["from","list","to"] },
   { path: "/api/qbo/webhook-health", methods: ["GET"] },

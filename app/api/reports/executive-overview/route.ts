@@ -13,7 +13,9 @@
 import { db } from "@/db";
 import { invoices, apBills, apItems, pendingApprovals, organisations } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
+import { totalsByCurrency, headlineTotal, type OpenItem } from "@/lib/ar-currency";
+import { isSyncedOrg } from "@/lib/accounting/account-roles-server";
 import { profitAndLoss, trialBalance, balanceSheet } from "@/lib/accounting/financials";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { isWithinAsAt } from "@/lib/format";
@@ -55,10 +57,11 @@ export async function GET() {
   // ── Operational AR (synced invoices — matches the Collections dashboard) ──
   const invRows = await db.select({
     total: invoices.total, paid: invoices.paid, dueDate: invoices.dueDate, paymentStatus: invoices.paymentStatus,
-    invoiceDate: invoices.invoiceDate,
+    invoiceDate: invoices.invoiceDate, currency: invoices.currency,
     qboBalance: invoices.qboBalance, xeroBalance: invoices.xeroBalance, sageIntacctBalance: invoices.sageIntacctBalance,
-  }).from(invoices).where(eq(invoices.orgId, orgId!));
-  let arTotal = 0, arOverdue = 0, arOpenCount = 0;
+  // Deleted in QuickBooks/Xero = never existed; the sync leaves its last balance on the row.
+  }).from(invoices).where(and(eq(invoices.orgId, orgId!), isNull(invoices.deletedAt)));
+  const arItems: OpenItem[] = [];
   for (const inv of invRows) {
     if (inv.paymentStatus === "Written Off") continue;
     // Same as-at rule the Collections dashboard applies (see CLAUDE.md): an
@@ -68,23 +71,26 @@ export async function GET() {
     if (!isWithinAsAt(inv.invoiceDate, today)) continue;
     const bal = openInvoiceBalance(inv);
     if (Math.abs(bal) < 0.005) continue;
-    arOpenCount++;
-    arTotal += bal;
-    if (inv.dueDate && inv.dueDate < today) arOverdue += bal;
+    arItems.push({ currency: inv.currency, balance: bal, dueDate: inv.dueDate });
   }
+  // One figure per currency; the headline is the home currency only — see lib/ar-currency.ts.
+  const arByCurrency = totalsByCurrency(arItems, currency, today);
+  const arHome = headlineTotal(arByCurrency, currency);
 
   // ── Operational AP (bills — matches the Payables dashboard) ──
-  const bills = await db.select({ balance: apBills.balance, dueDate: apBills.dueDate })
+  const bills = await db.select({ balance: apBills.balance, dueDate: apBills.dueDate, currency: apBills.currency })
     .from(apBills)
     .where(and(eq(apBills.orgId, orgId!), inArray(apBills.accountingPaymentStatus, ["Unpaid", "Partially Paid"])));
-  let apTotal = 0, apOverdue = 0, apOpenCount = 0;
-  for (const b of bills) {
-    const bal = num(b.balance);
-    if (bal <= 0) continue;
-    apOpenCount++;
-    apTotal += bal;
-    if (b.dueDate && b.dueDate < today) apOverdue += bal;
-  }
+  const apItems_: OpenItem[] = bills
+    .filter((b) => num(b.balance) > 0)
+    .map((b) => ({ currency: b.currency, balance: num(b.balance), dueDate: b.dueDate }));
+  const apByCurrency = totalsByCurrency(apItems_, currency, today);
+  const apHome = headlineTotal(apByCurrency, currency);
+
+  // An org whose books are kept in QuickBooks/Xero has nothing in OUR general
+  // ledger, so its GL figures read 0 — which looked like "AR in the books is
+  // zero" beside a €2.85m receivable. Say "not held here" (null) instead.
+  const ledgerHeld = !(await isSyncedOrg(orgId!));
 
   // ── Inventory value (FIFO cost cache, same figure Stock Valuation shows) ──
   const items = await db.select({ invValue: apItems.invValue, productType: apItems.productType }).from(apItems).where(eq(apItems.orgId, orgId!));
@@ -99,14 +105,20 @@ export async function GET() {
     asOf: today,
     currency,
     cash: round(cash),
-    ar: { total: round(arTotal), overdue: round(arOverdue), openCount: arOpenCount, glBalance: round(glReceivable) },
-    ap: { total: round(apTotal), overdue: round(apOverdue), openCount: apOpenCount, glBalance: round(glPayable) },
+    // total/overdue/openCount are ONE currency — `ar.currency`, normally home
+    // (see headlineTotal); byCurrency has every currency. glBalance is null when
+    // the ledger is kept in QuickBooks/Xero.
+    ledgerHeld,
+    ar: { currency: arHome.currency, total: arHome.total, overdue: arHome.overdue, openCount: arHome.openCount, glBalance: ledgerHeld ? round(glReceivable) : null, byCurrency: arByCurrency },
+    ap: { currency: apHome.currency, total: apHome.total, overdue: apHome.overdue, openCount: apHome.openCount, glBalance: ledgerHeld ? round(glPayable) : null, byCurrency: apByCurrency },
     inventoryValue,
     pendingApprovals: { count: pending.length, amount: pendingAmount },
     revenue: { mtd: plMtd.sections[0].total, ytd: plYtd.sections[0].total },
     grossProfit: { mtd: plMtd.grossProfit, ytd: plYtd.grossProfit },
     netProfit: { mtd: plMtd.netProfit, ytd: plYtd.netProfit },
-    workingCapital: round(cash + arTotal + inventoryValue - apTotal),
+    // Home currency only: a headline in another currency is left out rather than added to euros.
+    workingCapital: round(cash + (arHome.currency === currency.toUpperCase() ? arHome.total : 0) + inventoryValue
+      - (apHome.currency === currency.toUpperCase() ? apHome.total : 0)),
     ledgerIntegrity: { trialBalanceOk: tb.balanced, balanceSheetOk: bs.balanced },
   });
 }

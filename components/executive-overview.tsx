@@ -16,10 +16,31 @@ import {
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
+type CurrencyTotal = { currency: string; total: number; overdue: number; openCount: number };
+
+/** Balances in currencies other than home, listed apart — never added into the home figure. */
+function OtherCurrencies({ label, rows, home }: { label: string; rows?: CurrencyTotal[]; home: string }) {
+  const others = (rows ?? []).filter((r) => r.currency !== home);
+  if (others.length === 0) return null;
+  return (
+    <div className="text-[12px] text-stone-500">
+      {label} in other currencies (not included above):{" "}
+      {others.map((r, i) => (
+        <span key={r.currency} className="text-stone-300 tabular-nums">
+          {i > 0 && " · "}{fmt.money(r.total, r.currency)} ({r.openCount} open)
+        </span>
+      ))}
+    </div>
+  );
+}
+
 type Overview = {
   asOf: string; currency: string; cash: number;
-  ar: { total: number; overdue: number; openCount: number; glBalance: number };
-  ap: { total: number; overdue: number; openCount: number; glBalance: number };
+  // total/overdue/openCount are the home currency; byCurrency lists every currency (home first).
+  // glBalance is null when the books are kept in QuickBooks/Xero (ledgerHeld false).
+  ledgerHeld?: boolean;
+  ar: { currency?: string; total: number; overdue: number; openCount: number; glBalance: number | null; byCurrency?: CurrencyTotal[] };
+  ap: { currency?: string; total: number; overdue: number; openCount: number; glBalance: number | null; byCurrency?: CurrencyTotal[] };
   inventoryValue: number;
   pendingApprovals: { count: number; amount: number };
   revenue: { mtd: number; ytd: number };
@@ -80,6 +101,8 @@ export function ExecutiveOverview() {
   useEffect(() => { load(); }, []);
 
   const money = (n: number) => fmt.money(n, data?.currency ?? "EUR");
+  const arCcy = data?.ar.currency ?? data?.currency ?? "EUR";
+  const apCcy = data?.ap.currency ?? data?.currency ?? "EUR";
   const marginPct = (num: number, den: number) => den > 0.005 ? `${((num / den) * 100).toFixed(1)}% margin` : undefined;
 
   return (
@@ -105,12 +128,23 @@ export function ExecutiveOverview() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
             <Kpi icon={Landmark} label="Cash" value={money(data.cash)} tone="emerald" />
-            <Kpi icon={ArrowDownToLine} label="Receivable" value={money(data.ar.total)}
-              sub={data.ar.overdue > 0.005 ? `${money(data.ar.overdue)} overdue` : `${data.ar.openCount} open`} tone={data.ar.overdue > 0.005 ? "rose" : "stone"} />
-            <Kpi icon={ArrowUpFromLine} label="Payable" value={money(data.ap.total)}
-              sub={data.ap.overdue > 0.005 ? `${money(data.ap.overdue)} overdue` : `${data.ap.openCount} open`} tone={data.ap.overdue > 0.005 ? "rose" : "stone"} />
+            {/* AR/AP carry their own currency — usually home, but never formatted with home's symbol when they are not. */}
+            <Kpi icon={ArrowDownToLine} label="Receivable" value={fmt.money(data.ar.total, arCcy)}
+              sub={data.ar.overdue > 0.005 ? `${fmt.money(data.ar.overdue, arCcy)} overdue` : `${data.ar.openCount} open`} tone={data.ar.overdue > 0.005 ? "rose" : "stone"} />
+            <Kpi icon={ArrowUpFromLine} label="Payable" value={fmt.money(data.ap.total, apCcy)}
+              sub={data.ap.overdue > 0.005 ? `${fmt.money(data.ap.overdue, apCcy)} overdue` : `${data.ap.openCount} open`} tone={data.ap.overdue > 0.005 ? "rose" : "stone"} />
             <Kpi icon={Boxes} label="Inventory value" value={money(data.inventoryValue)} tone="stone" />
           </div>
+          <div className="mt-2 space-y-0.5">
+            <OtherCurrencies label="Receivable" rows={data.ar.byCurrency} home={arCcy} />
+            <OtherCurrencies label="Payable" rows={data.ap.byCurrency} home={apCcy} />
+          </div>
+          {data.ledgerHeld === false && (
+            <div className="mt-3 text-[12.5px] text-stone-400 bg-stone-900 border border-stone-800 rounded-lg px-3 py-2">
+              Your books are kept in QuickBooks / Xero, so cash and profitability below come from this app&apos;s own ledger and read zero.
+              Receivable and payable above are from your synced invoices and bills; see Reporting for figures from your connected books.
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-2 gap-3 mt-3">
             <Kpi icon={ShieldCheck} label="Awaiting approval" value={data.pendingApprovals.count === 0 ? "Nothing pending" : money(data.pendingApprovals.amount)}
