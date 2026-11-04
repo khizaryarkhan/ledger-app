@@ -7,7 +7,8 @@ const FULL: McpScope[] = ["mcp:read", "mcp:write", "mcp:delete"];
 function ctx(scopes: McpScope[], status = 200) {
   const callApi = vi.fn(async () => ({ ok: true as const, status, contentType: "application/json", text: '{"ok":true}', truncated: false }));
   const audit = vi.fn(async () => {});
-  const c: McpContext = { scopes, connectionId: "conn-1", confirmSecret: "test-secret", callApi, audit, whoami: async () => ({ user: "a@b.c", role: "company_admin" }) };
+  const c: McpContext = { scopes, connectionId: "conn-1", confirmSecret: "test-secret", callApi, audit, whoami: async () => ({ user: "a@b.c", role: "company_admin" }),
+    aiSwitches: async () => ({ writes: true, deletes: true }), callQbo: vi.fn(async () => ({ ok: true as const, status: 200, contentType: "application/json", text: "{}", truncated: false })) };
   return { c, callApi, audit };
 }
 const tokenFrom = (r: any): string => /\(valid 5 minutes\): (\S+)/.exec(r.result.content[0].text)![1];
@@ -35,9 +36,9 @@ describe("protocol", () => {
 
 describe("tools are offered only for granted scopes", () => {
   const names = (s: McpScope[]) => toolsFor(s).map((t) => t.name);
-  it("read only", () => expect(names(["mcp:read"])).toEqual(["whoami", "list_api_routes", "api_get"]));
-  it("read + write", () => expect(names(["mcp:read", "mcp:write"])).toEqual(["whoami", "list_api_routes", "api_get", "api_write"]));
-  it("everything", () => expect(names(FULL)).toEqual(["whoami", "list_api_routes", "api_get", "api_write", "api_delete"]));
+  it("read only", () => expect(names(["mcp:read"])).toEqual(["whoami", "list_api_routes", "api_get", "qbo_api"]));
+  it("read + write", () => expect(names(["mcp:read", "mcp:write"])).toEqual(["whoami", "list_api_routes", "api_get", "api_write", "qbo_api"]));
+  it("everything", () => expect(names(FULL)).toEqual(["whoami", "list_api_routes", "api_get", "api_write", "api_delete", "qbo_api"]));
   it("tools/list never leaks the internal scope field and marks delete destructive", async () => {
     const r: any = await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, ctx(FULL).c);
     expect(r.result.tools.every((t: any) => !("scope" in t))).toBe(true);

@@ -19,6 +19,8 @@ import {
 import { describePage, parseShapeArgs, shapeJson, type ShapeOpts } from "./shape";
 import { makeConfirmToken, stableStringify, verifyConfirmToken, type McpScope } from "./oauth";
 import type { ApiCallResult } from "./api-call";
+import { createHash } from "crypto";
+import { classifyQboRequest } from "@/lib/qbo/passthrough";
 
 export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"] as const;
 export const SERVER_INFO = { name: "prime-accountax", version: "1.0.0" } as const;
@@ -27,6 +29,7 @@ export const INSTRUCTIONS =
   "Prime Accountax — accounts receivable, payables, accounting, inventory and QuickBooks/Xero tooling. " +
   "Start with whoami to see the organisation, the user's role and what this connection may do. " +
   "Use list_api_routes to find the endpoint for a task, then api_get / api_write / api_delete. " +
+  "For anything in QuickBooks Online itself (any entity, report, batch or change-data-capture) use qbo_api (organisation admins only). " +
   "Everything runs as the signed-in user, so the app's own permission checks apply: a 403 means the user's role cannot do that. " +
   "Path parameters are written like [id] in list_api_routes — substitute the real id. " +
   "Changes to QuickBooks/Xero (Data Studio, /api/batch) need their own grant, are limited to 100 records per call, and like every delete " +
@@ -48,6 +51,10 @@ export interface McpContext {
   whoami(): Promise<unknown>;
   /** `ref` is the id the app returned (a Data Studio job id, a new record's id), so the audit row points at what was done. */
   audit(e: { method: HttpMethod; path: string; scope: McpScope; status: number | null; ref?: string | null }): Promise<void>;
+  /** The org admin's switches: when off, no AI connection may change / delete anything, whatever it was granted. */
+  aiSwitches(): Promise<{ writes: boolean; deletes: boolean }>;
+  /** Sends one request to the QuickBooks passthrough (/api/qbo/api), which logs it itself. */
+  callQbo(body: Record<string, unknown>): Promise<ApiCallResult>;
 }
 
 type Tool = {
@@ -124,6 +131,36 @@ const TOOLS: readonly Tool[] = [
       required: ["path"], additionalProperties: false,
     },
     annotations: { title: "Delete data", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "qbo_api", scope: "mcp:read",
+    description:
+      "Call the QuickBooks Online Accounting API directly, with the organisation's own QuickBooks connection (organisation admins only). " +
+      "path is relative to /v3/company/{realmId}/: 'query' with query.query = a QuickBooks SQL query (e.g. \"select * from Payment where TxnDate >= '2026-10-01' STARTPOSITION 1 MAXRESULTS 100\"); " +
+      "'<entity>/<id>' to read one record (e.g. invoice/145); 'reports/<Name>' (e.g. reports/ProfitAndLoss with query start_date/end_date); " +
+      "'cdc' with query.entities and query.changedSince; '<entity>' POST to create or full-update (send Id + SyncToken; sparse:true for a sparse update); " +
+      "'<entity>' POST with query.operation=delete (or void) and {Id, SyncToken}; 'batch' POST with up to 30 BatchItemRequest items; '<entity>/<id>/send' POST to email it. " +
+      "Reads need only read access. Creates and changes need the 'Change QuickBooks / Xero' grant, deletes the delete grant too, and sending email the sensitive grant. " +
+      "A change first returns a confirmation token instead of running — use preview:true to see the request and the record as it stands, then repeat with confirm. " +
+      "QuickBooks errors come back in full (Fault). withCount:true adds the total for a query, for paging.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        method: { type: "string", enum: ["GET", "POST"] },
+        path: { type: "string", description: "Path after /v3/company/{realmId}/, e.g. query, invoice/145, reports/AgedReceivables, batch." },
+        query: { type: "object", additionalProperties: { type: "string" }, description: "Query-string parameters, e.g. {query: \"select ...\"}, {operation: \"delete\"}, {minorversion: \"75\"}." },
+        body: { type: "object", additionalProperties: true, description: "JSON body for POST." },
+        preview: { type: "boolean", description: "Show what a change would send, and the record as it stands, without sending it." },
+        withCount: { type: "boolean", description: "For a query: also return the total number of matching records." },
+        idempotencyKey: { type: "string", description: "Optional key (letters, digits, - _). Retrying with the same key never creates a second record." },
+        confirm: { type: "string", description: "For a change: the confirmation token returned by the first call." },
+        limit: { type: "number", description: "Rows to return from a query's results (1-500, default 100)." },
+        offset: { type: "number", description: "Rows to skip first." },
+        fields: { type: "array", items: { type: "string" }, description: "Return only these fields of each row." },
+      },
+      required: ["method", "path"], additionalProperties: false,
+    },
+    annotations: { title: "QuickBooks API", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
 ];
 
@@ -219,6 +256,11 @@ async function runApiTool(name: string, args: Record<string, unknown>, ctx: McpC
     }
   }
 
+  if (d.method !== "GET") {
+    const off = switchRefusal(await ctx.aiSwitches(), d.method === "DELETE");
+    if (off) return text(off, true);
+  }
+
   if (requiresConfirmation(d.method, d.path)) {
     // Bound to this connection and to these exact arguments, so it cannot be
     // reused for a different change or by a different connection.
@@ -240,12 +282,72 @@ async function runApiTool(name: string, args: Record<string, unknown>, ctx: McpC
   return formatResult(result, shapeArgs.opts);
 }
 
+/** The org admin's switches bind every AI connection, whatever it was granted. */
+export function switchRefusal(s: { writes: boolean; deletes: boolean }, isDelete: boolean): string | null {
+  if (!s.writes) return "Refused: an admin has switched off changes by AI connections for this organisation (Settings → AI connections).";
+  if (isDelete && !s.deletes) return "Refused: an admin has switched off deletes by AI connections for this organisation (Settings → AI connections).";
+  return null;
+}
+
+/** Which grants a QuickBooks call needs, beyond the read access that offers the tool at all. */
+export function qboScopesNeeded(kind: "read" | "write" | "delete", sends: boolean): McpScope[] {
+  const need: McpScope[] = ["mcp:read"];
+  if (kind !== "read") need.push("mcp:accounting_system");
+  if (kind === "delete") need.push("mcp:delete");
+  if (sends) need.push("mcp:sensitive");
+  return need;
+}
+
+const SCOPE_LABEL: Record<string, string> = {
+  "mcp:accounting_system": "Change QuickBooks / Xero", "mcp:delete": "Delete", "mcp:sensitive": "Send email and change settings",
+};
+
+async function runQboTool(args: Record<string, unknown>, ctx: McpContext) {
+  const c = classifyQboRequest({ method: args.method, path: args.path, query: args.query, body: args.body });
+  if (c.ok === false) return text(`Refused: ${c.error}`, true);
+  const shapeArgs = parseShapeArgs(args);
+  if (shapeArgs.ok === false) return text(`Refused: ${shapeArgs.error}.`, true);
+
+  const missing = qboScopesNeeded(c.kind, c.sends).filter((s) => !ctx.scopes.includes(s));
+  if (missing.length) {
+    return text(`Refused: this connection was not granted ${missing.map((m) => `"${SCOPE_LABEL[m] ?? m}"`).join(" and ")}. Reconnect and tick it on the consent screen to allow this.`, true);
+  }
+
+  const forward: Record<string, unknown> = { method: c.req.method, path: c.req.path, query: c.req.query, body: c.req.body };
+  if (args.withCount === true) forward.withCount = true;
+
+  if (c.kind !== "read") {
+    const off = switchRefusal(await ctx.aiSwitches(), c.kind === "delete");
+    if (off) return text(off, true);
+    if (args.preview === true) return formatResult(await ctx.callQbo({ ...forward, preview: true }), shapeArgs.opts);
+
+    const binding = stableStringify([ctx.connectionId, "qbo", c.req.method, c.req.path, c.req.query, c.req.body ?? null, args.idempotencyKey ?? null]);
+    if (!verifyConfirmToken(ctx.confirmSecret, binding, args.confirm)) {
+      const token = makeConfirmToken(ctx.confirmSecret, binding);
+      const verb = c.kind === "delete" ? "delete or void" : c.sends ? "email" : "create or change";
+      return text(
+        `NOT EXECUTED. This would ${verb} ${c.entities.join(", ") || "records"} in QuickBooks (${c.req.method} ${c.req.path}). ` +
+        `Call again with preview:true to see the request and the record as it stands. Tell the user exactly what will change and get their agreement, ` +
+        `then call qbo_api again with the same arguments and confirm set to this token (valid 5 minutes): ${token}`,
+      );
+    }
+    // No key given: derive one from the confirmed request, so a client that
+    // retries the same confirmed call gets QuickBooks' first answer, not a duplicate.
+    forward.idempotencyKey = typeof args.idempotencyKey === "string"
+      ? args.idempotencyKey
+      : createHash("sha256").update(`${binding}:${String(args.confirm)}`).digest("hex").slice(0, 40);
+  }
+
+  return formatResult(await ctx.callQbo(forward), shapeArgs.opts);
+}
+
 async function callTool(name: unknown, args: Record<string, unknown>, ctx: McpContext) {
   if (typeof name !== "string" || !toolsFor(ctx.scopes).some((t) => t.name === name)) {
     return text(`Unknown or not-permitted tool: ${String(name)}`, true);
   }
   if (name === "whoami") return text(JSON.stringify(await ctx.whoami(), null, 2));
   if (name === "list_api_routes") return text(listRoutes(args));
+  if (name === "qbo_api") return runQboTool(args, ctx);
   return runApiTool(name, args, ctx);
 }
 

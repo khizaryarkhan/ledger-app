@@ -47,6 +47,10 @@ export const BLOCKED_PREFIXES: readonly { prefix: string; why: string }[] = [
  */
 export const REFUSED_PATHS: readonly { path: string; prefix?: boolean; why: string }[] = [
   { path: "/api/qbo", why: "it starts the QuickBooks sign-in in a browser. To check the connection use GET /api/qbo/verify or GET /api/qbo/sync" },
+  // Reached only through the qbo_api tool, which classifies each request and
+  // checks the read / change / delete / send grants first. Through api_write
+  // every QuickBooks call would look like a plain "write".
+  { path: "/api/qbo/api", why: "use the qbo_api tool for QuickBooks API calls" },
   { path: "/api/xero", why: "it starts the Xero sign-in in a browser. To check the connection use GET /api/xero/sync" },
   { path: "/api/gmail", why: "it starts the Gmail sign-in in a browser" },
   { path: "/api/microsoft", why: "it starts the Microsoft sign-in in a browser" },
@@ -176,7 +180,7 @@ export function refusedEntity(path: string, query: unknown, body: unknown): stri
  * Data Studio column "Birth Date" are all caught. Redacting the value, not
  * dropping the key, keeps the shape so the model can say the field exists.
  */
-const SENSITIVE_KEY = /^(ssn|sin|socialsecurity(no|number)?|nino|ninumber|nationalinsurance(no|number)?|nationalid(no|number)?|dob|dateofbirth|birthdate|birthday|passport(no|number)?|password|passwordhash|accesstoken|refreshtoken|idtoken|apikey|clientsecret|secret|iban|bankaccount(no|number)?|sortcode|routingnumber|cardnumber|cvv|cvc)$/;
+const SENSITIVE_KEY = /^(ssn|sin|socialsecurity(no|number)?|nino|ninumber|nationalinsurance(no|number)?|nationalid(no|number)?|dob|dateofbirth|birthdate|birthday|passport(no|number)?|password|passwordhash|accesstoken|refreshtoken|idtoken|apikey|clientsecret|secret|iban|bankaccount(no|number)?|sortcode|routingnumber|cardnumber|cvv|cvc|taxidentifier|taxid|ein|tin|utr)$/;
 export const isSensitiveKey = (key: string): boolean => SENSITIVE_KEY.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
 export const REDACTED = "[redacted]";
 

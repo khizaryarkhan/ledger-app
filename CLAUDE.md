@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0124` at `when` `1793200000000`;
+  this silently dropped a table in prod once). Latest is `0126` at `when` `1793400000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -4819,6 +4819,58 @@ OAuth 2.1 with dynamic client registration and PKCE S256. Migration `0125`.
   unverified (the consent screen says so); nothing has run against a database or a real
   client — **migration 0125 has not been applied anywhere**; `NEXTAUTH_URL` must be set in
   production or the server cannot call itself.
+
+## QuickBooks API passthrough for AI connections (2026-11-04)
+
+Asked for: "through the MCP connection, do anything that a QBO application using the
+app's existing OAuth connection can do". `POST /api/qbo/api` takes
+`{ method, path, query?, body?, preview?, idempotencyKey?, withCount? }` and sends it to
+`/v3/company/{realmId}/{path}` with the org's stored, auto-refreshed token. The MCP tool is
+`qbo_api`. User guide: `docs/mcp-qbo-api.md`. Migration `0126` (additive).
+
+- **`lib/qbo/passthrough.ts` (pure) classifies every request** as read / write / delete,
+  plus `sends` for `<entity>/<id>/send`. Paths are an allowlist (`query`, `reports/<Name>`,
+  `cdc`, `batch` ≤30 items, `<entity>`, `<entity>/<id>`, `<entity>/<id>/send`,
+  `preferences`); query parameters are an allowlist; a client may not set `requestid`.
+  **`operation=void` is a delete** — it zeroes the transaction for good. A batch takes its
+  most dangerous item's kind. PDFs and uploads are refused (files can't cross a tool call).
+- **Admin-only** (`company_admin`/`super_admin`). The QuickBooks API sees the whole company
+  file and knows nothing of the app's per-user limits (rep scoping), so it is not offered
+  to other roles at all.
+- **Grants**: reads need `mcp:read`; writes `mcp:accounting_system`; deletes/voids also
+  `mcp:delete`; sends also `mcp:sensitive` (`qboScopesNeeded` in `lib/mcp/server.ts`).
+  `/api/qbo/api` is in `REFUSED_PATHS`, so `qbo_api` is its only door — through `api_write`
+  every QuickBooks call would look like a plain write.
+- **Changes are confirmed** with the same signed-token pattern as deletes, bound to the
+  exact request and the `idempotencyKey`. `preview: true` sends nothing (QuickBooks has no
+  validate-only mode: it returns the request and, for an update, the record as it stands).
+- **Idempotency**: every write carries a QuickBooks `requestid`, derived from the caller's
+  key, or — when there is none — from the confirmed binding + token, so a retried confirmed
+  call returns QuickBooks' first answer. Only writes WITH a `requestid` are retried on
+  429/5xx; reads always are.
+- **Organisation switches** (`organisations.ai_writes_enabled` / `ai_deletes_enabled`,
+  default true): Settings → AI connections, admin-only, `PATCH /api/mcp/settings` (refuses a
+  `via:"mcp"` token and a cross-origin request). They bind **every** AI write/delete tool,
+  not only QuickBooks, and fail closed if the org row can't be read.
+- **`via: "mcp"`** is a new claim on the 60-second internal token (`signAccessToken`'s third
+  parameter, surfaced by `resolveSession`). Only the MCP server mints it; it is how a route
+  tells an AI call from a person.
+- **Rate limit** 450/min per realm (QuickBooks allows 500; the app's own sync needs room).
+  QuickBooks' 10-concurrent-request limit is NOT tracked.
+- **Audit**: every call, read or write, is `qbo_api_call` with `via`, the request, status,
+  `intuit_tid` and a redacted, 4,000-char copy of request and response.
+- **Write-back**: a successful change sends `qbo/sync-org` (event id deduped per org per
+  minute), so the incremental sync pulls it into the app.
+- **Hardened after a security review (same day)**: `include` only on reads (it can change
+  what a write does); a batch `Query` item that also names an entity/operation is refused;
+  `operation` is trimmed and lowercased; **Employee records are refused** (query, record, cdc,
+  batch — same rule as Data Studio); `TaxIdentifier`/tax-id keys are redacted; a caller's
+  `idempotencyKey` is hashed WITH the request, so re-using it for a different change is
+  not mistaken for the first; retries stop starting after 30s and `maxDuration` is 120; a
+  failed audit write is logged, never turned into an error after QuickBooks applied it.
+- **Not verified**: nothing has been called against a real QuickBooks company — unit tests
+  only (`tests/qbo-passthrough.test.ts`). Payments scope (`com.intuit.quickbooks.payment`)
+  is not requested.
 
 ## Equipment Phase Q1: a machine is linked, not re-entered (2026-11-02)
 

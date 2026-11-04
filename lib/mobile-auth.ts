@@ -48,9 +48,12 @@ export async function signPreAuthToken(userId: string): Promise<string> {
 
 // `ttlSeconds` exists for the MCP server, which mints a ~60s token per tool call
 // to replay a request against our own API; everything else keeps the default.
-export async function signAccessToken(claims: MobileAccessClaims, ttlSeconds: number = ACCESS_TOKEN_TTL): Promise<string> {
+// `via` marks a token minted by the MCP server ("mcp"), so routes can attribute
+// a call to an AI connection. Only the server mints these; a client cannot set it.
+export async function signAccessToken(claims: MobileAccessClaims, ttlSeconds: number = ACCESS_TOKEN_TTL, via?: "mcp"): Promise<string> {
   return new SignJWT({
     typ: "mobile_access",
+    ...(via ? { via } : {}),
     role: claims.role,
     orgId: claims.orgId,
     repId: claims.repId,

@@ -26,7 +26,8 @@ async function resolveSession(): Promise<{ user: Record<string, any>; bearerOrgI
   if (!claims) return null;
 
   return {
-    user: { id: claims.sub, role: claims.role, orgId: claims.orgId, repId: claims.repId, email: claims.email },
+    // `via: "mcp"` = minted by the MCP server for an AI connection's call (lib/mcp/api-call.ts).
+    user: { id: claims.sub, role: claims.role, orgId: claims.orgId, repId: claims.repId, email: claims.email, via: (claims as any).via ?? null },
     bearerOrgId: claims.orgId,
   };
 }

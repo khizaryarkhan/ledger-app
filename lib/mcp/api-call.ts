@@ -60,6 +60,7 @@ export async function callInternalApi(a: ApiCallArgs): Promise<ApiCallResult> {
   const token = await signAccessToken(
     { sub: claims.sub, role: claims.role, orgId: claims.orgId, repId: claims.repId, email: claims.email },
     INTERNAL_TOKEN_TTL_S,
+    "mcp",
   );
   const hasBody = a.body !== undefined && a.method !== "GET";
   try {

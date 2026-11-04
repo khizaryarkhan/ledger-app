@@ -54,6 +54,10 @@ export const organisations = pgTable("organisations", {
   // online payments shows nothing regardless. This exists for the org that CAN
   // but would rather customers didn't self-pay.
   payLinksEnabled: boolean("pay_links_enabled").notNull().default(true),
+  // Org-admin switches for AI connections (0126): off = no AI connection may
+  // change / delete anything, whatever it was granted. Read on every MCP call.
+  aiWritesEnabled: boolean("ai_writes_enabled").notNull().default(true),
+  aiDeletesEnabled: boolean("ai_deletes_enabled").notNull().default(true),
   reportingEnabled: boolean("reporting_enabled").notNull().default(false), // enables the Reporting module in the sidebar
   // Which product modules this org has access to — see lib/modules.ts. Default
   // covers every pre-existing org (core AR/AP/Studio/Accounting); vertical

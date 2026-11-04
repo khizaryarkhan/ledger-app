@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Copy, ExternalLink, Loader, ShieldCheck, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui";
+import { AiSwitches } from "@/components/ai-switches";
 import { formatDate } from "@/lib/format";
 
 type Connection = {
@@ -192,6 +193,8 @@ export default function AiConnectionsPage() {
           </div>
         </div>
       </Card>
+
+      <AiSwitches />
 
       {/* 4. What is connected right now */}
       <h2 className="text-[11px] font-semibold uppercase tracking-wider text-stone-500 mb-2">Connected assistants</h2>

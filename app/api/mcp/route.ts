@@ -38,6 +38,15 @@ function contextFor(req: NextRequest, id: McpIdentity, confirmSecret: string): M
     connectionId: id.tokenId,
     confirmSecret,
     callApi: (a) => callInternalApi({ requestUrl: req.url, userId: id.userId, orgId: id.orgId, ...a }),
+    // The passthrough route is refused to the generic api_* tools (policy.ts), so
+    // qbo_api — which classifies and gates each request first — is its only door.
+    callQbo: (body) => callInternalApi({ requestUrl: req.url, userId: id.userId, orgId: id.orgId, method: "POST", path: "/api/qbo/api", body }),
+    async aiSwitches() {
+      const [org] = await db.select({ w: organisations.aiWritesEnabled, d: organisations.aiDeletesEnabled })
+        .from(organisations).where(eq(organisations.id, id.orgId)).limit(1);
+      // A missing row is not permission: fail closed.
+      return { writes: org?.w === true, deletes: org?.d === true };
+    },
     async whoami() {
       const claims = await resolveLiveClaims(id.userId, id.orgId);
       if (!claims) return { error: "Your access to this organisation has been removed or the account is inactive." };
@@ -51,6 +60,8 @@ function contextFor(req: NextRequest, id: McpIdentity, confirmSecret: string): M
           read: id.scopes.includes("mcp:read"),
           write: id.scopes.includes("mcp:write"),
           delete: id.scopes.includes("mcp:delete"),
+          sendEmailAndChangeSettings: id.scopes.includes("mcp:sensitive"),
+          changeQuickBooksXero: id.scopes.includes("mcp:accounting_system"),
         },
         note: "Every call runs as this user, so the app's own role checks decide what succeeds.",
       };

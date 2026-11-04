@@ -28,6 +28,8 @@ export type EventType =
   | "mcp_read"                 // an AI client (MCP) read data as this user
   | "mcp_write"                // an AI client (MCP) created/changed data as this user
   | "mcp_delete"               // an AI client (MCP) deleted data as this user
+  | "qbo_api_call"             // a QuickBooks API passthrough call (meta.via: app | mcp)
+  | "ai_switches_changed"      // an admin turned AI-connection writes/deletes on or off
   // ── Payables / Procurement ───────────────────────────────────────────────
   | "purchase_request_created"
   | "purchase_request_submitted"
