@@ -1,8 +1,9 @@
 # QuickBooks API through an AI connection
 
-An AI assistant connected to Prime Accountax (Settings → AI connections) can call the
-QuickBooks Online Accounting API directly with the `qbo_api` tool. It uses the
-organisation's existing QuickBooks connection, so no extra keys or sign-in.
+An AI assistant connected to Prime Accountax (Settings → AI connections) has **full access**
+to the QuickBooks Online API through the `qbo_api` tool: any Accounting API path and
+parameter, Employee records, PDFs, attachments, and the QuickBooks Payments API. It uses
+the organisation's existing QuickBooks connection, so no extra keys or sign-in.
 
 ## Who can use it
 
@@ -13,10 +14,11 @@ organisation's existing QuickBooks connection, so no extra keys or sign-in.
 
 | Call | Needs |
 |---|---|
-| Read: `query`, `<entity>/<id>`, `reports/<Name>`, `cdc`, `preferences` | Read |
-| Create or change: `<entity>` POST, `batch` with any change | Change QuickBooks / Xero |
-| Delete or void: `operation=delete` / `operation=void` | Change QuickBooks / Xero **and** Delete |
+| Any GET: `query`, `<entity>/<id>`, `<entity>/<id>/pdf`, `reports/<Name>`, `cdc`, `download/<id>`, `payments/...` | Read |
+| Any other POST: create, update, `batch`, `upload`, Payments tokens/cards | Change QuickBooks / Xero |
+| Delete or void (`operation` or `include` naming delete/void; a Payments DELETE or `/void`) | Change QuickBooks / Xero **and** Delete |
 | Email a document: `<entity>/<id>/send` | Change QuickBooks / Xero **and** Send email & settings |
+| Move money: Payments `charges`, `echecks`, `capture`, `refunds` | Change QuickBooks / Xero **and** Send email & settings |
 
 - An admin can switch off all AI changes, or just deletes, for the whole organisation on
   the same settings page. That overrides every connection's grants immediately.
@@ -48,9 +50,19 @@ the app within a minute or two.
 - **Paging**: put `STARTPOSITION` / `MAXRESULTS` in the query (QuickBooks maximum 1000).
   `withCount: true` adds `totalCount`. `limit`, `offset` and `fields` trim what reaches the
   assistant.
-- **Not available**: PDFs and attachments (files cannot pass through a tool call), a
-  `requestid` you set yourself, `include` on a change, and Employee records (they hold home
-  addresses, pay rates and tax ids). Tax identifiers in any response are redacted.
+- **Any path, any parameter.** A path the tool doesn't know is classified by its method: GET
+  reads, POST changes, and a delete/void operation makes it a delete. A `requestid` you pass
+  is used as QuickBooks' idempotency key as given.
+- **PDFs**: `GET <entity>/<id>/pdf` returns a download link to give the user. It downloads that
+  one PDF, lasts 10 minutes, and stops working as soon as the person loses admin access.
+- **Attachments**: `POST upload` with body `{ fileName, contentType, base64, attachable:
+  { AttachableRef: [{ EntityRef: { type: "Invoice", value: "145" } }], Note } }`, up to 3 MB
+  (the hosting platform's request limit). `GET download/<attachableId>` returns QuickBooks'
+  temporary URL for an existing attachment.
+- **Payments API**: paths starting `payments/` go to `/quickbooks/v4/payments/` (e.g.
+  `payments/charges`, `payments/customers/<id>/cards`); DELETE is allowed there.
+- **Redaction**: `qbo_api` hides only credentials, bank account and card numbers. Employee
+  records, tax ids and birth dates come through. (The app's own routes still hide them.)
 - **Soft deletes are writes**: making a record inactive (`Active: false`) only needs the
   change grant, not the delete grant, because QuickBooks treats it as an update.
 - **Logging**: every call (read or change) is in the audit trail as `qbo_api_call`, with
@@ -89,8 +101,11 @@ Each of the last two first returns a token; send it back as `confirm` once the u
 ## QuickBooks connection
 
 - The connection uses the `com.intuit.quickbooks.accounting` scope, which covers the whole
-  Accounting API. QuickBooks Payments (card/bank charges) is a different scope and is not
-  requested; adding it needs the Intuit app configured for it and every org to reconnect.
+  Accounting API. The Payments API needs `com.intuit.quickbooks.payment` as well, which is
+  requested only when `QBO_PAYMENTS_SCOPE=1` is set. Switch that on only after enabling
+  Payments on the Intuit developer app: asking for a scope the app isn't set up for makes every
+  QuickBooks connect fail. An org then has to reconnect QuickBooks, and needs a QuickBooks
+  Payments merchant account. Until then Payments calls return 401/403 with a hint saying so.
 - Production API (`quickbooks.api.intuit.com`). Set `QBO_ENV=sandbox` to use the sandbox.
 - Access tokens last an hour and are refreshed automatically before they expire. If
   QuickBooks refuses the refresh (the refresh token is about 100 days and a reconnect

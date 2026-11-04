@@ -1,59 +1,68 @@
-// Generic QuickBooks Online Accounting API passthrough — the pure half (no db,
-// no network), so every rule that decides what a request IS can be tested.
+// Generic QuickBooks Online API passthrough — the pure half (no db, no network),
+// so every rule that decides what a request IS can be tested.
 //
-// A request is { method, path, query?, body? }, where `path` is relative to
-// /v3/company/{realmId}/ — e.g. "query", "invoice", "invoice/123",
-// "invoice/123/send", "reports/ProfitAndLoss", "batch", "cdc".
+// A request is { method, path, query?, body? }. `path` is relative to
+// /v3/company/{realmId}/ for the Accounting API ("query", "invoice/123",
+// "invoice/123/pdf", "upload", "reports/ProfitAndLoss", "batch", "cdc", or any
+// other Accounting API path), or starts with "payments/" for the QuickBooks
+// Payments API (/quickbooks/v4/payments/...).
 //
-// Every request is CLASSIFIED before it is sent: read, write, delete — and
-// whether it emails a customer (`send`). Scopes, the admin kill switches and
-// the confirm step all key off this one classification, so a write can never be
-// mistaken for a read by a caller that described it differently.
+// Access is deliberately FULL (product owner, 2026-11-04): any path, any query
+// parameter, Employee records, PDFs, attachments and Payments. What stays is
+// CLASSIFICATION — read / write / delete, plus whether a call emails someone or
+// moves money — because the connection's grants, the org's kill switches and the
+// confirm step all key off it. An unfamiliar path is classified by its method, so
+// opening the API never lets a change pass as a read.
 
 export type QboKind = "read" | "write" | "delete";
-export type QboRequest = { method: "GET" | "POST"; path: string; query: Record<string, string>; body?: unknown };
-export type Classified = { ok: true; req: QboRequest; kind: QboKind; sends: boolean; entities: string[] } | { ok: false; error: string };
+export type QboApi = "accounting" | "payments";
+export type QboFile = "pdf" | "upload" | null;
+export type QboRequest = {
+  method: "GET" | "POST" | "DELETE";
+  path: string;
+  query: Record<string, string>;
+  body?: unknown;
+};
+export type Classified =
+  | { ok: true; req: QboRequest; api: QboApi; kind: QboKind; sends: boolean; movesMoney: boolean; file: QboFile; entities: string[] }
+  | { ok: false; error: string };
 
-/** A void zeroes a transaction for good, so it is gated like a delete. */
-/** Same rule as Data Studio's REFUSED_ENTITIES (lib/mcp/policy.ts): personal records stay out. */
-const REFUSED_ENTITIES = new Set(["employee"]);
-
-const DESTRUCTIVE_OPS = new Set(["delete", "void"]);
+const DESTRUCTIVE = /\b(delete|void)\b/i;
 
 export const MAX_BATCH_ITEMS = 30;          // QuickBooks' own limit per batch request
 export const DEFAULT_MINOR_VERSION = "73";  // what the rest of this app already sends
+/** Decoded size of one uploaded file. Vercel caps a request body at ~4.5 MB and base64 adds a third. */
+export const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
-const ENTITY = /^[a-z]{2,40}$/;
-const ID = /^[A-Za-z0-9-]{1,40}$/;
-const REPORT = /^[A-Za-z]{2,60}$/;
-/** Query-string parameters a caller may set. `requestid` is NOT one — the server sets it. */
-const FIXED_PARAMS = new Set(["minorversion", "operation", "query", "entities", "changedSince", "sendTo", "include"]);
-const REPORT_PARAM = /^[A-Za-z_]{1,40}$/;
-const OPERATIONS = new Set(["delete", "void", "update"]);
+const PARAM = /^[A-Za-z_][A-Za-z0-9_]{0,60}$/;
 
 const rank: Record<QboKind, number> = { read: 0, write: 1, delete: 2 };
 const worst = (a: QboKind, b: QboKind): QboKind => (rank[a] >= rank[b] ? a : b);
 
-function cleanQuery(raw: unknown, isReport: boolean): { ok: true; q: Record<string, string> } | { ok: false; error: string } {
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function cleanQuery(raw: unknown): { ok: true; q: Record<string, string> } | { ok: false; error: string } {
   const q: Record<string, string> = {};
   if (raw === undefined || raw === null) return { ok: true, q };
-  if (typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "query must be an object of string values" };
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+  if (!isObject(raw)) return { ok: false, error: "query must be an object of string values" };
+  for (const [k, v] of Object.entries(raw)) {
     if (v === undefined || v === null) continue;
-    if (k === "requestid") return { ok: false, error: "requestid is set by the server — pass idempotencyKey instead" };
-    if (!FIXED_PARAMS.has(k) && !(isReport && REPORT_PARAM.test(k))) return { ok: false, error: `query parameter "${k}" is not supported` };
+    if (!PARAM.test(k)) return { ok: false, error: `query parameter name "${k}" is not valid` };
     const s = String(v);
-    if (s.length > 4000) return { ok: false, error: `query parameter "${k}" is too long` };
+    if (s.length > 8000) return { ok: false, error: `query parameter "${k}" is too long` };
     q[k] = s;
   }
   if (q.minorversion !== undefined && !/^[1-9][0-9]?$/.test(q.minorversion)) return { ok: false, error: "minorversion must be a number from 1 to 99" };
   if (q.operation !== undefined) q.operation = q.operation.trim().toLowerCase();
-  if (q.operation !== undefined && !OPERATIONS.has(q.operation)) return { ok: false, error: "operation must be delete, void or update" };
+  if (q.requestid !== undefined && !/^[A-Za-z0-9_-]{1,50}$/.test(q.requestid)) return { ok: false, error: "requestid must be 1-50 letters, digits, - or _" };
   return { ok: true, q };
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+/** A change that a query parameter turns destructive (operation=delete/void, include=void). */
+function destructiveParams(q: Record<string, string>): boolean {
+  return DESTRUCTIVE.test(q.operation ?? "") || DESTRUCTIVE.test(q.include ?? "");
 }
 
 /** Classify one item of a Batch request (QuickBooks' BatchItemRequest shape). */
@@ -65,60 +74,64 @@ function batchItemKind(item: unknown): { kind: QboKind; entity: string } | null 
     const extra = Object.keys(item).some((k) => !["bId", "optionsData", "Query"].includes(k));
     return typeof item.Query === "string" && !extra ? { kind: "read", entity: entityOfSql(item.Query) ?? "query" } : null;
   }
-  const op = String(item.operation ?? "").trim().toLowerCase();
+  const op = String(item.operation ?? "");
   const entityKey = Object.keys(item).find((k) => !["bId", "operation", "optionsData"].includes(k));
   if (!entityKey) return null;
-  return { kind: DESTRUCTIVE_OPS.has(op) ? "delete" : "write", entity: entityKey.toLowerCase() };
+  return { kind: DESTRUCTIVE.test(op) ? "delete" : "write", entity: entityKey.toLowerCase() };
+}
+
+/** Payments API calls that charge, debit, capture or refund. */
+const MONEY_PATH = /^payments\/(charges|echecks)$|^payments\/(charges|echecks)\/[^/]+\/(capture|refunds)$/;
+
+function classifyPayments(seg: string[], req: QboRequest): Classified {
+  // payments/<resource>[/...]: charges, echecks, tokens, customers/<id>/cards, customers/<id>/bank-accounts, ...
+  if (seg.length < 2) return { ok: false, error: "a Payments API path is payments/<resource>, e.g. payments/charges or payments/customers/<id>/cards" };
+  const path = seg.join("/");
+  const kind: QboKind = req.method === "GET" ? "read" : req.method === "DELETE" || /\/void$/.test(path) ? "delete" : "write";
+  const movesMoney = req.method === "POST" && MONEY_PATH.test(path);
+  return { ok: true, req, api: "payments", kind, sends: false, movesMoney, file: null, entities: [seg[1]] };
 }
 
 export function classifyQboRequest(input: unknown): Classified {
   if (!isObject(input)) return { ok: false, error: "send { method, path, query?, body? }" };
   const method = String(input.method ?? "").toUpperCase();
-  if (method !== "GET" && method !== "POST") return { ok: false, error: "method must be GET or POST (QuickBooks updates and deletes are POSTs)" };
+  if (method !== "GET" && method !== "POST" && method !== "DELETE") {
+    return { ok: false, error: "method must be GET, POST or DELETE (Accounting API updates and deletes are POSTs; DELETE is for the Payments API)" };
+  }
   const path = String(input.path ?? "").replace(/^\/+|\/+$/g, "");
-  if (!path || path.length > 200 || /[^A-Za-z0-9/_-]/.test(path)) return { ok: false, error: "path must be like \"invoice\", \"invoice/123\", \"query\", \"reports/ProfitAndLoss\", \"batch\" or \"cdc\"" };
+  // Any path — but only path characters, and never one that climbs out of the company.
+  if (!path || path.length > 300 || /[^A-Za-z0-9/_.-]/.test(path) || path.split("/").some((s) => s === "" || s === "." || s === "..")) {
+    return { ok: false, error: "path must be a QuickBooks API path such as \"invoice\", \"invoice/123\", \"invoice/123/pdf\", \"query\", \"reports/ProfitAndLoss\", \"upload\" or \"payments/charges\"" };
+  }
   const seg = path.split("/");
-  const isReport = seg[0] === "reports";
-  const cq = cleanQuery(input.query, isReport);
+  const cq = cleanQuery(input.query);
   if (cq.ok === false) return cq;
   const query = cq.q;
   const body = input.body;
   if (method === "GET" && body !== undefined) return { ok: false, error: "a GET has no body" };
-  // include changes what a WRITE does in some QuickBooks versions (e.g. include=void), so
-  // a change carrying it could not be classified safely: reads only.
-  if (method !== "GET" && query.include !== undefined) return { ok: false, error: "include is only accepted on reads" };
-  const req: QboRequest = { method: method as "GET" | "POST", path, query, ...(body !== undefined ? { body } : {}) };
-  const done = (kind: QboKind, entities: string[], sends = false): Classified => {
-    const refused = entities.find((e) => REFUSED_ENTITIES.has(e));
-    if (refused) return { ok: false, error: `QuickBooks ${refused} records hold personal details (home address, pay rates, tax ids) and are not available to AI connections` };
-    return { ok: true, req, kind, sends, entities };
-  };
+  const req: QboRequest = { method: method as QboRequest["method"], path, query, ...(body !== undefined ? { body } : {}) };
 
-  // Files cannot travel through a JSON tool call.
-  if (seg.includes("pdf") || seg[0] === "upload" || seg[0] === "download") {
-    return { ok: false, error: "PDFs and file uploads/downloads are files, which a connection cannot carry — read the record's JSON instead" };
-  }
+  if (seg[0] === "payments") return classifyPayments(seg, req);
+  if (method === "DELETE") return { ok: false, error: "the Accounting API deletes with POST <entity>?operation=delete — DELETE is only for Payments API paths" };
 
-  if (seg[0] === "query") {
-    if (seg.length !== 1) return { ok: false, error: "query takes no sub-path" };
+  const done = (kind: QboKind, entities: string[], extra: { sends?: boolean; file?: QboFile } = {}): Classified =>
+    ({ ok: true, req, api: "accounting", kind, sends: extra.sends ?? false, movesMoney: false, file: extra.file ?? null, entities });
+  const changeKind = (): QboKind => (destructiveParams(query) ? "delete" : "write");
+
+  if (seg[0] === "query" && seg.length === 1) {
     if (method !== "GET" || !query.query) return { ok: false, error: "send queries as GET with query: { query: \"select * from Invoice ...\" }" };
     return done("read", [entityOfSql(query.query) ?? "query"]);
   }
-  if (isReport) {
-    if (method !== "GET" || seg.length !== 2 || !REPORT.test(seg[1])) return { ok: false, error: "reports are GET reports/<ReportName>, e.g. reports/ProfitAndLoss" };
-    return done("read", ["report"]);
+  if (seg[0] === "cdc" && seg.length === 1 && method === "GET") {
+    return done("read", (query.entities ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean));
   }
-  if (seg[0] === "cdc") {
-    if (method !== "GET" || seg.length !== 1 || !query.entities || !query.changedSince) return { ok: false, error: "change data capture is GET cdc with query { entities, changedSince }" };
-    return done("read", query.entities.split(",").map((e) => e.trim().toLowerCase()));
-  }
-  if (seg[0] === "batch") {
-    if (method !== "POST" || seg.length !== 1 || !isObject(body) || !Array.isArray(body.BatchItemRequest)) {
+  if (seg[0] === "batch" && seg.length === 1) {
+    if (method !== "POST" || !isObject(body) || !Array.isArray(body.BatchItemRequest)) {
       return { ok: false, error: "batch is POST batch with body { BatchItemRequest: [...] }" };
     }
     const items = body.BatchItemRequest as unknown[];
-    if (items.length === 0 || items.length > MAX_BATCH_ITEMS) return { ok: false, error: `a batch holds 1 to ${MAX_BATCH_ITEMS} operations` };
-    let kind: QboKind = "read";
+    if (items.length === 0 || items.length > MAX_BATCH_ITEMS) return { ok: false, error: `a batch holds 1 to ${MAX_BATCH_ITEMS} operations (QuickBooks' limit)` };
+    let kind: QboKind = destructiveParams(query) ? "delete" : "read";
     const entities = new Set<string>();
     for (const it of items) {
       const c = batchItemKind(it);
@@ -128,25 +141,40 @@ export function classifyQboRequest(input: unknown): Classified {
     }
     return done(kind, [...entities]);
   }
+  if (seg[0] === "upload" && seg.length === 1) {
+    if (method !== "POST") return { ok: false, error: "upload is a POST" };
+    const u = uploadOf(body);
+    if (u.ok === false) return u;
+    return done("write", ["attachable"], { file: "upload" });
+  }
+  if (seg[seg.length - 1] === "pdf" && method === "GET") return done("read", [seg[0].toLowerCase()], { file: "pdf" });
+  if (seg[seg.length - 1] === "send" && method === "POST") return done(changeKind(), [seg[0].toLowerCase()], { sends: true });
 
-  // Entity routes: <entity>, <entity>/<id>, <entity>/<id>/send, companyinfo/<id>, preferences.
-  if (!ENTITY.test(seg[0])) return { ok: false, error: `"${seg[0]}" is not a QuickBooks entity name (use the lowercase API name, e.g. "invoice", "journalentry")` };
-  const entity = seg[0];
-  if (seg.length === 1) {
-    if (method === "GET") return entity === "preferences" ? done("read", [entity]) : { ok: false, error: `read a single ${entity} with GET ${entity}/<id>, or list them with a query` };
-    if (!isObject(body)) return { ok: false, error: "create/update/delete needs a JSON object body" };
-    return done(DESTRUCTIVE_OPS.has(String(query.operation ?? "").toLowerCase()) ? "delete" : "write", [entity]);
-  }
-  if (!ID.test(seg[1])) return { ok: false, error: "the id in the path is not valid" };
-  if (seg.length === 2) {
-    if (method !== "GET") return { ok: false, error: `writes go to POST ${entity} with the Id in the body, not to ${entity}/<id>` };
-    return done("read", [entity]);
-  }
-  if (seg.length === 3 && seg[2] === "send") {
-    if (method !== "POST") return { ok: false, error: "send is a POST" };
-    return done("write", [entity], true);
-  }
-  return { ok: false, error: "unsupported path" };
+  // Every other path: the method decides. GET reads; POST changes, and a
+  // delete/void operation makes it a delete.
+  return method === "GET" ? done("read", [seg[0].toLowerCase()]) : done(changeKind(), [seg[0].toLowerCase()]);
+}
+
+export type UploadSpec = { fileName: string; contentType: string; bytes: Buffer; attachable: Record<string, unknown> };
+
+/**
+ * An attachment upload, sent as JSON because a tool call cannot carry a file:
+ * { fileName, contentType, base64, attachable?: { AttachableRef: [...], Note } }.
+ */
+export function uploadOf(body: unknown): { ok: true; spec: UploadSpec } | { ok: false; error: string } {
+  const shape = "upload needs body { fileName, contentType, base64, attachable?: { AttachableRef: [{ EntityRef: { type: \"Invoice\", value: \"145\" } }], Note } }";
+  if (!isObject(body)) return { ok: false, error: shape };
+  const fileName = typeof body.fileName === "string" ? body.fileName.trim() : "";
+  const contentType = typeof body.contentType === "string" ? body.contentType.trim() : "";
+  const b64 = typeof body.base64 === "string" ? body.base64.replace(/\s+/g, "") : "";
+  if (!fileName || fileName.length > 200 || /[\r\n"\\/]/.test(fileName)) return { ok: false, error: `${shape} — fileName is missing or not a plain file name` };
+  if (!/^[a-z]+\/[A-Za-z0-9.+-]+$/.test(contentType)) return { ok: false, error: `${shape} — contentType must be a MIME type such as application/pdf` };
+  if (!b64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return { ok: false, error: `${shape} — base64 is missing or not base64` };
+  const bytes = Buffer.from(b64, "base64");
+  if (bytes.length === 0) return { ok: false, error: "the file is empty" };
+  if (bytes.length > MAX_UPLOAD_BYTES) return { ok: false, error: `the file is ${Math.round(bytes.length / 1024)} KB; an upload through an AI connection is limited to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB` };
+  if (body.attachable !== undefined && !isObject(body.attachable)) return { ok: false, error: `${shape} — attachable must be an object` };
+  return { ok: true, spec: { fileName, contentType, bytes, attachable: (body.attachable as Record<string, unknown>) ?? {} } };
 }
 
 /** The entity a `select ... from X` reads, lowercased; null if it isn't a select. */
@@ -171,8 +199,14 @@ export function countQueryFor(sql: string): string | null {
 /** What a QuickBooks error body says, kept whole: Fault type, every error's code, message and detail. */
 export function describeQboFault(body: unknown): string | null {
   const fault = isObject(body) ? (body.Fault ?? (isObject(body.fault) ? body.fault : undefined)) : undefined;
-  if (!isObject(fault)) return null;
-  const errs = Array.isArray(fault.Error) ? fault.Error : [];
-  const parts = errs.map((e: any) => [e?.code && `code ${e.code}`, e?.Message, e?.Detail, e?.element && `(field: ${e.element})`].filter(Boolean).join(" — "));
-  return `${fault.type ?? "Fault"}: ${parts.join("; ") || "no detail"}`;
+  if (isObject(fault)) {
+    const errs = Array.isArray(fault.Error) ? fault.Error : [];
+    const parts = errs.map((e: any) => [e?.code && `code ${e.code}`, e?.Message, e?.Detail, e?.element && `(field: ${e.element})`].filter(Boolean).join(" — "));
+    return `${fault.type ?? "Fault"}: ${parts.join("; ") || "no detail"}`;
+  }
+  // Payments API errors: { errors: [{ code, message, detail, moreInfo }] }
+  if (isObject(body) && Array.isArray(body.errors)) {
+    return body.errors.map((e: any) => [e?.code && `code ${e.code}`, e?.message, e?.detail, e?.moreInfo].filter(Boolean).join(" — ")).join("; ");
+  }
+  return null;
 }

@@ -182,16 +182,24 @@ export function refusedEntity(path: string, query: unknown, body: unknown): stri
  */
 const SENSITIVE_KEY = /^(ssn|sin|socialsecurity(no|number)?|nino|ninumber|nationalinsurance(no|number)?|nationalid(no|number)?|dob|dateofbirth|birthdate|birthday|passport(no|number)?|password|passwordhash|accesstoken|refreshtoken|idtoken|apikey|clientsecret|secret|iban|bankaccount(no|number)?|sortcode|routingnumber|cardnumber|cvv|cvc|taxidentifier|taxid|ein|tin|utr)$/;
 export const isSensitiveKey = (key: string): boolean => SENSITIVE_KEY.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
+/**
+ * The narrower set redacted from the QuickBooks API (qbo_api), which an org admin
+ * was given full access to on 2026-11-04 — Employee records and tax ids included.
+ * Credentials, bank and card numbers still never reach a model.
+ */
+const CREDENTIAL_KEY = /^(password|passwordhash|accesstoken|refreshtoken|idtoken|apikey|clientsecret|secret|iban|bankaccount(no|number)?|accountnumber|sortcode|routingnumber|cardnumber|cvv|cvc)$/;
+export const isCredentialKey = (key: string): boolean => CREDENTIAL_KEY.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
+export type RedactMode = "personal" | "credentials";
 export const REDACTED = "[redacted]";
 
-function redactValue(v: unknown, count: { n: number }, depth: number): unknown {
+function redactValue(v: unknown, count: { n: number }, depth: number, hit: (k: string) => boolean): unknown {
   if (depth > 40) return v;
-  if (Array.isArray(v)) return v.map((x) => redactValue(x, count, depth + 1));
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, count, depth + 1, hit));
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (isSensitiveKey(k) && x !== null && x !== "" && x !== undefined) { out[k] = REDACTED; count.n++; }
-      else out[k] = redactValue(x, count, depth + 1);
+      if (hit(k) && x !== null && x !== "" && x !== undefined) { out[k] = REDACTED; count.n++; }
+      else out[k] = redactValue(x, count, depth + 1, hit);
     }
     return out;
   }
@@ -203,20 +211,21 @@ function redactValue(v: unknown, count: { n: number }, depth: number): unknown {
  * damaged to parse) falls back to a pattern over `"key": value` pairs, so a body
  * that is not clean JSON is still not a way round the rule.
  */
-export function redactJson(value: unknown): { value: unknown; redacted: number } {
+export function redactJson(value: unknown, mode: RedactMode = "personal"): { value: unknown; redacted: number } {
   const count = { n: 0 };
-  const clean = redactValue(value, count, 0);
+  const clean = redactValue(value, count, 0, mode === "credentials" ? isCredentialKey : isSensitiveKey);
   return { value: count.n ? clean : value, redacted: count.n };
 }
 
-export function redactText(text: string): { text: string; redacted: number } {
+export function redactText(text: string, mode: RedactMode = "personal"): { text: string; redacted: number } {
   const count = { n: 0 };
+  const hit = mode === "credentials" ? isCredentialKey : isSensitiveKey;
   try {
-    const { value, redacted } = redactJson(JSON.parse(text));
+    const { value, redacted } = redactJson(JSON.parse(text), mode);
     return { text: redacted ? JSON.stringify(value) : text, redacted };
   } catch {
     const out = text.replace(/"([^"\\]{1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*)/g, (m, key: string, sep: string) => {
-      if (!isSensitiveKey(key)) return m;
+      if (!hit(key)) return m;
       count.n++;
       return `"${key}"${sep}"${REDACTED}"`;
     });

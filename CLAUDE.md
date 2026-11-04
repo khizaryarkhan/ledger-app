@@ -4890,6 +4890,32 @@ app's existing OAuth connection can do". `POST /api/qbo/api` takes
   only (`tests/qbo-passthrough.test.ts`). Payments scope (`com.intuit.quickbooks.payment`)
   is not requested.
 
+## QuickBooks API for AI connections — FULL access (2026-11-04, later the same day)
+
+Asked: "I want user to have full access to the QBO API when they are connected to our MCP".
+Decided with the product owner: **admins only and the confirm step both stay**; lifted: any path
+or parameter, Employee records, PDFs/attachments, and the Payments API. This SUPERSEDES the
+allowlist, the Employee refusal and the no-files rule in the section above.
+
+- **Classification is the one thing kept**, because grants, kill switches and confirmation key
+  off it. An unfamiliar path is classified by METHOD (GET read, POST write, delete/void in
+  `operation` or `include` makes it a delete), so opening the API never lets a change pass as a
+  read. Paths still may not contain `..`, `.` or empty segments.
+- **PDF = link, not bytes** (`lib/qbo/file-link.ts`, `GET /api/public/qbo-file?t=`): signed with
+  AUTH_SECRET, one org + one `<entity>/<id>/pdf` path, 10 minutes, and the minting user must STILL be
+  an active admin when it is opened. Base64 in a tool result is useless to the model.
+- **Upload** is JSON `{fileName, contentType, base64, attachable}` sent as QuickBooks multipart, max
+  3 MB decoded (Vercel's ~4.5 MB body limit after base64).
+- **Payments API**: `payments/...` → `/quickbooks/v4/payments/...`, idempotency via the `Request-Id`
+  header. Charges, eChecks, captures and refunds are `movesMoney` and need `mcp:sensitive` too.
+  The OAuth scope `com.intuit.quickbooks.payment` is requested ONLY when `QBO_PAYMENTS_SCOPE=1`:
+  a scope the Intuit app isn't configured for fails every connect. Not switched on yet.
+- **Redaction for qbo_api is credentials-only** (`redactJson(v, "credentials")`): passwords, tokens,
+  bank account/routing and card numbers. App routes keep the full personal-identifier redaction,
+  and the audit log stays fully redacted. An upload's base64 is logged as its size.
+- **Not verified**: nothing has been called against a real QuickBooks company or the Payments API;
+  the multipart upload shape is from Intuit's docs, unit tests only.
+
 ## Equipment Phase Q1: a machine is linked, not re-entered (2026-11-02)
 
 Shop-floor machines only. A machine was already three records — the bookable

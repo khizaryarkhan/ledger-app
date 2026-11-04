@@ -401,6 +401,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/projects/bulk-delete", methods: ["POST"] },
   { path: "/api/projects/reclassify", methods: ["POST"] },
   { path: "/api/public/chat", methods: ["POST"] },
+  { path: "/api/public/qbo-file", methods: ["GET"], params: ["t"] },
   { path: "/api/qbo", methods: ["GET"] },
   { path: "/api/qbo/api", methods: ["POST"] },
   { path: "/api/qbo/backfill-paid-at", methods: ["POST"] },

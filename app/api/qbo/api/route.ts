@@ -1,8 +1,10 @@
-// Generic QuickBooks Online Accounting API passthrough (POST /api/qbo/api).
+// Generic QuickBooks Online API passthrough (POST /api/qbo/api) — full access.
 //
 // { method, path, query?, body?, preview?, idempotencyKey?, withCount? } is sent
-// to https://quickbooks.api.intuit.com/v3/company/{realmId}/{path} with the org's
-// stored, auto-refreshed token. Every request is classified first
+// to https://quickbooks.api.intuit.com/v3/company/{realmId}/{path} — or, for a
+// path starting "payments/", to the QuickBooks Payments API — with the org's
+// stored, auto-refreshed token. Any path and parameter; `<entity>/<id>/pdf`
+// returns a 10-minute download link; `upload` takes a base64 file. Every request is classified first
 // (lib/qbo/passthrough.ts) — read / write / delete / emails-a-customer — and the
 // MCP tool `qbo_api` gates on that same classification.
 //
@@ -23,8 +25,11 @@ import { rateLimit } from "@/lib/rate-limit";
 import { inngest } from "@/lib/inngest";
 import { redactText } from "@/lib/mcp/policy";
 import {
-  DEFAULT_MINOR_VERSION, classifyQboRequest, countQueryFor, describeQboFault, entityOfSql, type QboRequest,
+  DEFAULT_MINOR_VERSION, classifyQboRequest, countQueryFor, describeQboFault, entityOfSql, uploadOf,
+  type QboApi, type QboRequest,
 } from "@/lib/qbo/passthrough";
+import { FILE_LINK_TTL_MS, signFileLink } from "@/lib/qbo/file-link";
+import { internalOrigin } from "@/lib/mcp/origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +38,9 @@ export const maxDuration = 120;
 const QBO_API = process.env.QBO_ENV === "sandbox"
   ? "https://sandbox-quickbooks.api.intuit.com/v3/company"
   : "https://quickbooks.api.intuit.com/v3/company";
+const PAYMENTS_API = process.env.QBO_ENV === "sandbox"
+  ? "https://sandbox.api.intuit.com/quickbooks/v4/payments"
+  : "https://api.intuit.com/quickbooks/v4/payments";
 const ADMIN_ROLES = new Set(["company_admin", "super_admin"]);
 /** QuickBooks allows ~500 requests per minute per company; leave room for the app's own sync. */
 const RATE_PER_MINUTE = 450;
@@ -53,10 +61,36 @@ const trunc = (s: string) => (s.length > LOG_CHARS ? `${s.slice(0, LOG_CHARS)}�
  * a `requestid`: QuickBooks then returns the first result instead of creating a
  * second record, so a retry cannot duplicate. Reads are always safe to retry.
  */
-async function callQbo(token: OrgQboToken, req: QboRequest, requestId?: string): Promise<QboReply> {
-  const url = new URL(`${QBO_API}/${token.realmId}/${req.path}`);
-  const params = { minorversion: DEFAULT_MINOR_VERSION, ...req.query, ...(requestId ? { requestid: requestId } : {}) };
+async function callQbo(token: OrgQboToken, req: QboRequest, requestId?: string, api: QboApi = "accounting"): Promise<QboReply> {
+  // The Accounting API takes its idempotency key as ?requestid= and wants a
+  // minorversion; the Payments API takes it as a Request-Id header and has neither.
+  const url = api === "payments"
+    ? new URL(`${PAYMENTS_API}/${req.path.replace(/^payments\//, "")}`)
+    : new URL(`${QBO_API}/${token.realmId}/${req.path}`);
+  const { requestid: _callerKey, ...rest } = req.query;
+  const params = api === "payments"
+    ? rest
+    : { minorversion: DEFAULT_MINOR_VERSION, ...rest, ...(requestId ? { requestid: requestId } : {}) };
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  // An upload is multipart: an Attachable's JSON plus the file itself.
+  const upload = api === "accounting" && req.path === "upload" ? uploadOf(req.body) : null;
+  if (upload && upload.ok === false) return { status: 400, intuitTid: null, body: { error: upload.error } };
+  const makeBody = (): BodyInit | undefined => {
+    if (upload && upload.ok) {
+      const { fileName, contentType, bytes, attachable } = upload.spec;
+      const form = new FormData();
+      form.append("file_metadata_01", new Blob([JSON.stringify({ ...attachable, FileName: fileName, ContentType: contentType })], { type: "application/json" }), "attachment.json");
+      form.append("file_content_01", new Blob([new Uint8Array(bytes)], { type: contentType }), fileName);
+      return form;
+    }
+    return req.body !== undefined ? JSON.stringify(req.body) : undefined;
+  };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token.accessToken}`,
+    Accept: "application/json",
+    ...(req.body !== undefined && !upload ? { "Content-Type": "application/json" } : {}),
+    ...(api === "payments" && requestId ? { "Request-Id": requestId } : {}),
+  };
   const retryable = req.method === "GET" || !!requestId;
   const started = Date.now();
   const canRetry = (attempt: number) => retryable && attempt < MAX_ATTEMPTS - 1 && Date.now() - started < RETRY_DEADLINE_MS;
@@ -65,12 +99,8 @@ async function callQbo(token: OrgQboToken, req: QboRequest, requestId?: string):
     try {
       const res = await fetch(url, {
         method: req.method,
-        headers: {
-          Authorization: `Bearer ${token.accessToken}`,
-          Accept: "application/json",
-          ...(req.body !== undefined ? { "Content-Type": "application/json" } : {}),
-        },
-        body: req.body !== undefined ? JSON.stringify(req.body) : undefined,
+        headers,
+        body: makeBody(),
         signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
       });
       if ((res.status === 429 || res.status >= 500) && canRetry(attempt)) {
@@ -90,6 +120,15 @@ async function callQbo(token: OrgQboToken, req: QboRequest, requestId?: string):
     }
   }
   return { status: 0, intuitTid: null, body: { error: "retries exhausted" } };
+}
+
+/** The body as it may be shown or logged: an upload's file content is replaced by its size. */
+function describeBody(req: QboRequest): unknown {
+  const b = req.body as any;
+  if (req.path === "upload" && b && typeof b.base64 === "string") {
+    return { ...b, base64: `[${Math.round((b.base64.length * 3) / 4 / 1024)} KB of file content]` };
+  }
+  return b ?? null;
 }
 
 /** Lift a query's rows to the top, so paging finds them and the AI sees totals beside them. */
@@ -138,17 +177,33 @@ export async function POST(req: NextRequest) {
 
   const isWrite = c.kind !== "read";
 
+  // A PDF is handed back as a short-lived download link, not as bytes: base64 in a
+  // tool result is thousands of tokens the model cannot use (lib/qbo/file-link.ts).
+  if (c.file === "pdf") {
+    const origin = internalOrigin(req.url);
+    if (!origin) return json({ error: "The app's public address is not configured (NEXTAUTH_URL), so a download link cannot be made." }, 500);
+    const link = `${origin}/api/public/qbo-file?t=${encodeURIComponent(signFileLink({ orgId: orgId!, userId, path: c.req.path }))}`;
+    await logEvent({
+      orgId: orgId!, eventType: "qbo_api_call", actorId: userId, actorName: (session?.user as any)?.email ?? null,
+      meta: { via: viaMcp ? "mcp" : "app", kind: "read", method: "GET", path: c.req.path, file: "pdf", linkIssued: true },
+    }).catch((e) => console.error("[qbo-api] audit row not written:", e));
+    return json({
+      ok: true, kind: "read", file: "pdf", downloadUrl: link, expiresInMinutes: FILE_LINK_TTL_MS / 60_000,
+      note: "Give this link to the user to open in a browser. It downloads this one PDF and stops working after 10 minutes, or as soon as they lose admin access.",
+    });
+  }
+
   // Preview: QuickBooks has no validate-only mode, so a preview is the request as
   // it will be sent plus the record as it stands now — never QuickBooks' verdict.
   if (input.preview === true && isWrite) {
     const b = c.req.body as any;
     const entity = c.req.path.split("/")[0];
-    const current = c.req.path.split("/").length === 1 && b?.Id
+    const current = c.api === "accounting" && c.file === null && c.req.path.split("/").length === 1 && b?.Id
       ? shapeReply(await callQbo(token, { method: "GET", path: `${entity}/${encodeURIComponent(String(b.Id))}`, query: {} }))
       : null;
     return json({
-      preview: true, kind: c.kind, sends: c.sends, entities: c.entities,
-      request: { method: c.req.method, path: c.req.path, query: c.req.query, body: c.req.body ?? null },
+      preview: true, api: c.api, kind: c.kind, sends: c.sends, movesMoney: c.movesMoney, entities: c.entities,
+      request: { method: c.req.method, path: c.req.path, query: c.req.query, body: describeBody(c.req) },
       current,
       note: "Not sent. QuickBooks has no validate-only mode: this is the request and the record as it stands, not QuickBooks' check.",
     });
@@ -156,14 +211,16 @@ export async function POST(req: NextRequest) {
 
   const key = typeof input.idempotencyKey === "string" ? input.idempotencyKey : "";
   if (key && !/^[A-Za-z0-9_-]{1,50}$/.test(key)) return json({ error: "idempotencyKey must be 1-50 letters, digits, - or _" }, 400);
-  // Every write carries a requestid. The key is hashed WITH the request, so retrying
-  // the same change returns QuickBooks' first answer, while re-using a key for a
-  // DIFFERENT change gets its own requestid instead of a misleading "success".
-  const requestId = isWrite
-    ? (key ? createHash("sha256").update(JSON.stringify([orgId, key, c.req.method, c.req.path, c.req.query, c.req.body ?? null])).digest("hex").slice(0, 36) : randomUUID())
-    : undefined;
+  // Every write carries a requestid. A caller's own `requestid` parameter is used
+  // as given. Otherwise the key is hashed WITH the request, so retrying the same
+  // change returns QuickBooks' first answer, while re-using a key for a DIFFERENT
+  // change gets its own requestid instead of a misleading "success".
+  const requestId = c.req.query.requestid
+    ?? (isWrite
+      ? (key ? createHash("sha256").update(JSON.stringify([orgId, key, c.req.method, c.req.path, c.req.query, c.req.body ?? null])).digest("hex").slice(0, 36) : randomUUID())
+      : undefined);
 
-  const reply = await callQbo(token, c.req, requestId);
+  const reply = await callQbo(token, c.req, requestId, c.api);
   const shaped = shapeReply(reply);
 
   // A total for paging, when asked: same entity and WHERE, counted.
@@ -186,9 +243,10 @@ export async function POST(req: NextRequest) {
   await logEvent({
     orgId: orgId!, eventType: "qbo_api_call", actorId: userId, actorName: (session?.user as any)?.email ?? null,
     meta: {
-      via: viaMcp ? "mcp" : "app", kind: c.kind, sends: c.sends, method: c.req.method, path: c.req.path,
+      via: viaMcp ? "mcp" : "app", api: c.api, kind: c.kind, sends: c.sends, movesMoney: c.movesMoney, file: c.file,
+      method: c.req.method, path: c.req.path,
       query: c.req.query, entities: c.entities, requestId: requestId ?? null, status: reply.status, intuitTid: reply.intuitTid,
-      request: c.req.body !== undefined ? trunc(redactText(JSON.stringify(c.req.body)).text) : null,
+      request: c.req.body !== undefined ? trunc(redactText(JSON.stringify(describeBody(c.req))).text) : null,
       response: trunc(redactText(typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body)).text),
     },
   }).catch((e) => console.error("[qbo-api] audit row not written:", e));
@@ -210,9 +268,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // The Payments API needs its own OAuth scope, which an org only has if it
+  // connected QuickBooks after that scope was switched on (QBO_PAYMENTS_SCOPE).
+  const paymentsHint = c.api === "payments" && (reply.status === 401 || reply.status === 403)
+    ? "The QuickBooks Payments API needs the com.intuit.quickbooks.payment permission. An admin must reconnect QuickBooks (Settings → Integrations) after it has been switched on for this app, and the company must have a QuickBooks Payments merchant account."
+    : null;
+
   return json({
-    ok, status: reply.status, intuitTid: reply.intuitTid, kind: c.kind, requestId: requestId ?? null,
-    ...(fault ? { fault } : {}), ...(totalCount !== undefined ? { totalCount } : {}),
+    ok, status: reply.status, intuitTid: reply.intuitTid, api: c.api, kind: c.kind, requestId: requestId ?? null,
+    ...(fault ? { fault } : {}), ...(paymentsHint ? { hint: paymentsHint } : {}), ...(totalCount !== undefined ? { totalCount } : {}),
     ...(c.req.path === "query" ? { queriedEntity: entityOfSql(c.req.query.query) } : {}),
     ...(ok && isWrite ? { writeBack: "queued: the app's QuickBooks sync will pull this change in within a minute or two" } : {}),
     ...shaped,

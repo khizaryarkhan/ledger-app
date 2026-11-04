@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { classifyQboRequest, countQueryFor, describeQboFault, entityOfSql } from "@/lib/qbo/passthrough";
+import { classifyQboRequest, countQueryFor, describeQboFault, entityOfSql, uploadOf, MAX_UPLOAD_BYTES } from "@/lib/qbo/passthrough";
+import { signFileLink, verifyFileLink, FILE_LINK_TTL_MS } from "@/lib/qbo/file-link";
+import { redactJson } from "@/lib/mcp/policy";
 import { handleRpc, qboScopesNeeded, switchRefusal, type McpContext } from "@/lib/mcp/server";
 import { checkApiPath } from "@/lib/mcp/policy";
 import type { McpScope } from "@/lib/mcp/oauth";
@@ -40,19 +42,60 @@ describe("classifyQboRequest", () => {
     expect(refused({ method: "POST", path: "batch", body: { BatchItemRequest: many } })).toBe(true);
   });
 
-  it("refuses files, odd paths, bodies on GET and a client-set requestid", () => {
-    expect(refused({ method: "GET", path: "invoice/1/pdf" })).toBe(true);
-    expect(refused({ method: "POST", path: "upload" })).toBe(true);
-    expect(refused({ method: "GET", path: "../companyinfo" })).toBe(true);
-    expect(refused({ method: "GET", path: "invoice/1", body: {} })).toBe(true);
-    expect(refused({ method: "DELETE", path: "invoice/1" })).toBe(true);
-    expect(refused({ method: "GET", path: "query", query: { query: "select * from Item", requestid: "x" } })).toBe(true);
-    expect(refused({ method: "POST", path: "invoice/1", body: {} })).toBe(true);
+  it("full access: any path or parameter, classified by method", () => {
+    expect(ok({ method: "GET", path: "companyinfo/1" }).kind).toBe("read");
+    expect(ok({ method: "GET", path: "entitlements/v3/1" }).kind).toBe("read");
+    expect(ok({ method: "GET", path: "invoice/5", query: { include: "invoiceLink", anything_else: "x" } }).kind).toBe("read");
+    // An unfamiliar POST is a change, never a read.
+    expect(ok({ method: "POST", path: "invoice/1", body: {} }).kind).toBe("write");
+    expect(ok({ method: "POST", path: "someNewEndpoint", body: {} }).kind).toBe("write");
   });
 
-  it("include is accepted on reads only", () => {
-    expect(ok({ method: "GET", path: "invoice/5", query: { include: "invoiceLink" } }).kind).toBe("read");
-    expect(refused({ method: "POST", path: "invoice", query: { include: "void" }, body: { Id: "1", SyncToken: "0" } })).toBe(true);
+  it("a parameter that destroys still makes it a delete", () => {
+    expect(ok({ method: "POST", path: "invoice", query: { include: "void" }, body: { Id: "1", SyncToken: "0" } }).kind).toBe("delete");
+    expect(ok({ method: "POST", path: "salesreceipt", query: { operation: "VOID" }, body: { Id: "1" } }).kind).toBe("delete");
+  });
+
+  it("still refuses paths that climb out, bodies on GET, and DELETE outside Payments", () => {
+    expect(refused({ method: "GET", path: "../companyinfo" })).toBe(true);
+    expect(refused({ method: "GET", path: "invoice/../../x" })).toBe(true);
+    expect(refused({ method: "GET", path: "invoice/1?x=1" })).toBe(true);
+    expect(refused({ method: "GET", path: "invoice/1", body: {} })).toBe(true);
+    expect(refused({ method: "DELETE", path: "invoice/1" })).toBe(true);
+    expect(refused({ method: "GET", path: "query", query: { "bad name": "x" } })).toBe(true);
+  });
+
+  it("a caller requestid is accepted when well formed", () => {
+    expect(ok({ method: "POST", path: "invoice", query: { requestid: "abc-123" }, body: {} }).req.query.requestid).toBe("abc-123");
+    expect(refused({ method: "POST", path: "invoice", query: { requestid: "has space" }, body: {} })).toBe(true);
+  });
+
+  it("PDFs are reads with file=pdf; uploads are writes with file=upload", () => {
+    expect(ok({ method: "GET", path: "invoice/145/pdf" })).toMatchObject({ kind: "read", file: "pdf" });
+    const b64 = Buffer.from("%PDF-1.4 hello").toString("base64");
+    expect(ok({ method: "POST", path: "upload", body: { fileName: "r.pdf", contentType: "application/pdf", base64: b64 } })).toMatchObject({ kind: "write", file: "upload" });
+    expect(ok({ method: "GET", path: "download/77" }).kind).toBe("read");
+  });
+
+  it("an upload must be a plain file name, a MIME type and base64 within the size limit", () => {
+    const b64 = Buffer.from("x").toString("base64");
+    expect(uploadOf({ fileName: "../a.pdf", contentType: "application/pdf", base64: b64 }).ok).toBe(false);
+    expect(uploadOf({ fileName: "a.pdf", contentType: "pdf", base64: b64 }).ok).toBe(false);
+    expect(uploadOf({ fileName: "a.pdf", contentType: "application/pdf", base64: "not base64!" }).ok).toBe(false);
+    expect(uploadOf({ fileName: "a.pdf", contentType: "application/pdf", base64: Buffer.alloc(MAX_UPLOAD_BYTES + 1).toString("base64") }).ok).toBe(false);
+    const good = uploadOf({ fileName: "a.pdf", contentType: "application/pdf", base64: b64, attachable: { Note: "n" } });
+    expect(good.ok === true && good.spec.bytes.length).toBe(1);
+  });
+
+  it("Payments API: reads, card deletes, and money movement is flagged", () => {
+    expect(ok({ method: "GET", path: "payments/charges/E123" })).toMatchObject({ api: "payments", kind: "read", movesMoney: false });
+    expect(ok({ method: "POST", path: "payments/charges", body: { amount: "10.00" } })).toMatchObject({ api: "payments", kind: "write", movesMoney: true });
+    expect(ok({ method: "POST", path: "payments/charges/E123/refunds", body: {} }).movesMoney).toBe(true);
+    expect(ok({ method: "POST", path: "payments/charges/E123/capture", body: {} }).movesMoney).toBe(true);
+    expect(ok({ method: "POST", path: "payments/echecks", body: {} }).movesMoney).toBe(true);
+    expect(ok({ method: "POST", path: "payments/tokens", body: {} }).movesMoney).toBe(false);
+    expect(ok({ method: "DELETE", path: "payments/customers/9/cards/3" }).kind).toBe("delete");
+    expect(ok({ method: "POST", path: "payments/echecks/E1/void", body: {} }).kind).toBe("delete");
   });
 
   it("operation casing and spaces cannot dodge the delete gate", () => {
@@ -64,11 +107,10 @@ describe("classifyQboRequest", () => {
     expect(refused({ method: "POST", path: "batch", body: { BatchItemRequest: [{ bId: "1", Query: "select * from Item", operation: "delete", Invoice: { Id: "1" } }] } })).toBe(true);
   });
 
-  it("employee records are refused however they are reached", () => {
-    expect(refused({ method: "GET", path: "query", query: { query: "select * from Employee" } })).toBe(true);
-    expect(refused({ method: "GET", path: "employee/7" })).toBe(true);
-    expect(refused({ method: "GET", path: "cdc", query: { entities: "Invoice,Employee", changedSince: "2026-10-01" } })).toBe(true);
-    expect(refused({ method: "POST", path: "batch", body: { BatchItemRequest: [{ bId: "1", Query: "select * from Employee" }] } })).toBe(true);
+  it("employee records are available (full access, 2026-11-04)", () => {
+    expect(ok({ method: "GET", path: "query", query: { query: "select * from Employee" } }).kind).toBe("read");
+    expect(ok({ method: "GET", path: "employee/7" }).kind).toBe("read");
+    expect(ok({ method: "POST", path: "employee", body: { GivenName: "A" } }).kind).toBe("write");
   });
 
   it("counts a query with the same entity and WHERE", () => {
@@ -83,7 +125,42 @@ describe("classifyQboRequest", () => {
   });
 });
 
+describe("PDF download links", () => {
+  const SECRET = "test-secret";
+  it("round-trips, and only for a PDF path", () => {
+    const t = signFileLink({ orgId: "o1", userId: "u1", path: "invoice/145/pdf" }, 1000, SECRET);
+    expect(verifyFileLink(t, 2000, SECRET)).toMatchObject({ orgId: "o1", userId: "u1", path: "invoice/145/pdf" });
+    expect(() => signFileLink({ orgId: "o1", userId: "u1", path: "invoice" }, 1000, SECRET)).toThrow();
+  });
+  it("expires, and cannot be altered or signed with another secret", () => {
+    const t = signFileLink({ orgId: "o1", userId: "u1", path: "invoice/145/pdf" }, 1000, SECRET);
+    expect(verifyFileLink(t, 1000 + FILE_LINK_TTL_MS + 1, SECRET)).toBeNull();
+    const [payload, sig] = t.split(".");
+    const forged = Buffer.from(JSON.stringify({ o: "o2", u: "u1", p: "invoice/145/pdf", e: 9e15 })).toString("base64url");
+    expect(verifyFileLink(forged + "." + sig, 2000, SECRET)).toBeNull();
+    expect(verifyFileLink(payload + "." + sig, 2000, "other")).toBeNull();
+  });
+});
+
+describe("qbo_api redaction keeps personal records, hides credentials", () => {
+  it("credentials mode shows tax ids and birth dates but not bank numbers or passwords", () => {
+    const r = redactJson({ Employee: { SSN: "XXX-XX-1234", BirthDate: "1990-01-01", accountNumber: "12345678", password: "p" } }, "credentials");
+    const e = (r.value as any).Employee;
+    expect(e.SSN).toBe("XXX-XX-1234");
+    expect(e.BirthDate).toBe("1990-01-01");
+    expect(e.accountNumber).toBe("[redacted]");
+    expect(e.password).toBe("[redacted]");
+  });
+  it("app routes still redact personal identifiers", () => {
+    expect((redactJson({ SSN: "123" }).value as any).SSN).toBe("[redacted]");
+  });
+});
+
 describe("qbo_api scopes and switches", () => {
+  it("moving money needs the sensitive grant", () => {
+    expect(qboScopesNeeded("write", false, true)).toEqual(expect.arrayContaining(["mcp:accounting_system", "mcp:sensitive"]));
+    expect(qboScopesNeeded("write", false, false)).not.toContain("mcp:sensitive");
+  });
   it("names the grants each kind needs", () => {
     expect(qboScopesNeeded("read", false)).toEqual(["mcp:read"]);
     expect(qboScopesNeeded("write", false)).toContain("mcp:accounting_system");
