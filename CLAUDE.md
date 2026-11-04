@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0126` at `when` `1793400000000`;
+  this silently dropped a table in prod once). Latest is `0127` at `when` `1793500000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -1754,6 +1754,24 @@ receivable (as at 2026-11-03: ACC $252,089 → $240,093, EDC €2,821,600 → �
   still unexplained by counts alone). Not run against a live QBO yet.
 - **Not bugs, reported as such**: €0.01 residuals and unapplied credit memos are real
   QuickBooks balances; "8850." and duplicate "8614" are numbers as typed in QuickBooks.
+
+## QuickBooks webhooks store payments; a merge or delete is a soft delete (2026-11-04)
+
+Found from EDC's questions about payments 72871/72873 and seven invoices "in the app but not in QuickBooks".
+
+- **The webhook now writes the payment row.** `syncTargetedEntities` used to refresh only the invoices a
+  payment settled; `payments`/`payment_applications` were written only by the full/incremental sync
+  (STEP 7.6, nightly), so a morning payment was missing from the payments list all day.
+  `persistWebhookPayments` upserts on the PARTIAL unique index `(org_id, qbo_id) WHERE qbo_id IS NOT NULL`
+  (the conflict target must repeat that WHERE) and rewrites that payment's applications. It runs AFTER the
+  block that reads the payment's previous applications to find de-linked invoices — rewriting them first
+  would hide exactly those invoices. Fail-soft: logged, never fails the webhook; the nightly sync rewrites it.
+- **One mapping**: `lib/qbo/payment-mapping.ts` (pure) is used by both STEP 7.6 and the webhook.
+- **A QuickBooks Merge now soft-deletes the absorbed invoice** (`deleted_at`), like a Delete/Void. It used
+  to set `payment_status = 'Written Off'`, as the delete path did before 0083, leaving the row live with its
+  old balance — counted by the sync log's QuickBooks AR and `/api/qbo/verify`. Migration 0127 soft-deleted
+  every live mirrored `Written Off` row (101: Aberny 93, EDC 7, EDC London 1; all already Closed). Nothing
+  in the app writes `Written Off` now; `tests/qbo-payment-mapping.test.ts` pins that and the ordering above.
 
 ## Receivables are reported AS AT a date (2026-09-12)
 

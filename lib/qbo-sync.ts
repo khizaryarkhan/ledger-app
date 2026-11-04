@@ -13,8 +13,9 @@ import {
   payments, paymentApplications, refundReceipts, journalEntryArLines,
   deposits, estimates,
 } from "@/db/schema";
-import { eq, inArray, and, isNull, desc, ne, lte } from "drizzle-orm";
+import { eq, inArray, and, isNull, desc, ne, lte, sql } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import { paymentRowFromQbo, applicationsFromQboPayment, creditMemoIndex } from "@/lib/qbo/payment-mapping";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -1007,10 +1008,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     const custByQboId = new Map(freshCustomers.filter(c => c.qboId).map(c => [c.qboId!, c.id]));
     const invByQboId = new Map(freshInvoices.filter(i => i.qboId).map(i => [i.qboId!, i.id]));
     // Credit memos are stored in `invoices` with qboId prefixed `CM-`
-    const cmByRawId = new Map<string, string>();
-    for (const inv of freshInvoices) {
-      if (inv.qboId?.startsWith("CM-")) cmByRawId.set(inv.qboId.slice(3), inv.id);
-    }
+    const cmByRawId = creditMemoIndex(freshInvoices);
 
     // ----- PAYMENTS -----
     let paymentsCreated = 0;
@@ -1036,29 +1034,9 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
 
     for (const qpay of allQboPayments) {
       try {
-        if (!qpay.Id) { paymentsSkipped++; paymentErrors.push({ qboId: "?", reason: "Missing Id" }); continue; }
-        if (!qpay.TxnDate) { paymentsSkipped++; paymentErrors.push({ qboId: qpay.Id, reason: "Missing TxnDate" }); continue; }
-
-        const qboCustId = qpay.CustomerRef?.value as string | undefined;
-        const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
-        const payload = {
-          orgId,
-          qboId:               qpay.Id,
-          customerId,
-          qboCustomerId:       qboCustId ?? null,
-          txnDate:             qpay.TxnDate,
-          totalAmount:         parseFloat(qpay.TotalAmt) || 0,
-          unappliedAmount:     parseFloat(qpay.UnappliedAmt) || 0,
-          currency:            qpay.CurrencyRef?.value || "EUR",
-          exchangeRate:        qpay.ExchangeRate ? parseFloat(qpay.ExchangeRate) : null,
-          paymentMethod:       qpay.PaymentMethodRef?.name || null,
-          paymentRef:          qpay.PaymentRefNum || null,
-          depositAccountId:    qpay.DepositToAccountRef?.value || null,
-          depositAccountName:  qpay.DepositToAccountRef?.name || null,
-          privateNote:         qpay.PrivateNote || null,
-          qboSyncedAt:         new Date(),
-          updatedAt:           new Date(),
-        };
+        const mapped = paymentRowFromQbo(orgId, qpay, custByQboId);
+        if (mapped.ok === false) { paymentsSkipped++; paymentErrors.push({ qboId: mapped.qboId, reason: mapped.reason }); continue; }
+        const payload = mapped.row;
 
         const existingId = existingPayByQboId.get(qpay.Id);
         if (existingId) { toUpdate.push({ id: existingId, data: payload }); }
@@ -1108,69 +1086,13 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     const allPaymentDbIds = allPaymentsNow.map(p => p.id);
 
     // STEP E: Build all applications across all payments — pure JS, no DB calls
-    //
-    // Special handling for zero-amount payments (TotalAmt = 0):
-    // QBO uses these as bookkeeping records to "apply" existing credits
-    // against invoices. The credit source can be either:
-    //   (A) A CreditMemo — the CM is in the same Line's LinkedTxn[]
-    //   (B) A Journal Entry credit to AR — usually NOT in LinkedTxn[]
-    //
-    // For case (A) we MUST keep the application, otherwise the invoice will
-    // appear open in our AR even though the CM closed it.
-    // For case (B) we MUST skip the application, otherwise we double-count
-    // (the JE_AR_line already captures the reduction).
-    //
-    // Heuristic: for a zero-amount payment line, keep the application only
-    // if that line's LinkedTxn[] includes a CreditMemo (case A signal).
+    // The mapping (and why zero-amount payments keep their applications) is in
+    // lib/qbo/payment-mapping.ts, shared with the webhook path.
     const allApps: any[] = [];
     for (const qpay of allQboPayments) {
       const paymentRowId = paymentIdByQboId.get(qpay.Id);
       if (!paymentRowId) continue;
-
-      const paymentTotal = parseFloat(qpay.TotalAmt) || 0;
-      const isZeroPayment = paymentTotal < 0.005;
-
-      // Capture every LinkedTxn target on every payment line (cash and
-      // zero-amount). This is the authoritative event log of how AR is
-      // settled in QBO:
-      //   - Invoice         → invoice has been (partially) paid
-      //   - CreditMemo      → CM has been applied
-      //   - JournalEntry    → JE has been applied (zero-amount payment trick).
-      //                       Without this, JEs live forever in our balance
-      //                       calc even after QBO has netted them out.
-      //
-      // Previously zero-amount payments without a CreditMemo in LinkedTxn
-      // were dropped wholesale to "avoid double-counting" — but the JE_AR_line
-      // table only records the JE's existence and gross amount, it has no
-      // way to know the JE has been applied. The application record is what
-      // closes that loop, so we capture it.
-      for (const line of (qpay.Line || [])) {
-        const linked = line.LinkedTxn || [];
-        const amount = parseFloat(line.Amount) || 0;
-        for (const l of linked) {
-          const targetType  = l.TxnType  as string;
-          const targetQboId = l.TxnId    as string;
-          // TxnLineId identifies the specific sub-line on the target txn.
-          // Crucial for JEs: one JE header can carry multiple AR lines for
-          // different customers, so the application has to know which line
-          // it applies to. May be absent on some payloads — the aging
-          // engine falls back to customer/account matching when null.
-          const targetLineId = (l.TxnLineId as string | undefined) ?? null;
-          if (!targetQboId || !targetType) continue;
-          if (!["Invoice", "CreditMemo", "JournalEntry"].includes(targetType)) continue;
-          const invoiceId = targetType === "Invoice"
-            ? (invByQboId.get(targetQboId) ?? null)
-            : targetType === "CreditMemo"
-              ? (cmByRawId.get(targetQboId) ?? null)
-              : null; // JournalEntry has no FK to invoices table
-          allApps.push({
-            orgId, paymentId: paymentRowId,
-            invoiceId, targetQboId, targetType, targetLineId,
-            amountApplied: amount,
-          });
-        }
-      }
-      void isZeroPayment; // kept for future use; no longer used to gate
+      allApps.push(...applicationsFromQboPayment(orgId, paymentRowId, qpay, invByQboId, cmByRawId));
     }
     if (zeroPaymentApps > 0) {
       console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from JE-backed zero-amount payments (CM-backed zero-payments were retained)`);
@@ -1769,6 +1691,66 @@ export type QboEntityChange = {
   deletedId?: string; // Merge only — the QBO ID of the record that was absorbed/deleted
 };
 
+/**
+ * Write the payments a webhook announced, and what each one settles, into
+ * `payments` / `payment_applications`. Before this the webhook only refreshed
+ * the invoices a payment paid, so the payment row itself appeared only at the
+ * nightly sync. Same mapping as STEP 7.6 (lib/qbo/payment-mapping.ts).
+ *
+ * Fail-soft like STEP 7.6: the invoice refresh that ran before this is what
+ * keeps AR right, and the nightly sync rewrites these rows anyway, so a failure
+ * here is logged loudly rather than failing the whole webhook.
+ */
+async function persistWebhookPayments(orgId: string, qboPayments: any[]): Promise<void> {
+  try {
+    const rows = qboPayments.flatMap((p) => {
+      const m = paymentRowFromQbo(orgId, p, new Map());
+      if (m.ok === false) { console.warn(`QBO webhook: payment ${m.qboId} not stored: ${m.reason}`); return []; }
+      return [{ qpay: p, row: m.row }];
+    });
+    if (rows.length === 0) return;
+
+    // Only the customers and documents these payments name — not the whole org.
+    const custQboIds = [...new Set(rows.map((r) => r.row.qboCustomerId).filter((x): x is string => !!x))];
+    const custByQboId = new Map<string, string>();
+    if (custQboIds.length > 0) {
+      const cs = await db.select({ id: customers.id, qboId: customers.qboId }).from(customers)
+        .where(and(eq(customers.orgId, orgId), inArray(customers.qboId, custQboIds)));
+      for (const c of cs) if (c.qboId) custByQboId.set(c.qboId, c.id);
+    }
+    const targetQboIds = new Set<string>();
+    for (const { qpay } of rows) for (const line of qpay.Line || []) for (const l of line.LinkedTxn || []) {
+      if (l.TxnType === "Invoice") targetQboIds.add(String(l.TxnId));
+      if (l.TxnType === "CreditMemo") targetQboIds.add(`CM-${l.TxnId}`);
+    }
+    const docs = targetQboIds.size === 0 ? [] : await db.select({ id: invoices.id, qboId: invoices.qboId }).from(invoices)
+      .where(and(eq(invoices.orgId, orgId), inArray(invoices.qboId, [...targetQboIds])));
+    const invByQboId = new Map(docs.filter((d) => d.qboId && !d.qboId.startsWith("CM-")).map((d) => [d.qboId!, d.id]));
+    const cmByRawId = creditMemoIndex(docs);
+
+    for (const { qpay, row } of rows) {
+      const data = { ...row, customerId: row.qboCustomerId ? (custByQboId.get(row.qboCustomerId) ?? null) : null };
+      // payments has a unique index on (org_id, qbo_id) WHERE qbo_id IS NOT NULL,
+      // so a replayed or concurrent webhook updates the one row instead of adding
+      // a second. The index is partial, so the conflict target must repeat its WHERE.
+      const [saved] = await db.insert(payments).values(data)
+        .onConflictDoUpdate({
+          target: [payments.orgId, payments.qboId],
+          targetWhere: sql`${payments.qboId} IS NOT NULL`,
+          set: { ...data },
+        })
+        .returning({ id: payments.id });
+      if (!saved) continue;
+      const apps = applicationsFromQboPayment(orgId, saved.id, qpay, invByQboId, cmByRawId);
+      await db.delete(paymentApplications)
+        .where(and(eq(paymentApplications.orgId, orgId), eq(paymentApplications.paymentId, saved.id)));
+      if (apps.length > 0) await db.insert(paymentApplications).values(apps);
+    }
+  } catch (e: any) {
+    console.error(`QBO webhook: storing payments failed for org ${orgId} (the nightly sync will retry):`, e?.message || e);
+  }
+}
+
 export async function syncTargetedEntities(
   orgId: string,
   userId: string,
@@ -2106,6 +2088,11 @@ export async function syncTargetedEntities(
         }
       }
     }
+
+    // Store the payments themselves. Deliberately AFTER the block above: it reads
+    // the payments' previous applications to find invoices a payment was moved
+    // off, and rewriting them first would hide exactly those invoices.
+    await persistWebhookPayments(orgId, qboPayments.filter(Boolean));
   }
 
   // --- Credit memos ---
@@ -2339,7 +2326,10 @@ export async function syncTargetedEntities(
 
   // --- Merge: clean up the absorbed (deleted) side ---
   // The surviving record is handled by a companion Update event (normal flow above).
-  // Here we just tombstone the record that was absorbed.
+  // The absorbed record no longer exists in QuickBooks, so it is soft-deleted
+  // exactly like a deleted invoice. It used to be marked "Written Off" — a real
+  // AR outcome it never was — which left it live with its old balance, counted
+  // by the sync log's QuickBooks total and by /api/qbo/verify (EDC, 2026-11-04).
   if (mergedInvoiceDeletedIds.length > 0) {
     for (const deletedQboId of mergedInvoiceDeletedIds) {
       const existing = ledgerInvByQboId.get(deletedQboId);
@@ -2347,7 +2337,7 @@ export async function syncTargetedEntities(
       updatePromises.push(
         db
           .update(invoices)
-          .set({ paymentStatus: "Written Off", collectionStage: "Closed", updatedAt: new Date() })
+          .set({ deletedAt: new Date(), collectionStage: "Closed", updatedAt: new Date() })
           .where(eq(invoices.id, existing.id))
       );
     }
