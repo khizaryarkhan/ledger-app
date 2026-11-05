@@ -897,6 +897,13 @@
       "when": 1793600000000,
       "tag": "0128_pax_console",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "6",
+      "when": 1793700000000,
+      "tag": "0129_pax_actions_and_controls",
+      "breakpoints": true
     }
   ]
 }

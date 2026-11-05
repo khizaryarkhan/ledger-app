@@ -32,6 +32,9 @@ export type EventType =
   | "ai_switches_changed"      // an admin turned AI-connection writes/deletes on or off
   | "pax_model_saved"          // a user connected or changed their PAX Console model (never logs the key)
   | "pax_model_removed"        // a user removed their PAX Console model and key
+  | "pax_policy_saved"         // an admin changed which providers / changes PAX Console allows
+  | "pax_proposal"             // a PAX Console model proposed a change, or the user rejected one (nothing ran)
+  | "pax_consent"            // a user acknowledged that PAX Console sends data to their chosen provider
   // ── Payables / Procurement ───────────────────────────────────────────────
   | "purchase_request_created"
   | "purchase_request_submitted"

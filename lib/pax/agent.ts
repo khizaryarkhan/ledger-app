@@ -6,7 +6,7 @@
 // permissions — those live in the tool context it is given.
 
 import type { McpContext } from "@/lib/mcp/server";
-import { paxToolDefs, runPaxTool } from "./tools";
+import { paxToolDefs, runPaxTool, type PaxToolEnv } from "./tools";
 import { toolLabel } from "./ui-shape";
 
 export const MAX_STEPS = 6;
@@ -74,10 +74,13 @@ export async function runAgent(opts: {
   signal?: AbortSignal;
   /** Epoch ms after which no new step starts. */
   deadline?: number;
+  /** What this conversation may use beyond the read tools. Decided by the server, never the model. */
+  env?: PaxToolEnv;
 }): Promise<AgentResult> {
   const produced: ChatMessage[] = [];
   const notes: string[] = [];
-  const tools = paxToolDefs();
+  const env = opts.env ?? {};
+  const tools = paxToolDefs(env);
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
   const deadline = opts.deadline ?? Date.now() + TURN_BUDGET_MS;
 
@@ -129,7 +132,7 @@ export async function runAgent(opts: {
       }
       if (opts.signal?.aborted) throw new Error("Cancelled.");
       opts.emit({ type: "tool", name: c.name, args: safeArgs(c.args) });
-      const out = await runPaxTool(opts.ctx, c.name, c.args);
+      const out = await runPaxTool(opts.ctx, c.name, c.args, env);
       opts.emit({ type: "tool_done", name: c.name, ok: out.ok, summary: firstLine(out.text) });
       notes.push(`${toolLabel(c.name, c.args)} (${out.ok ? firstLine(out.text) : "refused or failed"})`);
       produced.push({ role: "tool", tool_call_id: c.id, content: out.text });

@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, numeric, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, numeric, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial, date, primaryKey } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
@@ -4345,3 +4345,43 @@ export const paxMessages = pgTable("pax_messages", {
   message:        jsonb("message").notNull(),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ byConversation: index("pax_messages_conversation_idx").on(t.conversationId, t.createdAt) }));
+
+// A change the model PROPOSED. The model never runs it: the server runs this stored
+// request, as the user, only after the user presses Apply (0129).
+export const paxPendingActions = pgTable("pax_pending_actions", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  userId:         uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull().references(() => paxConversations.id, { onDelete: "cascade" }),
+  method:         varchar("method", { length: 8 }).notNull(),
+  path:           text("path").notNull(),
+  query:          jsonb("query"),
+  body:           jsonb("body"),
+  /** What the model said it would do, shown on the card. The request itself is what runs. */
+  summary:        text("summary").notNull(),
+  /** pending | applied | rejected | expired | failed */
+  status:         varchar("status", { length: 10 }).notNull().default("pending"),
+  result:         text("result"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  expiresAt:      timestamp("expires_at").notNull(),
+  decidedAt:      timestamp("decided_at"),
+}, (t) => ({ byConversation: index("pax_pending_actions_conversation_idx").on(t.conversationId, t.createdAt) }));
+
+// What an organisation's admin allows (0129). No row = the defaults: every provider, custom
+// endpoints allowed, the console may not propose changes.
+export const paxOrgSettings = pgTable("pax_org_settings", {
+  orgId:                uuid("org_id").primaryKey().references(() => organisations.id, { onDelete: "cascade" }),
+  /** null = every provider; otherwise the provider ids that may be used. */
+  allowedProviders:     jsonb("allowed_providers"),
+  allowCustomEndpoints: boolean("allow_custom_endpoints").notNull().default(true),
+  writesEnabled:        boolean("writes_enabled").notNull().default(false),
+  consentText:          text("consent_text"),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+  updatedBy:            uuid("updated_by"),
+});
+
+export const paxConsents = pgTable("pax_consents", {
+  userId:     uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.userId, t.orgId] }) }));

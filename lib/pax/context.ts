@@ -18,9 +18,11 @@ export function paxToolContext(a: { requestUrl: string; userId: string; orgId: s
     // Reads never mint a confirmation token; this only has to be a stable secret.
     confirmSecret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "",
     callApi: (c) => callInternalApi({ requestUrl: a.requestUrl, userId: a.userId, orgId: a.orgId, ...c }),
-    // Not offered in this version (tools.ts); refused here as well.
-    callQbo: async () => ({ ok: false, error: "The QuickBooks API is not available in PAX Console yet." }),
-    // Fail closed: a read-only console has no business changing anything.
+    // Offered only to organisation admins, read-only (tools.ts narrows it to GET and the
+    // scopes above grant nothing beyond read). The route itself is admin-only as well.
+    callQbo: (body) => callInternalApi({ requestUrl: a.requestUrl, userId: a.userId, orgId: a.orgId, method: "POST", path: "/api/qbo/api", body }),
+    // Fail closed: nothing here changes anything. A change is a stored proposal that the
+    // user applies with a click (app/api/pax-console/actions/[id]), never a tool call.
     aiSwitches: async () => ({ writes: false, deletes: false }),
     async whoami() {
       const claims = await resolveLiveClaims(a.userId, a.orgId);
@@ -32,7 +34,7 @@ export function paxToolContext(a: { requestUrl: string; userId: string; orgId: s
         organisation: { id: a.orgId, name: org?.displayName || org?.name || null },
         role: claims.role,
         access: { read: true, write: false, delete: false },
-        note: "Every call runs as this user, so the app's own role checks decide what succeeds. This version only reads.",
+        note: "Every call runs as this user, so the app's own role checks decide what succeeds. You can read; a change is only ever a proposal the user applies with a click, when the organisation allows that.",
       };
     },
     async audit(e) {

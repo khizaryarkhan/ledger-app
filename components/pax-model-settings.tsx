@@ -12,7 +12,8 @@ import type { PublicModel } from "@/lib/pax/keys";
 
 const GROUPS = Array.from(new Set(PROVIDERS.map((p) => p.group)));
 
-export function PaxModelSettings({ model, onChange }: { model: PublicModel | null; onChange: (m: PublicModel | null) => void }) {
+export function PaxModelSettings({ model, onChange, allowedProviders = null }: { model: PublicModel | null; onChange: (m: PublicModel | null) => void; allowedProviders?: string[] | null }) {
+  const allowed = (id: string) => !allowedProviders || allowedProviders.includes(id);
   const start = providerById(model?.provider) ?? providerById("anthropic")!;
   const [providerId, setProviderId] = useState(start.id);
   const [modelName, setModelName] = useState(model?.model ?? start.models[0] ?? "");
@@ -85,7 +86,7 @@ export function PaxModelSettings({ model, onChange }: { model: PublicModel | nul
               {GROUPS.map((g) => (
                 <optgroup key={g} label={g}>
                   {PROVIDERS.filter((p) => p.group === g).map((p) => (
-                    <option key={p.id} value={p.id} disabled={!p.ready}>{p.label}{p.ready ? "" : " (planned)"}</option>
+                    <option key={p.id} value={p.id} disabled={!p.ready || !allowed(p.id)}>{p.label}{!p.ready ? " (planned)" : allowed(p.id) ? "" : " (not allowed by your admin)"}</option>
                   ))}
                 </optgroup>
               ))}
@@ -126,7 +127,7 @@ export function PaxModelSettings({ model, onChange }: { model: PublicModel | nul
           <p className="text-[13px] leading-relaxed text-stone-400">
             When you chat, your question and the records needed to answer it are sent to <span className="text-stone-200">{provider.label}</span>, using your own account.
             Prime Accountax does not pay for or store your conversations with {provider.label}. Personal identifiers, bank details and credentials are removed before anything is sent.
-            You can read and change only what your role in Prime Accountax already allows, and this version can only read.
+            You can read and change only what your role in Prime Accountax already allows. A change is only ever a card you review and apply, and only if your admin has allowed it.
           </p>
         </Section>
       </div>

@@ -14,6 +14,8 @@
 
 import { callTool, formatResult, toolsFor, type McpContext } from "@/lib/mcp/server";
 import { MAX_LIMIT, PAYMENT_GROUPS, RECEIVABLE_GROUPS } from "./analysis";
+import { redactText } from "@/lib/mcp/policy";
+import { checkProposal, MAX_SUMMARY_CHARS, type Proposal } from "./policy";
 
 export const PAX_READ_TOOLS = ["whoami", "list_api_routes", "api_get", "analyze"] as const;
 export type PaxToolName = (typeof PAX_READ_TOOLS)[number];
@@ -72,14 +74,71 @@ const ANALYZE_TOOL: OpenAiTool = {
   },
 };
 
-export function paxToolDefs(): OpenAiTool[] {
+export type ToolOutcome = { ok: boolean; text: string };
+
+/**
+ * What THIS conversation may use beyond the four read tools. Decided by the server per
+ * message (role, the organisation's switches, the model's tier) — never by the model.
+ */
+export interface PaxToolEnv {
+  /** api_write is offered: it only ever PROPOSES, through `propose`. */
+  canPropose?: boolean;
+  /** qbo_api is offered, read-only (organisation admins only; the route enforces that too). */
+  canQbo?: boolean;
+  propose?: (p: Proposal) => Promise<ToolOutcome>;
+}
+
+const PROPOSE_TOOL: OpenAiTool = {
+  type: "function",
+  function: {
+    name: "api_write",
+    description:
+      "PROPOSE a change to the app (POST, PUT or PATCH to an app API route). Nothing is changed by this call: it shows the user a card with your summary and an Apply button, " +
+      "and the change happens only if they press it. Before proposing, read what you need so the request is exact (find the route with list_api_routes; its body{} lists field names). " +
+      "Write summary as one plain sentence saying what will change and to which records. After proposing, tell the user to review the card; never say it is done. " +
+      "Deleting, changing QuickBooks/Xero, sending email and changing settings are not available.",
+    parameters: {
+      type: "object",
+      properties: {
+        method: { type: "string", enum: ["POST", "PUT", "PATCH"] },
+        path: { type: "string", description: "Route path starting with /api/, no query string." },
+        query: { type: "object", additionalProperties: true },
+        body: { type: "object", additionalProperties: true },
+        summary: { type: "string", description: `One plain sentence for the user to read before applying (max ${MAX_SUMMARY_CHARS} characters).` },
+      },
+      required: ["method", "path", "summary"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** The MCP server's own QuickBooks tool, narrowed to GET: here it can only read. */
+function qboReadTool(): OpenAiTool | null {
+  const t = toolsFor(["mcp:read"]).find((x) => x.name === "qbo_api");
+  if (!t) return null;
+  const schema = t.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+  return {
+    type: "function",
+    function: {
+      name: "qbo_api",
+      description: "In PAX Console this tool can only READ (method GET); it cannot create, change, delete, send or move money. " + t.description,
+      parameters: { ...schema, properties: { ...(schema.properties ?? {}), method: { type: "string", enum: ["GET"] } }, required: ["path"] },
+    },
+  };
+}
+
+export function paxToolDefs(env: PaxToolEnv = {}): OpenAiTool[] {
   const shared = toolsFor(["mcp:read"])
     .filter((t) => isPaxReadTool(t.name))
     .map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
-  return [...shared, ANALYZE_TOOL];
+  const out: OpenAiTool[] = [...shared, ANALYZE_TOOL];
+  if (env.canQbo) { const q = qboReadTool(); if (q) out.push(q); }
+  if (env.canPropose && env.propose) out.push(PROPOSE_TOOL);
+  return out;
 }
 
-export type ToolOutcome = { ok: boolean; text: string };
+const isOffered = (name: unknown, env: PaxToolEnv): boolean =>
+  isPaxReadTool(name) || (name === "qbo_api" && env.canQbo === true) || (name === "api_write" && env.canPropose === true && !!env.propose);
 
 const cut = (text: string): string =>
   text.length > MAX_TOOL_CHARS
@@ -94,8 +153,8 @@ async function runAnalyze(ctx: McpContext, args: Record<string, unknown>): Promi
   return { ok: !formatted.isError, text: cut(formatted.content.map((c) => c.text).join("\n")) };
 }
 
-export async function runPaxTool(ctx: McpContext, name: unknown, rawArgs: string | undefined | null): Promise<ToolOutcome> {
-  if (!isPaxReadTool(name)) return { ok: false, text: `Refused: ${String(name)} is not available in PAX Console. This version can only read.` };
+export async function runPaxTool(ctx: McpContext, name: unknown, rawArgs: string | undefined | null, env: PaxToolEnv = {}): Promise<ToolOutcome> {
+  if (!isOffered(name, env)) return { ok: false, text: `Refused: ${String(name)} is not available in PAX Console in this conversation.` };
 
   let args: Record<string, unknown> = {};
   if (rawArgs && rawArgs.trim()) {
@@ -107,6 +166,24 @@ export async function runPaxTool(ctx: McpContext, name: unknown, rawArgs: string
 
   if (name === "analyze") return runAnalyze(ctx, args);
 
+  if (name === "api_write") {
+    const checked = checkProposal(args);
+    if (checked.ok === false) return { ok: false, text: `Refused: ${checked.reason}` };
+    return env.propose!(checked.proposal);
+  }
+
+  if (name === "qbo_api" && String(args.method ?? "GET").toUpperCase() !== "GET") {
+    return { ok: false, text: "Refused: PAX Console can only read from QuickBooks. Tell the user to make that change in QuickBooks or in the app." };
+  }
+  // Employee records hold SSNs and dates of birth; the app's own routes refuse them for AI, so this does too.
+  if (name === "qbo_api" && /\bemployee\b|taxidentifier/i.test(JSON.stringify([args.path, args.query]))) {
+    return { ok: false, text: "Refused: employee records hold personal identifiers and are not available to PAX Console." };
+  }
+
   const result = await callTool(name, args, ctx);
-  return { ok: !result.isError, text: cut(result.content.map((c) => c.text).join("\n")) };
+  let text = result.content.map((c) => c.text).join("\n");
+  // The QuickBooks API redacts credentials only. Here the answer goes to a third-party model, so it gets
+  // the same personal-identifier redaction as every app route (SSN, date of birth, tax ids).
+  if (name === "qbo_api") text = redactText(text, "personal").text;
+  return { ok: !result.isError, text: cut(text) };
 }

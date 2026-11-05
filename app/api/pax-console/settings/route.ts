@@ -15,6 +15,8 @@ import { providerById, resolveEndpoint, tierFor } from "@/lib/pax/providers";
 import { deleteUserModel, getPublicModel, getSecretModel, saveUserModel } from "@/lib/pax/keys";
 import { describeProviderError, makeClient, testConnection } from "@/lib/pax/client";
 import { isAiCall, sameOrigin, userIdOf } from "@/lib/pax/http";
+import { providerRefusal } from "@/lib/pax/policy";
+import { loadOrgPolicy } from "@/lib/pax/policy-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +53,9 @@ export async function PUT(req: NextRequest) {
   if (!provider) return bad("That provider is not supported.");
   const ep = resolveEndpoint(provider, b.baseUrl);
   if (ep.ok === false) return bad(ep.error);
+  // The organisation's rules (Your model → admin controls) bind what a user may connect.
+  const refusal = providerRefusal(await loadOrgPolicy(orgId!), provider.id, !provider.baseUrl);
+  if (refusal) return bad(refusal, 403);
 
   // The address is stored only when the user supplied it; a provider's own address is ours.
   const baseUrl = provider.baseUrl ? null : ep.url;

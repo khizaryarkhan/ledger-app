@@ -2,12 +2,15 @@
 
 // PAX Console: a chat with your books, using your own AI model. Everything it
 // reads, it reads as you — the same permissions as the rest of the app.
-// This version only reads; changes are a later phase and will always ask first.
+// A change is only ever a card the model proposes and you apply.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquarePlus, Send, Settings2, Trash2, Database } from "lucide-react";
+import { Download, Loader2, MessageSquarePlus, Send, Settings2, Trash2, Database, X } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { PaxActionCard } from "@/components/pax-action-card";
+import { PaxMarkdown } from "@/components/pax-markdown";
 import { PaxModelSettings } from "@/components/pax-model-settings";
+import { PaxOrgControls } from "@/components/pax-org-controls";
 import { hasModule, type ModuleKey } from "@/lib/modules";
 import { toolLabel, type UiBlock } from "@/lib/pax/ui-shape";
 import { providerById } from "@/lib/pax/providers";
@@ -36,13 +39,36 @@ function Bubble({ block }: { block: Shown }) {
     );
   }
   if (block.kind === "error") return <p className="text-[13px] text-red-400 max-w-[68ch]">{block.text}</p>;
-  return <p className="text-[15px] leading-relaxed text-stone-200 whitespace-pre-wrap max-w-[68ch]">{block.text}</p>;
+  if (block.kind === "action") return <PaxActionCard action={block} />;
+  return <PaxMarkdown text={block.text} />;
+}
+
+type PolicyInfo = { consentText: string; consented: boolean; isAdmin: boolean; policy: { allowedProviders: string[] | null; writesEnabled: boolean } };
+
+const PROMPTS_KEY = "pax-saved-prompts";
+const MAX_SAVED = 12;
+const loadPrompts = (): string[] => {
+  try { const v = JSON.parse(localStorage.getItem(PROMPTS_KEY) ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, MAX_SAVED) : []; } catch { return []; }
+};
+const storePrompts = (list: string[]) => { try { localStorage.setItem(PROMPTS_KEY, JSON.stringify(list)); } catch { /* a convenience only */ } };
+
+/** A conversation as plain markdown, for keeping or sharing. Lookups are listed; their data is not stored, so it is not here. */
+function exportMarkdown(blocks: Shown[]): string {
+  return blocks.map((b) => {
+    if (b.kind === "user") return `**You:** ${b.text}`;
+    if (b.kind === "tool") return `_${b.label}_`;
+    if (b.kind === "assistant") return b.text;
+    if (b.kind === "action") return `> Proposed change (${b.status}): ${b.summary}`;
+    return `> ${b.text}`;
+  }).join("\n\n");
 }
 
 export function PaxConsole() {
   const { orgSettings } = useData();
-  const [tab, setTab] = useState<"chat" | "model">("chat");
+  const [tab, setTab] = useState<"chat" | "model" | "admin">("chat");
   const [model, setModel] = useState<PublicModel | null | undefined>(undefined);
+  const [info, setInfo] = useState<PolicyInfo | null>(null);
+  const [saved, setSaved] = useState<string[]>([]);
   const [convos, setConvos] = useState<Convo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<Shown[]>([]);
@@ -60,10 +86,44 @@ export function PaxConsole() {
     } catch { /* the list is a convenience */ }
   }, []);
 
+  const loadPolicy = useCallback(() => {
+    fetch("/api/pax-console/policy").then((r) => r.json()).then((j) => { if (j?.policy) setInfo(j); }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetch("/api/pax-console/settings").then((r) => r.json()).then((j) => setModel(j.model ?? null)).catch(() => setModel(null));
     loadConvos();
-  }, [loadConvos]);
+    loadPolicy();
+    setSaved(loadPrompts());
+  }, [loadConvos, loadPolicy]);
+
+  async function accept() {
+    const res = await fetch("/api/pax-console/policy", { method: "POST" }).catch(() => null);
+    if (res?.ok) setInfo((i) => (i ? { ...i, consented: true } : i));
+  }
+
+  function savePrompt() {
+    const t = draft.trim();
+    if (!t || saved.includes(t)) return;
+    const next = [t, ...saved].slice(0, MAX_SAVED);
+    setSaved(next);
+    storePrompts(next);
+  }
+
+  function dropPrompt(p: string) {
+    const next = saved.filter((x) => x !== p);
+    setSaved(next);
+    storePrompts(next);
+  }
+
+  function download() {
+    const url = URL.createObjectURL(new Blob([exportMarkdown(blocks)], { type: "text/markdown" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pax-console-conversation.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [blocks]);
 
@@ -107,13 +167,14 @@ export function PaxConsole() {
         return last < 0 ? b : b.map((x, i) => (i === last && x.kind === "tool" ? { ...x, label: `${x.label} (refused or failed)` } : x));
       });
     }
+    else if (ev.type === "proposal") setBlocks((b) => [...b, { kind: "action", id: ev.id, method: ev.method, path: ev.path, query: ev.query, body: ev.body, summary: ev.summary, status: "pending", result: null }]);
     else if (ev.type === "text" && ev.text) setBlocks((b) => [...b, { kind: "assistant", text: ev.text }]);
     else if (ev.type === "error") setBlocks((b) => [...b, { kind: "error", text: ev.message }]);
   }
 
   async function send(text: string) {
     const message = text.trim();
-    if (!message || busy || busyRef.current) return;
+    if (!message || busy || busyRef.current || needsConsent) return;
     busyRef.current = true;
     setBusy(true);
     setDraft("");
@@ -153,6 +214,9 @@ export function PaxConsole() {
 
   const ideas = IDEAS.filter((i) => hasModule(orgSettings?.enabledModules, i.module));
   const notConnected = model === null;
+  const needsConsent = info !== null && !info.consented;
+  // Whether an admin has allowed proposals here. A model still has to be one that is trusted with them.
+  const mayChange = info?.policy.writesEnabled === true;
   const label = model ? `${providerById(model.provider)?.label ?? model.provider} · ${model.model}` : null;
   const tabBtn = (on: boolean) => `h-8 px-3 rounded-lg text-[12px] ${on ? "bg-stone-700 text-stone-100" : "text-stone-400 hover:text-stone-200 hover:bg-stone-800"}`;
 
@@ -166,14 +230,22 @@ export function PaxConsole() {
         <div className="flex items-center gap-1 ml-2">
           <button type="button" aria-pressed={tab === "chat"} className={tabBtn(tab === "chat")} onClick={() => setTab("chat")}>Chat</button>
           <button type="button" aria-pressed={tab === "model"} className={tabBtn(tab === "model")} onClick={() => setTab("model")}>Your model</button>
+          {info?.isAdmin && <button type="button" aria-pressed={tab === "admin"} className={tabBtn(tab === "admin")} onClick={() => setTab("admin")}>Admin controls</button>}
         </div>
         <div className="flex-1" />
+        {tab === "chat" && blocks.length > 0 && (
+          <button type="button" onClick={download} className="h-8 px-3 rounded-lg text-[12px] text-stone-400 hover:text-stone-200 hover:bg-stone-800 inline-flex items-center gap-2"><Download size={13} />Export</button>
+        )}
         {label && <span className="text-[12px] text-stone-400 border border-stone-700 rounded-lg px-2.5 py-1">{label}</span>}
-        <span className="text-[12px] text-emerald-400 bg-emerald-500/10 rounded-lg px-2.5 py-1">Read only</span>
+        <span className={`text-[12px] rounded-lg px-2.5 py-1 ${mayChange ? "text-amber-300 bg-amber-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>
+          {mayChange ? "Changes ask first" : "Read only"}
+        </span>
       </div>
 
       {tab === "model" ? (
-        <PaxModelSettings model={model ?? null} onChange={setModel} />
+        <PaxModelSettings model={model ?? null} onChange={setModel} allowedProviders={info?.policy.allowedProviders ?? null} />
+      ) : tab === "admin" && info?.isAdmin ? (
+        <PaxOrgControls onSaved={loadPolicy} />
       ) : (
         <div className="flex flex-1 min-h-0">
           <aside className="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-stone-800 bg-stone-950/60">
@@ -206,18 +278,27 @@ export function PaxConsole() {
                   </div>
                 )}
 
+                {needsConsent && info && (
+                  <div className="rounded-lg border border-stone-700 bg-stone-900 p-4 space-y-3 max-w-[68ch]">
+                    <p className="text-[13px] font-medium text-stone-100">Before you start</p>
+                    <p className="text-[13px] leading-relaxed text-stone-300 whitespace-pre-wrap">{info.consentText}</p>
+                    <button type="button" onClick={accept} className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-medium">I understand, continue</button>
+                  </div>
+                )}
+
                 {blocks.length === 0 ? (
                   <div className="pt-6">
                     <h2 className="text-[20px] font-semibold text-white tracking-tight">What do you want to know?</h2>
                     <p className="text-[13px] text-stone-400 mt-1 mb-5 max-w-xl">
-                      I already know every function in Prime Accountax. Ask in plain words. I read your data as you, so I only see what your role allows, and this version cannot change anything.
+                      I already know every function in Prime Accountax. Ask in plain words. I read your data as you, so I only see what your role allows.
+                      {mayChange ? " If I propose a change, it appears as a card and nothing happens until you press Apply." : " I can only read here; I cannot change anything."}
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {ideas.map((i) => (
                         <div key={i.area} className="rounded-lg border border-stone-800 bg-stone-900/50 p-3">
                           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500 mb-1.5">{i.area}</p>
                           {i.prompts.map((p) => (
-                            <button key={p} type="button" onClick={() => send(p)} disabled={notConnected || busy}
+                            <button key={p} type="button" onClick={() => send(p)} disabled={notConnected || busy || needsConsent}
                               className="block w-full text-left px-2 py-1.5 -mx-1 rounded-lg text-[13px] text-stone-300 hover:bg-stone-800 disabled:opacity-50">{p}</button>
                           ))}
                         </div>
@@ -233,13 +314,26 @@ export function PaxConsole() {
             </div>
 
             <form className="px-6 pb-4 pt-2 flex-shrink-0" onSubmit={(e) => { e.preventDefault(); send(draft); }}>
+              {(saved.length > 0 || draft.trim()) && (
+                <div className="max-w-3xl mx-auto mb-2 flex flex-wrap items-center gap-1.5">
+                  {saved.map((p) => (
+                    <span key={p} className="inline-flex items-center rounded-lg border border-stone-700 text-[12px] text-stone-300">
+                      <button type="button" onClick={() => setDraft(p)} className="px-2 py-0.5 max-w-[26ch] truncate hover:text-white" title={p}>{p}</button>
+                      <button type="button" aria-label="Remove saved prompt" onClick={() => dropPrompt(p)} className="pr-1.5 text-stone-500 hover:text-red-400"><X size={11} /></button>
+                    </span>
+                  ))}
+                  {draft.trim() && !saved.includes(draft.trim()) && saved.length < MAX_SAVED && (
+                    <button type="button" onClick={savePrompt} className="px-2 py-0.5 rounded-lg text-[12px] text-stone-400 hover:text-stone-200 hover:bg-stone-800">Save as prompt</button>
+                  )}
+                </div>
+              )}
               <div className="max-w-3xl mx-auto rounded-lg border border-stone-700 bg-stone-900 focus-within:border-emerald-500 p-2 flex items-end gap-2">
                 <textarea
                   aria-label="Message" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }}
                   placeholder={notConnected ? "Connect your model first" : "Ask about invoices, customers, or your books"}
                   className="flex-1 resize-none bg-transparent outline-none text-[13px] text-stone-100 placeholder:text-stone-600 px-1 py-1" />
-                <button type="submit" aria-label="Send" disabled={busy || notConnected || !draft.trim()}
+                <button type="submit" aria-label="Send" disabled={busy || notConnected || needsConsent || !draft.trim()}
                   className="h-8 w-8 flex-shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white inline-flex items-center justify-center disabled:opacity-40">
                   <Send size={14} />
                 </button>

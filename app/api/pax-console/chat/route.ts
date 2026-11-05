@@ -19,8 +19,9 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { organisations, paxConversations, paxMessages } from "@/db/schema";
+import { organisations, paxConversations, paxMessages, paxPendingActions } from "@/db/schema";
 import { bad, requireOrg } from "@/lib/api";
+import { logEvent } from "@/lib/audit";
 import { today } from "@/lib/format";
 import { rateLimit } from "@/lib/rate-limit";
 import { runAgent, textOnlyHistory, type ChatMessage } from "@/lib/pax/agent";
@@ -30,6 +31,9 @@ import { isAiCall, sameOrigin, userIdOf } from "@/lib/pax/http";
 import { acquire } from "@/lib/pax/inflight";
 import { getSecretModel } from "@/lib/pax/keys";
 import { buildSystemPrompt } from "@/lib/pax/prompt";
+import { canPropose, isQboAdminRole, PROPOSAL_TTL_MS, providerRefusal } from "@/lib/pax/policy";
+import { aiWritesEnabled, hasConsented, loadOrgPolicy } from "@/lib/pax/policy-server";
+import type { PaxToolEnv } from "@/lib/pax/tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +43,7 @@ export const maxDuration = 120;
 const HISTORY_LIMIT = 60;
 const MAX_CONVERSATIONS = 200;
 const MAX_MESSAGES = 400;
+const MAX_PENDING = 10;
 const Body = z.object({
   conversationId: z.string().uuid().optional(),
   message: z.string().trim().min(1, "Type a message first.").max(4000, "That message is too long."),
@@ -63,6 +68,15 @@ export async function POST(req: NextRequest) {
 
   const model = await getSecretModel(userId);
   if (!model) return bad("Connect a model first. Open Your model and add your key.", 400);
+
+  // The organisation's rules are enforced here, not only in the settings screen: a model
+  // saved before an admin tightened them must stop working, and consent is checked every time.
+  const policy = await loadOrgPolicy(orgId!);
+  const refusal = providerRefusal(policy, model.provider, !!model.baseUrl);
+  if (refusal) return bad(refusal, 403);
+  if (!(await hasConsented(userId, orgId!))) return bad("Read and accept the data notice first. Open Your model.", 403);
+  const mayPropose = canPropose({ policy, aiWritesEnabled: await aiWritesEnabled(orgId!), tier: model.tier });
+  const mayReadQbo = isQboAdminRole(role);
 
   let conversationId = parsed.data.conversationId;
   if (conversationId) {
@@ -132,6 +146,8 @@ export async function POST(req: NextRequest) {
       enabledModules: org?.enabledModules,
       fiscalYearStartMonth: org?.fiscalYearStartMonth ?? null,
       today: today(),
+      canWrite: mayPropose,
+      hasQbo: mayReadQbo,
     });
   } catch (e) {
     releaseAll();
@@ -148,9 +164,29 @@ export async function POST(req: NextRequest) {
         conversationId: id, role: m.role, message: m, createdAt: new Date(base + 1 + i),
       })));
       send({ type: "conversation", id });
+      // A proposal is stored and shown as a card; nothing runs until the user presses Apply.
+      const env: PaxToolEnv = {
+        canPropose: mayPropose,
+        canQbo: mayReadQbo,
+        propose: async (p) => {
+          const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(paxPendingActions)
+            .where(and(eq(paxPendingActions.conversationId, id), eq(paxPendingActions.status, "pending")));
+          if (Number(n) >= MAX_PENDING) return { ok: false, text: `Refused: ${MAX_PENDING} proposals are already waiting. Ask the user to apply or reject them first.` };
+          const [row] = await db.insert(paxPendingActions).values({
+            orgId: orgId!, userId, conversationId: id, method: p.method, path: p.path, query: p.query ?? null,
+            body: (p.body ?? null) as never, summary: p.summary, expiresAt: new Date(Date.now() + PROPOSAL_TTL_MS),
+          }).returning({ id: paxPendingActions.id });
+          await logEvent({
+            orgId: orgId!, eventType: "pax_proposal", actorId: userId, actorName: null,
+            meta: { id: row.id, method: p.method, path: p.path, summary: p.summary.slice(0, 200), state: "proposed" },
+          }).catch(() => {});
+          send({ type: "proposal", id: row.id, method: p.method, path: p.path, query: p.query ?? null, body: p.body ?? null, summary: p.summary, status: "pending" });
+          return { ok: true, text: "Proposed. The user now sees a card with an Apply button. Nothing has changed yet. Tell them what you proposed and ask them to review and apply it; do not say it has been done." };
+        },
+      };
       try {
         const client = await makeClient({ provider: model.provider, baseUrl: model.baseUrl, apiKey: model.apiKey });
-        const result = await runAgent({ client, model: model.model, system, history: [...history, userMessage], ctx, emit: (e) => send(e), signal: req.signal });
+        const result = await runAgent({ client, model: model.model, system, history: [...history, userMessage], ctx, emit: (e) => send(e), signal: req.signal, env });
         // The words and the lookups, not what the lookups returned.
         const words: ChatMessage[] = result.produced.filter((m) => m.role !== "tool");
         // Lookup labels ride along as a `note` row after the words; history and the screen ignore that role.

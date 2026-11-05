@@ -69,10 +69,13 @@ export const PROVIDERS: readonly Provider[] = [
   fixed("vercel-gateway", "Vercel AI Gateway", "Gateways", "https://ai-gateway.vercel.sh/v1", []),
   ownUrl("litellm", "LiteLLM", "Gateways"),
 
-  later("azure", "Azure OpenAI", "Cloud platforms", "Uses deployment names and an API version — planned."),
+  // Azure's current "v1" API is OpenAI-compatible at https://<resource>.openai.azure.com/openai/v1 and the
+  // model field is your DEPLOYMENT name. Save-and-test calls it before anything is stored.
+  ownUrl("azure", "Azure OpenAI", "Cloud platforms"),
   later("bedrock", "Amazon Bedrock", "Cloud platforms", "Signs requests with AWS credentials — planned."),
   later("vertex", "Google Vertex AI", "Cloud platforms", "Signs requests with Google credentials — planned."),
-  later("databricks", "Databricks", "Cloud platforms", "Planned."),
+  // Model Serving is OpenAI-compatible at https://<workspace>/serving-endpoints with a personal access token.
+  ownUrl("databricks", "Databricks", "Cloud platforms"),
   later("watsonx", "IBM watsonx", "Cloud platforms", "Planned."),
 
   later("ollama", "Ollama", "Your own computer or server", "Runs on your own computer, so it is called from your browser — planned."),
