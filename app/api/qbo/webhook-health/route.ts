@@ -43,6 +43,28 @@ export async function GET() {
     .from(qboWebhookEvents)
     .where(and(eq(qboWebhookEvents.orgId, orgId!), gte(qboWebhookEvents.receivedAt, since24h)));
 
+  // "captured" = we kept the event but have no handler that applies it (e.g.
+  // Estimate). It must not read as healthy: nothing was ever processed.
+  const [pending] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      oldest: sql<Date | null>`min(${qboWebhookEvents.receivedAt})`,
+    })
+    .from(qboWebhookEvents)
+    .where(and(eq(qboWebhookEvents.orgId, orgId!), eq(qboWebhookEvents.status, "captured")));
+  const oldestUnprocessedAt = pending?.oldest ? new Date(pending.oldest) : null;
+  const oldestUnprocessedAgeSec = oldestUnprocessedAt
+    ? Math.floor((Date.now() - oldestUnprocessedAt.getTime()) / 1000) : null;
+
+  const [capturedRecent] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(qboWebhookEvents)
+    .where(and(
+      eq(qboWebhookEvents.orgId, orgId!),
+      eq(qboWebhookEvents.status, "captured"),
+      gte(qboWebhookEvents.receivedAt, since24h),
+    ));
+
   const [lastCronSync] = await db.select({ syncedAt: qboSyncLog.syncedAt })
     .from(qboSyncLog)
     .where(and(eq(qboSyncLog.orgId, orgId!), eq(qboSyncLog.status, "success")))
@@ -67,7 +89,11 @@ export async function GET() {
     lastWebhookAt: lastEvent?.receivedAt ?? null,
     lastSuccessAt: lastSuccess?.receivedAt ?? null,
     last24hCount: counts?.total ?? 0,
-    errorsLast24h: counts?.errors ?? 0,
+    // Failed OR never-applied events: a captured event is a silent failure.
+    errorsLast24h: (counts?.errors ?? 0) + (capturedRecent?.n ?? 0),
+    unprocessedCount: pending?.count ?? 0,
+    oldestUnprocessedAt,
+    oldestUnprocessedAgeSec,
     lastCronSyncAt: lastCronSync?.syncedAt ?? null,
     recentEvents,
   });

@@ -1888,6 +1888,64 @@ export async function syncTargetedEntities(
     }
   }
 
+  // --- Helper: where does this QBO CustomerRef belong locally? ---
+  // Returns the customer/project fields to write, or {} when nothing changed or
+  // the target can't be resolved (never blanks a customer on a failed lookup).
+  // A customer we have never seen is fetched from QBO and created first.
+  async function resolveInvoicePlacement(
+    refValue: string | undefined,
+    existing: { qboCustomerId: string | null; customerId: string | null },
+  ): Promise<Record<string, any>> {
+    if (!refValue || existing.qboCustomerId === refValue) return {};
+    try {
+      if (!custMap) {
+        const allQboCusts = await qboFetchAllSafe(accessToken, realmId, "Customer", "Active = true");
+        custMap = new Map(allQboCusts.map((c: any) => [c.Id, c]));
+      }
+      // An inactive customer is absent from the Active-only map; fetch it directly.
+      if (!custMap.has(refValue)) {
+        const one = await qboApiGet(accessToken, realmId, `customer/${refValue}`).then((r) => r.Customer).catch(() => null);
+        if (one) custMap.set(refValue, one);
+      }
+      const tlId = topLevelId(refValue, custMap);
+      let cust = ledgerCustByQboId.get(tlId) || ledgerCustByCode.get(`QBO-${tlId}`);
+      if (!cust) {
+        const qc = custMap.get(tlId)
+          ?? await qboApiGet(accessToken, realmId, `customer/${tlId}`).then((r) => r.Customer).catch(() => null);
+        if (!qc) { console.warn(`QBO webhook: customer ${tlId} not found; invoice stays on its old customer`); return {}; }
+        const active = qc.Active !== false;
+        const [inserted] = await db.insert(customers).values({
+          orgId,
+          name: qc.CompanyName || qc.DisplayName || qc.FullyQualifiedName,
+          code: `QBO-${qc.Id}`, qboId: qc.Id,
+          country: qc.BillAddr?.Country || "Ireland",
+          currency: qc.CurrencyRef?.value || "EUR",
+          paymentTerms: 30, taxNumber: qc.BusinessNumber || "",
+          riskRating: "Low" as const,
+          status: (active ? "Active" : "Inactive") as "Active" | "Inactive",
+          creditLimit: qc.CreditLimit || null,
+          accountOwnerId: userId, collectionOwnerId: userId,
+          notes: qc.Notes || "", phone: qc.PrimaryPhone?.FreeFormNumber || "",
+          email: qc.PrimaryEmailAddr?.Address || "", companyName: qc.CompanyName || "",
+          addressStreet: qc.BillAddr?.Line1 || "", addressCity: qc.BillAddr?.City || "",
+          addressPostcode: qc.BillAddr?.PostalCode || "",
+        }).returning();
+        ledgerCustByQboId.set(qc.Id, inserted);
+        ledgerCustByCode.set(inserted.code, inserted);
+        cust = inserted;
+      }
+      let projectId: string | null = null;
+      if (custMap.get(refValue)?.ParentRef) {
+        const proj = ledgerProjByQboId.get(refValue) || ledgerProjByCode.get(`QBO-PROJ-${refValue}`);
+        if (proj) projectId = proj.id;
+      }
+      return { customerId: cust.id, projectId, qboCustomerId: refValue };
+    } catch (e: any) {
+      console.warn(`QBO webhook: could not re-point invoice to customer ${refValue}:`, e?.message);
+      return {};
+    }
+  }
+
   // --- Helper: apply QBO invoice data to ledger ---
   async function processQboInvoice(qi: any, paymentDate?: string) {
     if (!qi) return;
@@ -1906,8 +1964,15 @@ export async function syncTargetedEntities(
     const qboPaidAt = isPaid ? (paymentDate || null) : null;
 
     if (existing) {
+      // The customer may have been changed in QBO. Re-resolve it whenever the
+      // CustomerRef differs from what we hold — otherwise the invoice stays
+      // under the old customer (and in the old customer's balance, ageing and
+      // reminders) until a full sync. Leaves the row alone if it can't resolve.
+      const placement = await resolveInvoicePlacement(qi.CustomerRef?.value, existing);
+
       updatePromises.push(
         db.update(invoices).set({
+          ...placement,
           // Financial fields
           total,
           amount,     // Net ex tax
@@ -2123,8 +2188,9 @@ export async function syncTargetedEntities(
       };
 
       if (existing) {
+        const placement = await resolveInvoicePlacement(cm.CustomerRef?.value, existing);
         updatePromises.push(
-          db.update(invoices).set(cmFields).where(eq(invoices.id, existing.id))
+          db.update(invoices).set({ ...placement, ...cmFields }).where(eq(invoices.id, existing.id))
         );
       } else {
         // New credit memo — insert it (same pattern as new invoices above).
