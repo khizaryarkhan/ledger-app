@@ -1935,9 +1935,26 @@ export async function syncTargetedEntities(
         cust = inserted;
       }
       let projectId: string | null = null;
-      if (custMap.get(refValue)?.ParentRef) {
-        const proj = ledgerProjByQboId.get(refValue) || ledgerProjByCode.get(`QBO-PROJ-${refValue}`);
-        if (proj) projectId = proj.id;
+      const direct = custMap.get(refValue);
+      if (direct?.ParentRef) {
+        let proj = ledgerProjByQboId.get(refValue) || ledgerProjByCode.get(`QBO-PROJ-${refValue}`);
+        if (!proj) {
+          // A project that is new (or was never mirrored) is created now rather
+          // than leaving the invoice with no project until the next full sync.
+          const [createdProj] = await db.insert(projects).values({
+            orgId,
+            customerId: cust.id,
+            name: direct.DisplayName || direct.FullyQualifiedName,
+            code: `QBO-PROJ-${refValue}`,
+            qboId: refValue,
+            ownerId: userId,
+            status: (direct.Active === false ? "Inactive" : "Active") as "Active" | "Inactive",
+          }).returning();
+          ledgerProjByQboId.set(refValue, createdProj);
+          ledgerProjByCode.set(createdProj.code, createdProj);
+          proj = createdProj;
+        }
+        projectId = proj.id;
       }
       return { customerId: cust.id, projectId, qboCustomerId: refValue };
     } catch (e: any) {
