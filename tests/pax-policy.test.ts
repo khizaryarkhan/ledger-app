@@ -69,6 +69,29 @@ describe("a proposed change", () => {
     expect(checkProposal({ ...good, path: "/api/invoices/abc/promises" }).ok).toBe(true);
   });
 
+  it("is deny-by-default: a route not on the proposable list is refused even when nothing about it looks dangerous", () => {
+    for (const path of ["/api/payables/suppliers/abc", "/api/payables/bills/abc/approve", "/api/payables/bills/abc/reject", "/api/invoices/abc/payment", "/api/customers/reclassify", "/api/reps/abc", "/api/projects"]) {
+      expect(checkProposal({ ...good, method: path.endsWith("/suppliers/abc") || path.endsWith("/reps/abc") ? "PATCH" : "POST", path }), path).toMatchObject({ ok: false });
+    }
+    const refused = checkProposal({ ...good, path: "/api/payables/suppliers/abc", method: "PATCH" });
+    expect(refused.ok === false && refused.reason).toMatch(/can propose: record a promise to pay/);
+  });
+
+  it("accepts each listed change only with its listed method", () => {
+    expect(checkProposal({ ...good, method: "PUT" }).ok).toBe(false); // promises is POST only
+    expect(checkProposal({ method: "PATCH", path: "/api/tasks/t1", body: { title: "x" }, summary: "Update a task." }).ok).toBe(true);
+    expect(checkProposal({ method: "POST", path: "/api/tasks", body: { title: "Call ACME" }, summary: "Create a task." }).ok).toBe(true);
+    expect(checkProposal({ method: "PATCH", path: "/api/invoices/abc", body: { collectionStage: "Reminder" }, summary: "Move to Reminder." }).ok).toBe(true);
+  });
+
+  it("caps a bulk stage change at 50 invoices and requires the ids", () => {
+    const bulk = (ids: unknown) => checkProposal({ method: "POST", path: "/api/invoices/batch-update", body: { ids, collectionStage: "Reminder" }, summary: "Move them." });
+    expect(bulk(["a", "b"]).ok).toBe(true);
+    expect(bulk(Array.from({ length: 51 }, (_, i) => `i${i}`)).ok).toBe(false);
+    expect(bulk([]).ok).toBe(false);
+    expect(bulk(undefined).ok).toBe(false);
+  });
+
   it("re-checks a STORED request, so a rule tightened after the proposal still applies", () => {
     expect(recheckStored({ method: "POST", path: "/api/invoices/abc/promises", query: null, body: {}, summary: "ok" })).toEqual({ ok: true });
     expect(recheckStored({ method: "DELETE", path: "/api/invoices/abc", query: null, body: null, summary: "ok" })).toMatchObject({ ok: false });

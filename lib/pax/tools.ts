@@ -15,7 +15,7 @@
 import { callTool, formatResult, toolsFor, type McpContext } from "@/lib/mcp/server";
 import { MAX_LIMIT, PAYMENT_GROUPS, RECEIVABLE_GROUPS } from "./analysis";
 import { redactText } from "@/lib/mcp/policy";
-import { checkProposal, MAX_SUMMARY_CHARS, type Proposal } from "./policy";
+import { checkProposal, MAX_SUMMARY_CHARS, PROPOSABLE, type Proposal } from "./policy";
 
 export const PAX_READ_TOOLS = ["whoami", "list_api_routes", "api_get", "analyze"] as const;
 export type PaxToolName = (typeof PAX_READ_TOOLS)[number];
@@ -96,7 +96,8 @@ const PROPOSE_TOOL: OpenAiTool = {
       "PROPOSE a change to the app (POST, PUT or PATCH to an app API route). Nothing is changed by this call: it shows the user a card with your summary and an Apply button, " +
       "and the change happens only if they press it. Before proposing, read what you need so the request is exact (find the route with list_api_routes; its body{} lists field names). " +
       "Write summary as one plain sentence saying what will change and to which records. After proposing, tell the user to review the card; never say it is done. " +
-      "Deleting, changing QuickBooks/Xero, sending email and changing settings are not available.",
+      `Only these changes can be proposed: ${PROPOSABLE.map((r) => r.label).join("; ")}. Anything else is refused, so tell the user which screen to use instead. ` +
+      "Deleting, recording payments, approving bills, sending email, changing QuickBooks/Xero and changing settings are not available.",
     parameters: {
       type: "object",
       properties: {

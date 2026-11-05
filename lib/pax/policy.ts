@@ -76,6 +76,25 @@ export interface Proposal {
 /** A path segment that names removing, undoing or detaching records: bulk-delete, void, purge, merge, reset, disconnect, revoke … */
 export const DESTRUCTIVE_SEGMENT = /(^|[-_])(delete|deletes|remove|removes|void|purge|undo|merge|reset|wipe|disconnect|revoke|destroy|erase|clear|cancel)([-_]|$)/i;
 
+/**
+ * The changes a model may PROPOSE. Collections follow-up and task work: each is a record of what
+ * someone did or agreed, reversible in the app, and none moves money, approves anything or reaches
+ * out to a customer. Recording a payment, approving or rejecting a bill, sending email, deleting and
+ * anything in QuickBooks/Xero are deliberately absent. Add a route here only with that same test.
+ */
+export const PROPOSABLE: readonly { label: string; methods: readonly string[]; pattern: RegExp; maxIds?: number }[] = [
+  { label: "record a promise to pay on an invoice", methods: ["POST"], pattern: /^\/api\/invoices\/[^/]+\/promises$/ },
+  { label: "raise a dispute on an invoice", methods: ["POST"], pattern: /^\/api\/invoices\/[^/]+\/disputes$/ },
+  { label: "record a customer response on an invoice", methods: ["POST"], pattern: /^\/api\/invoices\/[^/]+\/response$/ },
+  { label: "change an invoice's stage or escalation", methods: ["PATCH"], pattern: /^\/api\/invoices\/[^/]+$/ },
+  { label: "change the stage or escalation of up to 50 invoices", methods: ["POST"], pattern: /^\/api\/invoices\/batch-update$/, maxIds: 50 },
+  { label: "update a dispute's owner or outcome", methods: ["PATCH"], pattern: /^\/api\/disputes\/[^/]+$/ },
+  { label: "log a communication (a note or call) against an invoice", methods: ["POST"], pattern: /^\/api\/communications$/ },
+  { label: "create a task", methods: ["POST"], pattern: /^\/api\/tasks$/ },
+  { label: "update a task", methods: ["PATCH"], pattern: /^\/api\/tasks\/[^/]+$/ },
+  { label: "switch a customer's automatic reminders on or off", methods: ["PATCH"], pattern: /^\/api\/customers\/[^/]+$/ },
+];
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
@@ -91,12 +110,21 @@ export function checkProposal(args: Record<string, unknown>): { ok: true; propos
   const d = authorizeCall(["mcp:read", "mcp:write"], method, args.path);
   if (d.ok === false) return { ok: false, reason: d.reason };
 
-  // Some routes delete (or undo) through a POST, e.g. /api/invoices/bulk-delete. Deleting is not
-  // available here, and the organisation's "AI deletes" switch is never consulted by this path,
-  // so refuse by what the route is called. A denylist can miss an oddly named route, which is
-  // why the card always shows the user the exact path and body.
+  // Deny by default: only the changes named in PROPOSABLE can be proposed. A denylist missed
+  // routes that delete through a POST (/api/invoices/bulk-delete), and a new or oddly named
+  // route would always have slipped past one. The destructive-name check stays as a second wall.
   const hit = d.path.split("/").find((seg) => DESTRUCTIVE_SEGMENT.test(seg));
   if (hit) return { ok: false, reason: `"${hit}" removes or undoes records, which is not available in PAX Console. Tell the user which screen does it.` };
+  const rule = PROPOSABLE.find((r) => r.methods.includes(method) && r.pattern.test(d.path));
+  if (!rule) {
+    return { ok: false, reason: `that change is not one PAX Console can propose. It can propose: ${PROPOSABLE.map((r) => r.label).join("; ")}. Tell the user which screen does what they asked.` };
+  }
+  if (rule.maxIds) {
+    const ids = (args.body as { ids?: unknown } | undefined)?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > rule.maxIds) {
+      return { ok: false, reason: `${rule.label} needs between 1 and ${rule.maxIds} ids in body.ids.` };
+    }
+  }
 
   const summary = typeof args.summary === "string" ? args.summary.trim() : "";
   if (!summary) return { ok: false, reason: "summary is required: one plain sentence saying what will change, for the user to read before applying." };
