@@ -1894,9 +1894,17 @@ export async function syncTargetedEntities(
   // A customer we have never seen is fetched from QBO and created first.
   async function resolveInvoicePlacement(
     refValue: string | undefined,
-    existing: { qboCustomerId: string | null; customerId: string | null },
+    existing: { qboCustomerId: string | null; customerId: string | null; projectId?: string | null },
   ): Promise<Record<string, any>> {
-    if (!refValue || existing.qboCustomerId === refValue) return {};
+    if (!refValue) return {};
+    // Skip only when the invoice is ALREADY where QBO says. Comparing the stored
+    // qboCustomerId alone is not enough: that id can match while customerId is
+    // stale, which would leave the invoice stuck under the old customer.
+    const alreadyThere =
+      ledgerCustByQboId.get(refValue)?.id === existing.customerId && !existing.projectId
+      || (!!ledgerProjByQboId.get(refValue) && ledgerProjByQboId.get(refValue)!.id === existing.projectId
+          && ledgerProjByQboId.get(refValue)!.customerId === existing.customerId);
+    if (alreadyThere) return {};
     try {
       if (!custMap) {
         const allQboCusts = await qboFetchAllSafe(accessToken, realmId, "Customer", "Active = true");
@@ -1958,8 +1966,10 @@ export async function syncTargetedEntities(
       }
       return { customerId: cust.id, projectId, qboCustomerId: refValue };
     } catch (e: any) {
-      console.warn(`QBO webhook: could not re-point invoice to customer ${refValue}:`, e?.message);
-      return {};
+      // Raise it: swallowing this left the event showing a green tick while the
+      // invoice sat under the old customer. A thrown error is recorded on the
+      // event row and retried by the replay cron.
+      throw new Error(`could not re-point invoice to QBO customer ${refValue}: ${e?.message || e}`);
     }
   }
 
