@@ -114,7 +114,17 @@ export async function POST(req: NextRequest) {
       enabledModules: organisations.enabledModules, fiscalYearStartMonth: organisations.fiscalYearStartMonth,
     }).from(organisations).where(eq(organisations.id, orgId!)).limit(1);
 
+    // One line per lookup made earlier in this conversation: what was looked up, never what came back.
+    const noteRows = await db.select({ message: paxMessages.message }).from(paxMessages)
+      .where(and(eq(paxMessages.conversationId, convId), eq(paxMessages.role, "note")))
+      .orderBy(desc(paxMessages.createdAt)).limit(6);
+    const lookups = noteRows.reverse()
+      .flatMap((r) => String((r.message as { content?: unknown })?.content ?? "").split("\n"))
+      .filter(Boolean)
+      .slice(-30);
+
     system = buildSystemPrompt({
+      lookups,
       userName: (session?.user as { name?: string | null } | undefined)?.name ?? null,
       role: role ?? "user",
       orgName: org?.displayName || org?.name || "this organisation",
@@ -142,7 +152,10 @@ export async function POST(req: NextRequest) {
         const client = await makeClient({ provider: model.provider, baseUrl: model.baseUrl, apiKey: model.apiKey });
         const result = await runAgent({ client, model: model.model, system, history: [...history, userMessage], ctx, emit: (e) => send(e), signal: req.signal });
         // The words and the lookups, not what the lookups returned.
-        await store(result.produced.filter((m) => m.role !== "tool"));
+        const words: ChatMessage[] = result.produced.filter((m) => m.role !== "tool");
+        // Lookup labels ride along as a `note` row after the words; history and the screen ignore that role.
+        if (result.notes.length) words.push({ role: "note" as never, content: result.notes.join("\n").slice(0, 1200) });
+        await store(words);
         send({ type: "done" });
       } catch (e) {
         const msg = describeProviderError(e, [model.apiKey]);

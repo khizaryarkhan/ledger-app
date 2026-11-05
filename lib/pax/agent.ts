@@ -7,6 +7,7 @@
 
 import type { McpContext } from "@/lib/mcp/server";
 import { paxToolDefs, runPaxTool } from "./tools";
+import { toolLabel } from "./ui-shape";
 
 export const MAX_STEPS = 6;
 /** A model that asks for dozens of calls at once is looping; answer the first few, refuse the rest. */
@@ -35,6 +36,8 @@ export interface AgentResult {
   produced: ChatMessage[];
   finalText: string;
   steps: number;
+  /** One line per lookup made, kept between messages so a follow-up is not blind. Never the data itself. */
+  notes: string[];
 }
 
 /**
@@ -73,6 +76,7 @@ export async function runAgent(opts: {
   deadline?: number;
 }): Promise<AgentResult> {
   const produced: ChatMessage[] = [];
+  const notes: string[] = [];
   const tools = paxToolDefs();
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
   const deadline = opts.deadline ?? Date.now() + TURN_BUDGET_MS;
@@ -80,7 +84,7 @@ export async function runAgent(opts: {
   const finish = (text: string, steps: number): AgentResult => {
     produced.push({ role: "assistant", content: text });
     opts.emit({ type: "text", text });
-    return { produced, finalText: text, steps };
+    return { produced, finalText: text, steps, notes };
   };
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -107,7 +111,7 @@ export async function runAgent(opts: {
       const text = typeof msg.content === "string" && msg.content.trim() ? msg.content : EMPTY_ANSWER;
       produced.push({ role: "assistant", content: text });
       opts.emit({ type: "text", text });
-      return { produced, finalText: text, steps: step };
+      return { produced, finalText: text, steps: step, notes };
     }
 
     produced.push({
@@ -127,6 +131,7 @@ export async function runAgent(opts: {
       opts.emit({ type: "tool", name: c.name, args: safeArgs(c.args) });
       const out = await runPaxTool(opts.ctx, c.name, c.args);
       opts.emit({ type: "tool_done", name: c.name, ok: out.ok, summary: firstLine(out.text) });
+      notes.push(`${toolLabel(c.name, c.args)} (${out.ok ? firstLine(out.text) : "refused or failed"})`);
       produced.push({ role: "tool", tool_call_id: c.id, content: out.text });
     }
   }

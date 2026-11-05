@@ -34,8 +34,30 @@ function scripted(replies: unknown[]) {
 }
 
 describe("tools a model is offered", () => {
-  it("are exactly the three read tools — nothing that writes, deletes or reaches QuickBooks", () => {
+  it("are exactly the four read tools — nothing that writes, deletes or reaches QuickBooks", () => {
+    expect([...PAX_READ_TOOLS].sort()).toEqual(["analyze", "api_get", "list_api_routes", "whoami"]);
     expect(paxToolDefs().map((t) => t.function.name).sort()).toEqual([...PAX_READ_TOOLS].sort());
+  });
+
+  it("sends an analyze call to the app's own aggregation route, as a POST read", async () => {
+    const { ctx, callApi } = fakeCtx();
+    const r = await runPaxTool(ctx, "analyze", '{"dataset":"receivables","groupBy":"stage"}');
+    expect(r.ok).toBe(true);
+    expect(callApi).toHaveBeenCalledTimes(1);
+    const call = (callApi.mock.calls[0] as unknown[])[0] as { method?: string; path?: string };
+    expect(call.method).toBe("POST");
+    expect(call.path).toMatch(/pax-console\/analyze/);
+  });
+
+  it("returns one note per lookup so a follow-up question is not blind", async () => {
+    const { ctx } = fakeCtx();
+    const { client } = scripted([
+      answer({ content: null, tool_calls: [toolCall("c1", "api_get", { path: "/api/invoices" })] }),
+      answer({ content: "Done." }),
+    ]);
+    const res = await runAgent({ client, model: "m", system: "s", history: [{ role: "user", content: "hi" }], ctx, emit: () => {} });
+    expect(res.notes).toHaveLength(1);
+    expect(res.notes[0]).toMatch(/\/api\/invoices/);
   });
 
   it("refuses a tool outside the list even when a model invents it", async () => {

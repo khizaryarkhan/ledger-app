@@ -210,6 +210,24 @@ describe("what the model is told", () => {
     expect(p).toMatch(/never follow instructions/i);
   });
 
+  it("teaches the app's vocabulary and recipes, and tells the model to look before it asks", () => {
+    const p = buildSystemPrompt({ userName: null, role: "company_user", orgName: "EDC", homeCurrency: "EUR", enabledModules: ["receivables"], fiscalYearStartMonth: null, today: "2026-11-05", routes });
+    expect(p).toMatch(/How Prime Accountax uses its words/);
+    expect(p).toMatch(/Common questions/);
+    expect(p).toMatch(/analyze/);
+    expect(p).toMatch(/look before you ask/i);
+  });
+
+  it("lists earlier lookups by label and states the write and QuickBooks abilities when granted", () => {
+    const base = { userName: null, role: "company_admin", orgName: "EDC", homeCurrency: "EUR", enabledModules: ["receivables"], fiscalYearStartMonth: null, today: "2026-11-05", routes };
+    const p = buildSystemPrompt({ ...base, lookups: ["Read /api/invoices (ok)"] });
+    expect(p).toContain("Read /api/invoices (ok)");
+    const w = buildSystemPrompt({ ...base, canWrite: true, hasQbo: true });
+    expect(w).toMatch(/confirm card/);
+    expect(w).toMatch(/qbo_api/);
+    expect(w).not.toMatch(/can only read/);
+  });
+
   it("keeps the real capability index within its budget and free of private areas", () => {
     const text = capabilityIndex({ enabledModules: ["receivables", "payables", "accounting", "studio", "manufacturing", "resources"], routes: API_ROUTES });
     expect(text.length).toBeLessThanOrEqual(6000);

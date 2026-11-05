@@ -14,6 +14,8 @@ export function toolLabel(name: string, rawArgs: unknown): string {
   try { const v = JSON.parse(String(rawArgs ?? "{}")); if (v && typeof v === "object") args = v; } catch { /* label from the name alone */ }
   if (name === "api_get" && typeof args.path === "string") return `Read ${args.path}`.slice(0, MAX_LABEL);
   if (name === "list_api_routes") return `Looked up endpoints${typeof args.search === "string" && args.search ? ` for "${args.search}"` : ""}`.slice(0, MAX_LABEL);
+  if (name === "analyze") return `Analysed ${typeof args.dataset === "string" ? args.dataset : "data"}${typeof args.groupBy === "string" ? ` by ${args.groupBy}` : ""}`.slice(0, MAX_LABEL);
+  if (name === "qbo_api") return `QuickBooks ${typeof args.method === "string" ? args.method : "read"} ${typeof args.path === "string" ? args.path : ""}`.trim().slice(0, MAX_LABEL);
   if (name === "whoami") return "Checked who you are";
   return name.slice(0, MAX_LABEL);
 }

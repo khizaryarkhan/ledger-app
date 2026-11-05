@@ -77,6 +77,7 @@ const TOOLS: readonly Tool[] = [
     name: "list_api_routes", scope: null,
     description:
       "List the app's API routes with their HTTP methods and the query parameters each one reads (shown as ?a&b — pass them in api_get's query). " +
+      "Routes that take a request body list the field names found in their source as body{a,b}: names only, not whether each is required. " +
       "Filter by a word in the path (e.g. \"invoice\", \"batch\", \"qbo\"). Routes an AI connection may never use are omitted. " +
       "Dates are YYYY-MM-DD; report routes generally need asOf or from/to.",
     inputSchema: {
@@ -186,7 +187,7 @@ export function listRoutes(args: Record<string, unknown>): string {
   });
   // Query parameters are read from each route's source, so they are the names the
   // route actually reads — but not whether each is required, nor its format.
-  const shown = hits.slice(0, limit).map((r) => `${r.methods.join(",")}  ${r.path}${r.params?.length ? `  ?${r.params.join("&")}` : ""}`);
+  const shown = hits.slice(0, limit).map((r) => `${r.methods.join(",")}  ${r.path}${r.params?.length ? `  ?${r.params.join("&")}` : ""}${r.body?.length ? `  body{${r.body.join(",")}}` : ""}`);
   return `${hits.length} matching route(s)${hits.length > limit ? `, showing ${limit} — narrow the search` : ""}:\n${shown.join("\n")}`;
 }
 
@@ -198,7 +199,7 @@ export const MAX_OUTPUT_CHARS = 100_000;
  * Paging before redacting would be fine too, but redacting first means no
  * future change to paging can ever let an unredacted row through.
  */
-function formatResult(r: ApiCallResult, shape: ShapeOpts = {}, mode: RedactMode = "personal"): { content: { type: string; text: string }[]; isError: boolean } {
+export function formatResult(r: ApiCallResult, shape: ShapeOpts = {}, mode: RedactMode = "personal"): { content: { type: string; text: string }[]; isError: boolean } {
   if (r.ok === false) return text(r.error, true);
   let clean: string;
   let redacted: number;
