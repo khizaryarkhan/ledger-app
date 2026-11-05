@@ -4307,3 +4307,41 @@ export const mcpTokens = pgTable("mcp_tokens", {
   lastUsedAt:       timestamp("last_used_at"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ byUser: index("mcp_tokens_user_idx").on(t.userId) }));
+
+// =========================================================================
+// PAX CONSOLE — in-app chat where each user connects their OWN model (0128)
+// =========================================================================
+// One model + key per USER (not per org): the cost and the key are the user's.
+// The key is encrypted with lib/crypto.ts and is never returned to a browser;
+// only its last four characters are kept in the clear, to show which key is saved.
+export const userAiModels = pgTable("user_ai_models", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  userId:    uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider:  varchar("provider", { length: 40 }).notNull(),
+  model:     varchar("model", { length: 160 }).notNull(),
+  baseUrl:   text("base_url"),
+  apiKeyEnc: text("api_key_enc").notNull(),
+  keyLast4:  varchar("key_last4", { length: 8 }).notNull(),
+  /** "full" may be offered write tools (a later phase); "read" never. */
+  tier:      varchar("tier", { length: 8 }).notNull().default("read"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ byUser: uniqueIndex("user_ai_models_user_idx").on(t.userId) }));
+
+export const paxConversations = pgTable("pax_conversations", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  userId:    uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title:     varchar("title", { length: 200 }).notNull().default("New chat"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ byOwner: index("pax_conversations_owner_idx").on(t.userId, t.orgId, t.updatedAt) }));
+
+export const paxMessages = pgTable("pax_messages", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  conversationId: uuid("conversation_id").notNull().references(() => paxConversations.id, { onDelete: "cascade" }),
+  role:           varchar("role", { length: 12 }).notNull(),
+  /** The OpenAI-format message object, stored whole so a conversation replays exactly. */
+  message:        jsonb("message").notNull(),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ byConversation: index("pax_messages_conversation_idx").on(t.conversationId, t.createdAt) }));

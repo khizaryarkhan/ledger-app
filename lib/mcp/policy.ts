@@ -16,6 +16,7 @@ export const BLOCKED_PREFIXES: readonly { prefix: string; why: string }[] = [
   { prefix: "/api/auth",            why: "login, MFA, password reset and org switching" },
   { prefix: "/api/mobile",          why: "mobile login/session endpoints" },
   { prefix: "/api/mcp",             why: "the MCP server itself" },
+  { prefix: "/api/pax-console",     why: "PAX Console's own settings, keys and conversations" },
   { prefix: "/api/oauth",           why: "OAuth endpoints" },
   { prefix: "/api/billing",         why: "Stripe is the source of truth for billing" },
   { prefix: "/api/cron",            why: "scheduled jobs" },

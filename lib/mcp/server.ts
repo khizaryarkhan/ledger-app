@@ -344,7 +344,8 @@ async function runQboTool(args: Record<string, unknown>, ctx: McpContext) {
   return formatResult(await ctx.callQbo(forward), shapeArgs.opts, "credentials");
 }
 
-async function callTool(name: unknown, args: Record<string, unknown>, ctx: McpContext) {
+/** Also used by PAX Console (lib/pax/tools.ts), so both doors run the very same tool code. */
+export async function callTool(name: unknown, args: Record<string, unknown>, ctx: McpContext) {
   if (typeof name !== "string" || !toolsFor(ctx.scopes).some((t) => t.name === name)) {
     return text(`Unknown or not-permitted tool: ${String(name)}`, true);
   }

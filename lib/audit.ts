@@ -30,6 +30,8 @@ export type EventType =
   | "mcp_delete"               // an AI client (MCP) deleted data as this user
   | "qbo_api_call"             // a QuickBooks API passthrough call (meta.via: app | mcp)
   | "ai_switches_changed"      // an admin turned AI-connection writes/deletes on or off
+  | "pax_model_saved"          // a user connected or changed their PAX Console model (never logs the key)
+  | "pax_model_removed"        // a user removed their PAX Console model and key
   // ── Payables / Procurement ───────────────────────────────────────────────
   | "purchase_request_created"
   | "purchase_request_submitted"

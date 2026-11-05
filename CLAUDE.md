@@ -4916,6 +4916,48 @@ allowlist, the Employee refusal and the no-files rule in the section above.
 - **Not verified**: nothing has been called against a real QuickBooks company or the Payments API;
   the multipart upload shape is from Intuit's docs, unit tests only.
 
+## PAX Console — in-app chat on the user's OWN model (Phase 1, 2026-11-05)
+
+Module `pax_console` (opt-in per org like `manufacturing`; sidebar workspace "PAX Console", page `/pax-console`).
+Built because MCP needs a custom connector many users cannot add. It is a SECOND DOOR onto the same tools, not a
+second permission system. Migration `0128` (three new tables, additive; **not yet run against any database** — it
+runs in `vercel-build` on the first push). Scope doc: the "PAX Console: scope and requirements" artifact.
+
+- **Same tool code as MCP.** `lib/pax/tools.ts` offers exactly `whoami`, `list_api_routes`, `api_get` and runs them
+  through `callTool` (exported from `lib/mcp/server.ts`), so the route deny-list, redaction, paging and the replay of
+  every call under the signed-in user's own role (`callInternalApi`) are literally the same code. **Phase 1 is READ
+  ONLY**: a call to anything else is refused in `runPaxTool` even if a model invents it, `aiSwitches` fails closed
+  and `callQbo` is stubbed (`lib/pax/context.ts`). `/api/pax-console` is in `BLOCKED_PREFIXES` so no AI tool can read
+  its own settings or conversations. The module owner is registered in `PAGE_OWNERS`/`API_OWNERS`.
+- **Key per USER, not per org** (`user_ai_models`). Encrypted with `lib/crypto.ts`, never returned to a browser
+  (public shape = last four only), never in an audit row or an error (`describeProviderError` redacts it). A saved key
+  is only sent to the place it was saved for: changing provider or address needs the key typed again.
+- **One OpenAI-compatible adapter** (`openai` SDK + baseURL) reaches ~40 providers (`lib/pax/providers.ts`). An
+  address we are not sure of is left for the user to type (`needsBaseUrl`), never guessed. Azure, Bedrock, Vertex,
+  Databricks, watsonx, Replicate and the LOCAL runners (Ollama, LM Studio, llama.cpp) are listed as "planned": the
+  local ones must be called from the browser, because the server cannot reach a user's own computer.
+- **A user-typed endpoint is called from OUR server, so it is SSRF-guarded in two places**: `validateEndpoint`
+  (https only, port 443 only, no userinfo/localhost/private suffixes) and `lib/pax/safe-fetch.ts`, which connects
+  with a `lookup` that checks every resolved address AT CONNECT TIME (closes DNS rebinding) and treats any redirect as
+  an error. `isPrivateAddress` parses IPv6 properly and ALLOWLISTS global unicast only — a regex denylist missed the
+  hex form `::ffff:7f00:1` and NAT64/6to4/Teredo (found by security review). Fixed provider addresses keep the
+  default fetch.
+- **What is stored is the WORDS, never the data.** `pax_messages` keeps the user's messages, the model's answers and
+  which lookups it made; tool RESULTS are neither stored nor replayed (`textOnlyHistory`). A result was read under the
+  access the user had then; replaying it after a demotion would hand the model data the user can no longer see, and
+  it also means a stored tool/assistant pair can never be mis-ordered. A failed turn stores an assistant line saying
+  so, so a conversation always alternates.
+- **Concurrency**: one answer per conversation and two per user at a time (`lib/pax/inflight.ts`, per instance — a
+  brake, not a guarantee), 30 messages / 5 min per user (DB rate limit), 6 steps, 3 calls per step, 100s turn
+  budget, 45s per model call, no retries. 200 conversations per user, 400 messages per conversation.
+- **Model tier** (`tierFor`): small models, reasoners and untested endpoints are "read" and may never be offered
+  write tools. Stored now, acted on in Phase 2.
+- **Not built / not verified**: nothing has run against a real model or a database, and the page was not opened in
+  a browser (typecheck + 1,372 unit tests only). No markdown rendering (answers are plain text). No org-level
+  provider allowlist or consent text yet — any user in an org that has the module can point it at any public https
+  host, and the tool results go there. Writes with confirm cards, the QuickBooks tool, local models, retention
+  settings and a mobile conversation list are Phase 2+.
+
 ## Equipment Phase Q1: a machine is linked, not re-entered (2026-11-02)
 
 Shop-floor machines only. A machine was already three records — the bookable

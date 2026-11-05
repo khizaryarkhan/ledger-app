@@ -11,7 +11,7 @@ import {
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
   Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
-  CalendarClock, Wrench, MapPin, Percent, Repeat
+  CalendarClock, Wrench, MapPin, Percent, Repeat, Sparkles
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
@@ -47,7 +47,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const isSupplyChain = pathname.startsWith("/supply-chain");
   const isAccounting  = pathname.startsWith("/accounting");
   const isResources   = pathname.startsWith("/resources");
-  type Department = "ar" | "ap" | "reporting" | "batch" | "accounting" | "supplychain" | "resources";
+  const isPax         = pathname.startsWith("/pax-console");
+  type Department = "ar" | "ap" | "reporting" | "batch" | "accounting" | "supplychain" | "resources" | "pax";
   // Cross-cutting pages (Settings, Help) belong to no module. Landing on one
   // must NOT snap the sidebar back to Receivable — keep the module the user was
   // in so "click Settings → go back" stays in context.
@@ -99,6 +100,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // reasonable until you notice every listed shared URL matches one of them.
   const pathDepartment: Department | null =
     (isChrome || isSharedEntity) ? null
+    : isPax ? "pax"
     : isResources ? "resources"
     : isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
     : isPayables ? "ap"
@@ -116,7 +118,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const on = (k: ModuleKey) => hasModule(orgSettings?.enabledModules, k);
   const deptVisible: Record<Department, boolean> = {
     ar: on("receivables"), ap: on("payables"), accounting: on("accounting"), batch: on("studio"),
-    supplychain: on("manufacturing"), resources: on("resources"),
+    supplychain: on("manufacturing"), resources: on("resources"), pax: on("pax_console"),
     // Reporting is gated by the separate reporting_enabled flag, which only
     // ever hid the switcher entry — left exactly as it was (see CLAUDE.md).
     reporting: true,
@@ -126,7 +128,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // lastDept. Fall back to the first workspace the org does have.
   const wanted: Department = pathDepartment ?? lastDept;
   const department: Department = deptVisible[wanted] ? wanted
-    : (["ar", "ap", "supplychain", "accounting", "resources", "reporting", "batch"] as Department[]).find(d => deptVisible[d]) ?? wanted;
+    : (["ar", "ap", "supplychain", "accounting", "resources", "pax", "reporting", "batch"] as Department[]).find(d => deptVisible[d]) ?? wanted;
 
   const [wsOpen, setWsOpen] = useState(false);
 
@@ -449,6 +451,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // and Utilization (capacity vs planned vs actual), alongside Board.
   // Setup (People, Equipment, Timesheet Types, Holiday Calendars, Payroll
   // Settings) stays collapsible, matching the accounting Setup pattern.
+  const paxSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
+    { items: [{ href: "/pax-console", label: "PAX Console", icon: Sparkles }] },
+  ];
   const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     {
       items: [
@@ -485,6 +490,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     : department === "supplychain" ? supplyChainSections
     : department === "accounting" ? accountingSections
     : department === "reporting" ? reportingSections
+    : department === "pax" ? paxSections
     : department === "resources" ? resourcesSections
     : department === "ap" ? apSections
     : arSections;
@@ -497,6 +503,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-orange-500/20 text-orange-400", dot: "bg-orange-400" }] : []),
     ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400", dot: "bg-teal-400" }] : []),
     ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/board", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
+    ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-sky-500/20 text-sky-400", dot: "bg-sky-400" }] : []),
     ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/20 text-blue-400", dot: "bg-blue-400" }] : []),
     ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-amber-500/20 text-amber-400", dot: "bg-amber-400" }] : []),
   ];
