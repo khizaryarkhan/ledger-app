@@ -89,6 +89,7 @@ export async function loadMachineReport(
   const wcById = new Map(wcRows.map((w) => [w.id, w]));
   const assetById = new Map(assetRows.map((a) => [a.id, a]));
 
+  const windowEnd = new Date(`${to}T23:59:59Z`); // the same convention as the downtime query above
   const rows: MachineReportRow[] = [];
   for (const m of linked) {
     const wc = wcById.get(m.workCentreId as string);
@@ -104,7 +105,9 @@ export async function loadMachineReport(
         id: d.id, startedAt: d.startedAt, endedAt: d.endedAt, reason: d.reason,
         planned: !!DOWNTIME_REASONS.find((r) => r.code === d.reason)?.planned,
       }));
-    const dt = splitDowntime(dtRows, now);
+    // Measure only up to the end of the window: last month's report must not
+    // keep counting a stoppage that was still open on its last day up to today.
+    const dt = splitDowntime(dtRows, windowEnd < now ? windowEnd : now);
 
     const row: MachineReportRow = {
       resourceId: m.id, name: m.name,

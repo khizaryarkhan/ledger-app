@@ -44,12 +44,19 @@ describe("employee boundary", () => {
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
+  it("routes acting on OTHER people re-apply the custom-role gate (teamAction)", () => {
+    for (const f of ["approvals/route.ts", "reports/employee/route.ts", "reports/project/route.ts"]) {
+      expect(src(join(ME, f)), f).toMatch(/requireOrg\(\{ allowEmployee: true, teamAction: true \}\)/);
+    }
+  });
+
   it("every requireOrg call under /api/resources/me opts in, so an employee can actually use it", () => {
     const bad: string[] = [];
     for (const f of routeFiles(ME)) {
       const s = src(f);
       const calls = (s.match(/requireOrg\(/g) ?? []).length;
-      const optedIn = (s.match(/requireOrg\(\{ allowEmployee: true \}\)/g) ?? []).length;
+      // teamAction (approvals, team reports) still opts in; it only re-applies the custom-role gate.
+      const optedIn = (s.match(/requireOrg\(\{ allowEmployee: true(, teamAction: true)? \}\)/g) ?? []).length;
       if (calls === 0 || calls !== optedIn) bad.push(`${rel(f)} (${optedIn}/${calls} opted in)`);
     }
     expect(bad, bad.join("\n")).toEqual([]);

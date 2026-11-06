@@ -9,7 +9,7 @@
 
 import { db } from "@/db";
 import { resources, workCentres, fixedAssets, productionRuns, moOperations, productionDowntime } from "@/db/schema";
-import { and, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import {
   usageForWorkCentre, isFirm, splitDowntime,
   type CompletionRun, type MachineUsage, type RunHours, type MachineDowntime,
@@ -161,7 +161,13 @@ export async function loadMachineDowntime(
 
   const rows = await db.select().from(productionDowntime).where(and(
     eq(productionDowntime.orgId, orgId), eq(productionDowntime.workCentreId, wc.id),
-    gte(productionDowntime.startedAt, new Date(`${from}T00:00:00Z`)),
+    // Started in the window, OR still running into it: a machine stopped 40
+    // days ago and never restarted is down NOW, and must not read as healthy.
+    or(
+      gte(productionDowntime.startedAt, new Date(`${from}T00:00:00Z`)),
+      isNull(productionDowntime.endedAt),
+      gte(productionDowntime.endedAt, new Date(`${from}T00:00:00Z`)),
+    ),
   )).orderBy(desc(productionDowntime.startedAt)).limit(DOWNTIME_ROW_CAP);
 
   const items: MachineDowntimeItem[] = rows.map((r) => ({

@@ -71,7 +71,18 @@ export function isPlatformAdmin(session: any) {
 //
 // Result: removing a user from user_organisations or setting status=Inactive
 // blocks access immediately, regardless of what's in the JWT.
-export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
+export async function requireOrg(opts: {
+  allowEmployee?: boolean;
+  /**
+   * Set on /api/resources/me/** routes that act on OTHER people (approvals,
+   * team reports). allowEmployee skips the custom-role gate because the rest
+   * of /me is the caller's own timesheet; these are not, so a custom role on
+   * a member base must still have Resources (view to read, edit to decide).
+   * An employee-base custom role has no modules by design; its people scope
+   * alone decides, as for a built-in employee login.
+   */
+  teamAction?: boolean;
+} = {}) {
   const session = await resolveSession();
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
@@ -102,6 +113,12 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
   } catch { /* edge case */ }
   // Mobile bearer sessions carry no cookie — the org chosen at login stands in for it.
   if (!activeOrgCookie) activeOrgCookie = (session as any).bearerOrgId || null;
+  // "Sign in as" is pinned to the organisation the ticket was issued for (the
+  // admin's own org). Without this the cookie — or, with none, the target's
+  // HOME org — decided, which showed another organisation's data to an admin
+  // with no authority over it. No fallback either: not a member there = no access.
+  const impersonating = !!(session.user as any).impersonatedBy;
+  if (impersonating) activeOrgCookie = ((session.user as any).orgId as string | null) ?? null;
 
   let orgId: string | null = null;
   let orgRole: string | null = null;
@@ -122,7 +139,7 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
       if (m) { orgId = m.orgId; orgRole = m.role; customRoleId = m.roleId ?? null; }
     }
     // Try the JWT primary org — but ONLY if user still has a junction-table membership for it
-    if (!orgId && userRow.orgId) {
+    if (!orgId && userRow.orgId && !impersonating) {
       const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role, roleId: userOrganisations.roleId })
         .from(userOrganisations)
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, userRow.orgId)))
@@ -135,7 +152,7 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
     // — and with no active_org cookie yet (fresh login) — would be locked out
     // with "no access to any organisation" despite holding a valid membership.
     // Safe: it only ever resolves an org the user has a real membership row for.
-    if (!orgId) {
+    if (!orgId && !impersonating) {
       const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role, roleId: userOrganisations.roleId })
         .from(userOrganisations)
         .where(eq(userOrganisations.userId, userId))
@@ -195,6 +212,18 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
   // has no owner, so a view-only role must still be refused a write there.
   // Self-service routes (allowEmployee: own timesheet) are exempt by design.
   // The method is stamped by middleware; a missing one counts as a write.
+  if (!isSuperAdmin && customRoleId && opts.allowEmployee && opts.teamAction) {
+    const custom = await loadOrgRole(orgId, customRoleId);
+    let method: string | null = null;
+    try { method = headers().get(APP_METHOD_HEADER); } catch { /* not in a request context */ }
+    if (custom && custom.baseRole !== "employee" && !roleAllows(custom, "resources", method)) {
+      const access = custom.modules.resources ?? "none";
+      const msg = access === "view"
+        ? `Your role (${custom.name}) can view ${MODULES.resources.label} but not change it.`
+        : `Your role (${custom.name}) does not include ${MODULES.resources.label}.`;
+      return { error: NextResponse.json({ error: msg }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+    }
+  }
   if (!isSuperAdmin && customRoleId && !opts.allowEmployee) {
     const custom = await loadOrgRole(orgId, customRoleId);
     let method: string | null = null;

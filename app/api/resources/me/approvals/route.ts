@@ -15,7 +15,7 @@ import { repliesForApprover } from "@/lib/resources/approval-server";
 const MAX_BULK = 500;
 
 export async function GET() {
-  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true });
+  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true, teamAction: true });
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true });
+  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true, teamAction: true });
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;

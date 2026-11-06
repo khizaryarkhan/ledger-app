@@ -81,7 +81,17 @@ describe("stopping", () => {
 
 describe("wiring", () => {
   it("middleware makes every non-read request read-only while impersonating, except NextAuth's own", () => {
-    expect(src("middleware.ts")).toMatch(/impersonating && !path\.startsWith\("\/api\/auth\/"\) && !\["GET", "HEAD", "OPTIONS"\]\.includes\(req\.method\)/);
+    const mw = src("middleware.ts");
+    // Only NextAuth's own endpoints, not every /api/auth/* (switch-org is a custom POST).
+    expect(mw).toMatch(/const nextAuthOwn = path === "\/api\/auth\/session" \|\| path === "\/api\/auth\/signout" \|\| path === "\/api\/auth\/csrf";/);
+    expect(mw).toMatch(/impersonating && !nextAuthOwn && !\["GET", "HEAD", "OPTIONS"\]\.includes\(req\.method\)/);
+    expect(mw).not.toMatch(/impersonating && !path\.startsWith\("\/api\/auth\/"\)/);
+  });
+  it("an impersonated session is pinned to the ticket's organisation and cannot switch", () => {
+    const api = src("lib/api.ts");
+    expect(api).toMatch(/if \(impersonating\) activeOrgCookie = /);
+    expect(api).toMatch(/!orgId && userRow\.orgId && !impersonating/);
+    expect(src("app/api/auth/switch-org/route.ts")).toMatch(/impersonatedBy/);
   });
   it("tickets are minted only for an admin, in their own active org, never for a platform admin", () => {
     const r = src("app/api/org/impersonate/route.ts");

@@ -7,6 +7,10 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // "Sign in as" is pinned to one organisation; switching would read another.
+  if ((session.user as any).impersonatedBy) {
+    return NextResponse.json({ error: "Return to your own account before switching organisation." }, { status: 403 });
+  }
 
   const userId       = (session.user as any).id    as string;
   const userRole     = (session.user as any).role  as string;

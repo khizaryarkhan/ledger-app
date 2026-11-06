@@ -116,8 +116,13 @@ export default auth((req) => {
   // "public" path that still reads the cookie session, so a later check let an
   // impersonated session mint a long-lived MCP write token (security review). NextAuth's own /api/auth/*
   // stays open — that is how "Return to my account" is sent.
+  // Only NextAuth's own session/sign-out/csrf endpoints stay open — NOT every
+  // /api/auth/* route: /api/auth/switch-org is a custom POST that reads auth()
+  // directly, and letting it through moved an impersonated session into another
+  // organisation (and overwrote the admin's own org cookie).
   const impersonating = !!(req.auth?.user as any)?.impersonatedBy;
-  if (impersonating && !path.startsWith("/api/auth/") && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+  const nextAuthOwn = path === "/api/auth/session" || path === "/api/auth/signout" || path === "/api/auth/csrf";
+  if (impersonating && !nextAuthOwn && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
     return NextResponse.json({ error: "Read-only: you are signed in as another user. Return to your own account to make changes." }, { status: 403 });
   }
 

@@ -16,7 +16,7 @@ import { loadCalendars, loadEntries, loadAssignments, loadLabels, labelFor, vali
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
-  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true });
+  const { error, orgId, session, role } = await requireOrg({ allowEmployee: true, teamAction: true });
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
