@@ -5514,3 +5514,17 @@ employee portal: the first tab, `/my-time/dashboard`, which is now where employe
 - Bars are plain elements (no chart library in the app); colours are literal Tailwind classes. Hours go through
   `fmt.num2` — the architecture guard flags `.toFixed` on a total as hand-rounded money.
 - **Not built** (EDC has them): tasks / "Project Tasks" (no task model here), 1:1 status, notifications page.
+
+## Resources sidebar follows the EDC portal layout (2026-11-06)
+
+Requested from a screenshot of the team lead's EDC Pulse sidebar. `components/sidebar.tsx`'s
+`resourcesSections`: **My Pulse** (Dashboard, My Reports, My Details) · **Timesheets** (My
+Timesheet, Timesheet Approval, Compliance, Hours Over Plan, Post Timesheets*) · **Project
+Planning** (Resource Planning = the Resource Board, Utilization, Team Reports, Resource Cost*) ·
+**Machinery** (Equipment, Machine Utilisation — machines kept apart from people) · **Setup***
+(collapsible). *Admin only, display-side (`isAdmin` from the session); the routes refuse anyway.
+The workspace switcher opens on the Dashboard. Headings are pink, upper-case, with a rule between
+groups — literal classes, resources workspace only. EDC items with no screen here yet
+(Notifications, Forecasting, Project Opening Request, Hours & Deliverable Tool, Initiation
+Meeting, Project Tasks/Performance, Estimate Progress, Project Finance) are deliberately NOT
+linked: a dead link is worse than a missing one. Add each when its screen exists.

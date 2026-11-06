@@ -454,38 +454,59 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const paxSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     { items: [{ href: "/pax-console", label: "PAX Console", icon: Sparkles }] },
   ];
+  // Laid out like the EDC portal the team lead already uses (My Pulse /
+  // Timesheets / Project Planning / ...), with everything about MACHINES in its
+  // own group rather than mixed in with people. Admin-only screens (posting
+  // payroll, labour cost, setup) are hidden from everyone else — the server
+  // refuses them regardless; this only stops offering a page that would 403.
   const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     {
+      label: "My Pulse",
       items: [
-        { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
-        { href: "/resources/my-dashboard", label: "My Dashboard", icon: LayoutDashboard },
-        { href: "/resources/my-time", label: "My Timesheet", icon: Clock },
+        { href: "/resources/my-dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/resources/my-reports", label: "My Reports", icon: Gauge },
         { href: "/resources/my-details", label: "My Details", icon: Contact },
-        { href: "/resources/approvals", label: "Approvals", icon: ClipboardList },
-        { href: "/resources/reports", label: "Team Reports", icon: ScrollText },
-        { href: "/resources/timesheets", label: "Timesheets", icon: Clock },
-        { href: "/resources/compliance", label: "Timesheet Compliance", icon: ClipboardList },
-        { href: "/resources/enquiries", label: "Hours Over Plan", icon: Scale },
-        { href: "/resources/utilization", label: "Utilization", icon: Gauge },
-        { href: "/resources/machines", label: "Machine Utilisation", icon: Wrench },
-        { href: "/resources/cost", label: "Resource Cost", icon: Scale },
       ],
     },
     {
+      label: "Timesheets",
+      items: [
+        { href: "/resources/my-time", label: "My Timesheet", icon: Clock },
+        { href: "/resources/approvals", label: "Timesheet Approval", icon: CheckSquare },
+        { href: "/resources/compliance", label: "Timesheet Compliance", icon: ClipboardList },
+        { href: "/resources/enquiries", label: "Hours Over Plan", icon: Scale },
+        ...(isAdmin ? [{ href: "/resources/timesheets", label: "Post Timesheets", icon: ScrollText }] : []),
+      ],
+    },
+    {
+      label: "Project Planning",
+      items: [
+        { href: "/resources/board", label: "Resource Planning", icon: CalendarClock },
+        { href: "/resources/utilization", label: "Utilization", icon: Gauge },
+        { href: "/resources/reports", label: "Team Reports", icon: BarChart3 },
+        ...(isAdmin ? [{ href: "/resources/cost", label: "Resource Cost", icon: Scale }] : []),
+      ],
+    },
+    {
+      label: "Machinery",
+      items: [
+        { href: "/resources/equipment", label: "Equipment", icon: Wrench },
+        { href: "/resources/machines", label: "Machine Utilisation", icon: Gauge },
+      ],
+    },
+    ...(isAdmin ? [{
       label: "Setup",
       collapsible: true,
       icon: Database,
       items: [
         { href: "/resources/people", label: "People", icon: Users },
         { href: "/resources/designations", label: "Designations", icon: ClipboardList },
-        { href: "/resources/equipment", label: "Equipment", icon: Wrench },
         { href: "/resources/timesheet-types", label: "Timesheet Types", icon: ClipboardList },
         { href: "/resources/leave-balances", label: "Leave Balances", icon: Scale },
         { href: "/resources/holiday-calendars", label: "Holiday Calendars", icon: MapPin },
         { href: "/resources/payroll-settings", label: "Payroll Settings", icon: ScrollText },
       ],
-    },
+    }] : []),
   ];
 
   const sections = department === "batch" ? batchSections
@@ -504,7 +525,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-violet-500/20 text-violet-400", dot: "bg-violet-400" }] : []),
     ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-orange-500/20 text-orange-400", dot: "bg-orange-400" }] : []),
     ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400", dot: "bg-teal-400" }] : []),
-    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/board", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
+    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/my-dashboard", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
     ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-sky-500/20 text-sky-400", dot: "bg-sky-400" }] : []),
     ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/20 text-blue-400", dot: "bg-blue-400" }] : []),
     ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-amber-500/20 text-amber-400", dot: "bg-amber-400" }] : []),
@@ -603,9 +624,13 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
               return <FlyoutGroup key={si} label={sec.label ?? ""} Icon={SecIcon} items={sec.items} onNavigate={() => onClose?.()} />;
             }
             return (
-            <div key={si} className="mb-4">
+            <div key={si} className={department === "resources" && si > 0 ? "mb-3 pt-3 border-t border-stone-800/80" : "mb-4"}>
               {sec.label && (
-                <div className="px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest">
+                // Resources reads like the EDC portal: accent, upper-case group
+                // headings with a rule between groups. Literal classes only.
+                <div className={department === "resources"
+                  ? "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-pink-400 tracking-widest"
+                  : "px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest"}>
                   {sec.label}
                 </div>
               )}
@@ -637,6 +662,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                           ? "bg-blue-500/15 text-blue-400"
                           : department === "batch"
                           ? "bg-amber-500/15 text-amber-400"
+                          : department === "resources"
+                          ? "bg-pink-500/15 text-pink-300"
                           : "bg-emerald-500/15 text-emerald-400"
                         : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
                     }`}
@@ -645,7 +672,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                       size={15}
                       strokeWidth={isActive ? 2.25 : 2}
                       className={isActive
-                        ? department === "ap" ? "text-violet-400" : department === "reporting" ? "text-blue-400" : department === "batch" ? "text-amber-400" : "text-emerald-400"
+                        ? department === "ap" ? "text-violet-400" : department === "reporting" ? "text-blue-400" : department === "batch" ? "text-amber-400" : department === "resources" ? "text-pink-300" : "text-emerald-400"
                         : "text-stone-500"}
                     />
                     <span className="flex-1">{item.label}</span>
