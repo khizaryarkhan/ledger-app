@@ -16,7 +16,7 @@ import { listRow } from "@/components/list-view";
 // Mirrors components/list-view.tsx's (unexported) thCls header style, for the
 // one table-shaped dashboard widget ("AR by Rep") — the rest of this page is
 // cards/charts, not tables, so it doesn't take the full list-view shell.
-const widgetTh = "font-medium text-stone-500 whitespace-nowrap px-2 py-2 text-[11px]";
+const widgetTh = "font-medium text-stone-400 whitespace-nowrap px-2 py-2 text-[11px]";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -215,19 +215,19 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
       {/* Aging overview + distribution + indicators */}
       <div className="grid grid-cols-3 gap-3">
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">AR Overdue Overview</div>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-stone-800/40 rounded-lg p-3 text-center">
               <div className="text-xl font-bold text-white tabular-nums">
                 <CurrencyPills breakdown={byCcy} />
               </div>
-              <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
+              <div className="text-[10px] text-stone-400 mt-0.5">Total Open AR</div>
             </div>
             <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-500/10" : overdueRate > 25 ? "bg-amber-500/10" : "bg-emerald-500/10"}`}>
               <div className={`text-xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-400" : overdueRate > 25 ? "text-amber-400" : "text-emerald-400"}`}>
                 {overdueRate.toFixed(0)}%
               </div>
-              <div className="text-[10px] text-stone-500 mt-0.5">Overdue Rate</div>
+              <div className="text-[10px] text-stone-400 mt-0.5">Overdue Rate</div>
             </div>
           </div>
           <div className="space-y-2">
@@ -241,14 +241,14 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
                 <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
                 <div className="flex-1 text-stone-400">{label}</div>
                 <div className="font-semibold text-stone-200 tabular-nums">{fmt.money(value, dominantCurrency)}</div>
-                <div className="w-9 text-right text-stone-500">{pct.toFixed(0)}%</div>
+                <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
               </div>
             ))}
           </div>
         </Card>
 
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Aging Distribution</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-3">Aging Distribution</div>
           <div className="space-y-2.5">
             {[
               { label: "Current",  value: current, color: "bg-emerald-500", pct: totalAR > 0 ? (current / totalAR) * 100 : 0 },
@@ -269,7 +269,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
         </Card>
 
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Health Indicators</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-3">Health Indicators</div>
           <div className="space-y-3">
             {[
               { label: "Current AR",             value: `${currentPct.toFixed(1)}%`,   sub: "% not yet due",                 good: currentPct > 60,        warn: currentPct < 40 },
@@ -282,7 +282,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
               <div key={label} className="flex items-center justify-between">
                 <div>
                   <div className="text-[12px] font-medium text-stone-300">{label}</div>
-                  <div className="text-[10px] text-stone-500">{sub}</div>
+                  <div className="text-[10px] text-stone-400">{sub}</div>
                 </div>
                 <div className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${good ? "text-emerald-400 bg-emerald-500/15" : warn ? "text-rose-400 bg-rose-500/15" : "text-amber-400 bg-amber-500/15"}`}>
                   {value}
@@ -297,8 +297,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
       <div className="grid grid-cols-2 gap-3">
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Largest Open Balances</div>
-            <div className="flex items-center gap-2.5 text-[10px] text-stone-500">
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Largest Open Balances</div>
+            <div className="flex items-center gap-2.5 text-[10px] text-stone-400">
               {[["bg-emerald-500","Current"],["bg-amber-400","1-30d"],["bg-orange-500","31-60d"],["bg-rose-500","61-90d"],["bg-rose-800","90+d"]].map(([color, label]) => (
                 <span key={label} className="flex items-center gap-1">
                   <span className={`inline-block w-2 h-2 rounded-sm ${color}`} />
@@ -309,7 +309,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
           </div>
           <div className="space-y-2">
             {concentrationRows.length === 0 ? (
-              <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
+              <div className="py-6 text-center text-sm text-stone-400">No open AR</div>
             ) : (showAllBalances ? concentrationRows : concentrationRows.slice(0, 10)).map(({ customer, amount, pct, currency, aging }: any, idx: number) => {
               const total = amount || 1;
               const segments = [
@@ -327,7 +327,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
                       <span className="text-[12px] font-medium text-stone-300 truncate">{customer.name}</span>
                       <div className="flex items-center gap-2 ml-2 shrink-0">
                         <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, currency)}</span>
-                        <span className="text-[11px] text-stone-500 w-9 text-right">{pct.toFixed(0)}%</span>
+                        <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
                       </div>
                     </div>
                     <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden flex">
@@ -343,7 +343,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
           {concentrationRows.length > 10 && (
             <button
               onClick={() => setShowAllBalances(v => !v)}
-              className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 transition-colors py-1"
+              className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] text-stone-400 hover:text-stone-300 transition-colors py-1"
             >
               <ChevronDown size={12} className={`transition-transform ${showAllBalances ? "rotate-180" : ""}`} />
               {showAllBalances ? "Show less" : `Show all ${concentrationRows.length} customers`}
@@ -353,7 +353,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
 
         {repPortfolio.length > 0 ? (
           <Card>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR by Rep</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">AR by Rep</div>
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="border-b border-stone-800">
@@ -371,7 +371,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
                       <td className="px-2 py-2 font-medium text-stone-200">{rep.name}</td>
                       <td className="px-2 py-2 text-right tabular-nums text-stone-300">{fmt.money(openAR, currency)}</td>
                       <td className={`px-2 py-2 text-right tabular-nums font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, currency)}</td>
-                      <td className={`px-2 py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-500"}`}>
+                      <td className={`px-2 py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-400"}`}>
                         {overdPct.toFixed(0)}%
                       </td>
                     </tr>
@@ -382,7 +382,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
           </Card>
         ) : (
           <Card>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">AR by Rep</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">AR by Rep</div>
             <div className="py-6 text-center text-sm text-stone-400">No reps assigned</div>
           </Card>
         )}
@@ -418,10 +418,10 @@ function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
   return (
     <Card padding="md" className="mb-3">
       <div className="flex items-center justify-between mb-1">
-        <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">
+        <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">
           Receivable Composition{showCurrency ? <span className="ml-1.5 text-stone-400">{ccy}</span> : null}
         </div>
-        <div className="text-[11px] text-stone-500">
+        <div className="text-[11px] text-stone-400">
           What the {fmt.money(comp.total, ccy)} is made of — click a segment for the invoices
         </div>
       </div>
@@ -432,9 +432,9 @@ function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
         <div className="rounded-lg bg-stone-800/40 ring-1 ring-stone-800 px-3 py-2.5">
           <div className="text-[13px]">
             <span className="font-semibold text-white">{fmt.money(comp.workable, ccy)}</span>
-            <span className="text-stone-500"> ({pct(comp.workable).toFixed(0)}%)</span>
+            <span className="text-stone-400"> ({pct(comp.workable).toFixed(0)}%)</span>
           </div>
-          <div className="text-[11px] text-stone-500 mb-1.5">collectable through normal chasing</div>
+          <div className="text-[11px] text-stone-400 mb-1.5">collectable through normal chasing</div>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {comp.workableParts.map(g => (
               <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
@@ -449,9 +449,9 @@ function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
         <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-500/20 px-3 py-2.5">
           <div className="text-[13px]">
             <span className="font-semibold text-amber-400">{fmt.money(comp.blocked, ccy)}</span>
-            <span className="text-stone-500"> ({pct(comp.blocked).toFixed(0)}%)</span>
+            <span className="text-stone-400"> ({pct(comp.blocked).toFixed(0)}%)</span>
           </div>
-          <div className="text-[11px] text-stone-500 mb-1.5">needs a decision or agreement first</div>
+          <div className="text-[11px] text-stone-400 mb-1.5">needs a decision or agreement first</div>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {comp.blockedParts.map(g => (
               <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
@@ -466,10 +466,10 @@ function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
         <div className="rounded-lg bg-emerald-500/5 ring-1 ring-emerald-500/20 px-3 py-2.5">
           <div className="text-[13px]">
             <span className="font-semibold text-emerald-400">{fmt.money(comp.currentAmount, ccy)}</span>
-            <span className="text-stone-500"> ({pct(comp.currentAmount).toFixed(0)}%)</span>
+            <span className="text-stone-400"> ({pct(comp.currentAmount).toFixed(0)}%)</span>
           </div>
-          <div className="text-[11px] text-stone-500">not yet due — within payment terms</div>
-          <div className="text-[10px] text-stone-600 mt-1.5">The three panels always sum to 100% of total receivable.</div>
+          <div className="text-[11px] text-stone-400">not yet due — within payment terms</div>
+          <div className="text-[10px] text-stone-500 mt-1.5">The three panels always sum to 100% of total receivable.</div>
         </div>
       </div>
 
@@ -506,8 +506,8 @@ function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
             <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${g.dot}`} />
             <span className="text-[12px] text-stone-300 flex-1 min-w-0 truncate group-hover:text-white">{g.label}</span>
             <span className="text-[12px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(g.amount, ccy)}</span>
-            <span className="text-[11px] text-stone-500 tabular-nums w-10 text-right shrink-0">{pct(g.amount).toFixed(1)}%</span>
-            <span className="text-[10px] text-stone-600 tabular-nums w-8 text-right shrink-0">{g.count}×</span>
+            <span className="text-[11px] text-stone-400 tabular-nums w-10 text-right shrink-0">{pct(g.amount).toFixed(1)}%</span>
+            <span className="text-[10px] text-stone-500 tabular-nums w-8 text-right shrink-0">{g.count}×</span>
           </button>
         ))}
       </div>
@@ -649,7 +649,7 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
           <p className="text-[11px] text-stone-400">{drillDown.subtitle}</p>
           <div className="mt-2 flex items-center gap-3 flex-wrap">
             <CurrencyPills breakdown={byCcy} className={`text-lg font-semibold tabular-nums ${colorClass}`} />
-            <span className="text-[11px] text-stone-500">
+            <span className="text-[11px] text-stone-400">
               across {drillDown.items.length} invoice{drillDown.items.length !== 1 ? "s" : ""} · {groups.length} customer{groups.length !== 1 ? "s" : ""}
             </span>
           </div>
@@ -659,7 +659,7 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
       size="lg"
       footer={
         <div className="flex items-center justify-between w-full">
-          <span className="text-[11px] text-stone-500">Sorted by open balance (largest first)</span>
+          <span className="text-[11px] text-stone-400">Sorted by open balance (largest first)</span>
           <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Close</button>
         </div>
       }
@@ -667,8 +667,8 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
       {/* Collapse/expand all */}
       {groups.length > 1 && (
         <div className="pb-2 flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wider text-stone-600 font-semibold">By customer · largest first</span>
-          <button onClick={toggleAll} className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 transition-colors">
+          <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">By customer · largest first</span>
+          <button onClick={toggleAll} className="flex items-center gap-1 text-[11px] text-stone-400 hover:text-stone-300 transition-colors">
             {allExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             {allExpanded ? "Collapse all" : "Expand all"}
           </button>
@@ -678,7 +678,7 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
       {/* Grouped invoice list */}
       <div className="space-y-1.5">
         {groups.length === 0 ? (
-          <div className="py-12 text-center text-sm text-stone-500">No invoices in this bucket</div>
+          <div className="py-12 text-center text-sm text-stone-400">No invoices in this bucket</div>
         ) : (
           groups.map(cg => {
             const collapsed = collapsedCust.has(cg.key);
@@ -691,12 +691,12 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
                   className="w-full flex flex-col gap-1 px-3 py-2 bg-stone-900 hover:bg-stone-800/80 transition-colors text-left"
                 >
                   <div className="w-full flex items-center gap-2">
-                    <ChevronRight size={12} className={`text-stone-500 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
+                    <ChevronRight size={12} className={`text-stone-400 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
                     <span className="text-[13px] font-medium text-white flex-1 truncate">{cg.name}</span>
-                    <span className="text-[10px] text-stone-500 shrink-0">
+                    <span className="text-[10px] text-stone-400 shrink-0">
                       {cg.projects.reduce((s, p) => s + p.items.length, 0)} inv
                     </span>
-                    <span className="text-[11px] text-stone-500 tabular-nums w-9 text-right shrink-0">{pct.toFixed(0)}%</span>
+                    <span className="text-[11px] text-stone-400 tabular-nums w-9 text-right shrink-0">{pct.toFixed(0)}%</span>
                     <span className="text-[13px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(cg.total, cg.ccy)}</span>
                   </div>
                   {/* Share of the bucket — same pattern as "Largest Open Balances" */}
@@ -711,7 +711,7 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
                     {(pg.name !== "No project" || cg.projects.length > 1) && (
                       <div className="flex items-center gap-2 px-3 py-1.5 pl-7 bg-stone-900/40 border-t border-stone-800/60">
                         <span className="text-[11px] text-stone-400 flex-1 truncate">{pg.name}</span>
-                        <span className="text-[11px] text-stone-500 tabular-nums">{fmt.money(pg.total, pg.ccy)}</span>
+                        <span className="text-[11px] text-stone-400 tabular-nums">{fmt.money(pg.total, pg.ccy)}</span>
                       </div>
                     )}
                     {pg.items
@@ -746,7 +746,7 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-600">
+                              <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-500">
                                 {inv.promiseDate && <span>Committed {fmt.shortDate(inv.promiseDate)}</span>}
                                 <span>Invoice due {fmt.shortDate(inv.dueDate)}</span>
                               </div>
@@ -1154,7 +1154,7 @@ export default function DashboardPage() {
           <p className="text-sm text-stone-400 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="text-xs text-stone-500 flex items-center gap-1.5">
+          <div className="text-xs text-stone-400 flex items-center gap-1.5">
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
           </div>
@@ -1192,7 +1192,7 @@ export default function DashboardPage() {
 
       {/* Setup Checklist — hidden once all steps complete */}
       {!setupComplete && (
-        <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white rounded-xl p-5 mb-4">
+        <div className="bg-card border border-stone-800 shadow-sm shadow-stone-950/5 text-white rounded-lg p-5 mb-4">
           <div className="flex items-start justify-between mb-3">
             <div>
               <div className="text-sm font-semibold">Getting started</div>
@@ -1244,16 +1244,16 @@ export default function DashboardPage() {
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
                 onClick={() => !snapshotLoading && setDrillDown({ title: "Total Receivable", subtitle: `All open invoices as at ${fmt.date(new Date(asAt + "T12:00:00"))}`, color: "white", items: stats.openItems })}>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
+                  <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Total Receivable</div>
                   <div className="text-[10px] text-stone-400">As at {fmt.date(asAt)}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-white tracking-tight">
                     <CurrencyPills breakdown={stats.totalByCurrency} stacked />
                   </div>
-                  <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
+                  <div className="mt-2 text-[11px] text-stone-400">{stats.openCount} open invoices</div>
                   {beyondAsAt.count > 0 && (
-                    <div className="mt-1.5 text-[10px] text-stone-500 leading-relaxed">
+                    <div className="mt-1.5 text-[10px] text-stone-400 leading-relaxed">
                       <CurrencyPills breakdown={beyondAsAt.byCcy} /> across {beyondAsAt.count} invoice{beyondAsAt.count === 1 ? "" : "s"} dated
                       after this date — not receivable yet. Move <span className="text-stone-400">As at</span> forward to include them.
                     </div>
@@ -1262,28 +1262,28 @@ export default function DashboardPage() {
               </Card>
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
                 onClick={() => !snapshotLoading && stats.overdue.length > 0 && setDrillDown({ title: "Overdue Invoices", subtitle: "Past due date — action required", color: "rose", items: stats.overdue })}>
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Overdue</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-rose-600 tracking-tight">
                     <CurrencyPills breakdown={stats.overdueByCurrency} />
                   </div>
-                  <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
+                  <div className="mt-2 text-[11px] text-stone-400">{stats.overdue.length} overdue invoices</div>
                 </>}
               </Card>
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
                 onClick={() => !snapshotLoading && stats.over90Items.length > 0 && setDrillDown({ title: "90+ Days Overdue", subtitle: "Escalation candidates — oldest outstanding invoices", color: "rose", items: stats.over90Items })}>
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">90+ Days</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-rose-700 tracking-tight"><CurrencyPills breakdown={stats.over90ByCurrency} /></div>
-                  <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
+                  <div className="mt-2 text-[11px] text-stone-400">Escalation candidates</div>
                 </>}
               </Card>
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
                 onClick={() => !snapshotLoading && stats.disputedItems.length > 0 && setDrillDown({ title: "Disputed Invoices", subtitle: "In dispute — pending resolution", color: "amber", items: stats.disputedItems })}>
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-white tracking-tight"><CurrencyPills breakdown={stats.disputedByCurrency} /></div>
-                  <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
+                  <div className="mt-2 text-[11px] text-stone-400">Pending resolution</div>
                 </>}
               </Card>
             </div>
@@ -1298,7 +1298,7 @@ export default function DashboardPage() {
             {/* Promised — breakdown row */}
             <Card padding="md" className="mb-3">
               <div className="flex items-center justify-between mb-4">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Committed to Pay</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Committed to Pay</div>
                 {!snapshotLoading && stats.promisedBroken > 0 && (
                   <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
                     <AlertTriangle size={10} /> {stats.promisedBrokenCount} broken commitment{stats.promisedBrokenCount !== 1 ? "s" : ""}
@@ -1317,10 +1317,10 @@ export default function DashboardPage() {
                     className={`pr-4 text-left group ${stats.promisedBrokenCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken Commitments</div>
-                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-600"}`}>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-500"}`}>
                       {fmt.money(stats.promisedBroken, stats.dominantCcy)}
                     </div>
-                    <div className="mt-1.5 text-[11px] text-stone-500">
+                    <div className="mt-1.5 text-[11px] text-stone-400">
                       {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} commitment${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
                     </div>
                     {stats.promisedBroken > 0 && (
@@ -1333,10 +1333,10 @@ export default function DashboardPage() {
                     className={`px-4 text-left group ${stats.promisedWeekCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
-                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedWeek > 0 ? "text-amber-400" : "text-stone-600"}`}>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedWeek > 0 ? "text-amber-400" : "text-stone-500"}`}>
                       {fmt.money(stats.promisedWeek, stats.dominantCcy)}
                     </div>
-                    <div className="mt-1.5 text-[11px] text-stone-500">
+                    <div className="mt-1.5 text-[11px] text-stone-400">
                       {stats.promisedWeekCount === 0 ? "Nothing due" : `${stats.promisedWeekCount} invoice${stats.promisedWeekCount !== 1 ? "s" : ""} · due ≤7 days`}
                     </div>
                     {stats.promisedWeek > 0 && (
@@ -1349,10 +1349,10 @@ export default function DashboardPage() {
                     className={`px-4 text-left group ${stats.promisedMonthCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
-                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedMonth > 0 ? "text-sky-400" : "text-stone-600"}`}>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedMonth > 0 ? "text-sky-400" : "text-stone-500"}`}>
                       {fmt.money(stats.promisedMonth, stats.dominantCcy)}
                     </div>
-                    <div className="mt-1.5 text-[11px] text-stone-500">
+                    <div className="mt-1.5 text-[11px] text-stone-400">
                       {stats.promisedMonthCount === 0 ? "Nothing due" : `${stats.promisedMonthCount} invoice${stats.promisedMonthCount !== 1 ? "s" : ""} · due 8–30 days`}
                     </div>
                     {stats.promisedMonth > 0 && (
@@ -1368,7 +1368,7 @@ export default function DashboardPage() {
                     <div className="text-2xl font-semibold text-white tabular-nums tracking-tight">
                       {fmt.money(stats.promised, stats.dominantCcy)}
                     </div>
-                    <div className="mt-1.5 text-[11px] text-stone-500">
+                    <div className="mt-1.5 text-[11px] text-stone-400">
                       {stats.promisedTotalCount} active commitment{stats.promisedTotalCount !== 1 ? "s" : ""}
                     </div>
                     {/* Mini progress bar: broken vs healthy */}
@@ -1381,7 +1381,7 @@ export default function DashboardPage() {
                       </div>
                     )}
                     {stats.promisedTotalCount > 0 && (
-                      <div className="mt-1 text-[10px] text-stone-600 group-hover:text-stone-500">
+                      <div className="mt-1 text-[10px] text-stone-500 group-hover:text-stone-400">
                         {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken commitments · view all →
                       </div>
                     )}
@@ -1396,7 +1396,7 @@ export default function DashboardPage() {
       {/* ── Needs attention — the act-today zone ─────────────────── */}
       <div className="mt-6 mb-3">
         <h2 className="text-base font-semibold text-white">Needs attention</h2>
-        <p className="text-[11px] text-stone-500 mt-0.5">Act on these today — chase, respond, follow up</p>
+        <p className="text-[11px] text-stone-400 mt-0.5">Act on these today — chase, respond, follow up</p>
       </div>
       {alerts.length > 0 && (
           <Card>
@@ -1433,25 +1433,25 @@ export default function DashboardPage() {
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Top overdue customers</h3>
-            <Link href="/customers" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
+            <Link href="/customers" className="text-xs text-stone-400 hover:text-stone-300 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
           </div>
-          {topOverdue.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No overdue customers</div> : (
+          {topOverdue.length === 0 ? <div className="py-8 text-center text-sm text-stone-400">No overdue customers</div> : (
             <div className="space-y-1">
               {topOverdue.map(({ customer, amount, currency }, i) => (
                 <Link key={customer.id} href={`/customers/${customer.id}`} className="w-full flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-stone-800/60 group">
-                  <div className="w-6 text-xs text-stone-500 font-mono">{i + 1}</div>
+                  <div className="w-6 text-xs text-stone-400 font-mono">{i + 1}</div>
                   <div className="w-9 h-9 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-xs font-semibold flex-shrink-0">
                     {customer.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
                   </div>
                   <div className="flex-1 text-left min-w-0">
                     <div className="text-sm font-medium text-white truncate">{customer.name}</div>
-                    <div className="text-[11px] text-stone-500">
+                    <div className="text-[11px] text-stone-400">
                       {customer.code && !customer.code.startsWith("QBO-") ? `${customer.code} · ` : ""}{customer.country}
                     </div>
                   </div>
                   {customer.riskRating === "High" && <Badge variant="red" size="sm">High risk</Badge>}
                   <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, currency)}</div>
-                  <ChevronRight size={14} className="text-stone-600 group-hover:text-stone-400" />
+                  <ChevronRight size={14} className="text-stone-500 group-hover:text-stone-400" />
                 </Link>
               ))}
             </div>
@@ -1462,14 +1462,14 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-semibold text-white">Proactive pipeline</h3>
-              <p className="text-[11px] text-stone-500 mt-0.5">Due in 7–14 days, not yet contacted</p>
+              <p className="text-[11px] text-stone-400 mt-0.5">Due in 7–14 days, not yet contacted</p>
             </div>
-            <Link href="/smart-views" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">Smart Views <ArrowUpRight size={12} /></Link>
+            <Link href="/smart-views" className="text-xs text-stone-400 hover:text-stone-900 flex items-center gap-1">Smart Views <ArrowUpRight size={12} /></Link>
           </div>
           {stats.proactivePipeline.length === 0 ? (
             <div className="py-6 text-center">
               <div className="text-2xl font-semibold text-emerald-400 mb-1">✓</div>
-              <div className="text-sm text-stone-500">All upcoming invoices contacted</div>
+              <div className="text-sm text-stone-400">All upcoming invoices contacted</div>
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -1483,7 +1483,7 @@ export default function DashboardPage() {
                   <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-800/60">
                     <div className="flex-1 min-w-0">
                       <div className="text-[12px] font-medium text-stone-200 truncate">{customer?.name}</div>
-                      <div className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</div>
+                      <div className="text-[11px] text-stone-400 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[12px] font-semibold tabular-nums text-white">{fmt.money(inv.total - (inv.paid || 0), inv.currency)}</div>
@@ -1493,7 +1493,7 @@ export default function DashboardPage() {
                 );
               })}
               {stats.proactivePipeline.length > 4 && (
-                <div className="text-center text-[11px] text-stone-500 pt-1">+{stats.proactivePipeline.length - 4} more</div>
+                <div className="text-center text-[11px] text-stone-400 pt-1">+{stats.proactivePipeline.length - 4} more</div>
               )}
             </div>
           )}
@@ -1502,9 +1502,9 @@ export default function DashboardPage() {
         <Card className="col-span-3">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Invoices due this week</h3>
-            <span className="text-xs text-stone-500">{stats.dueThisWeek.length} invoices</span>
+            <span className="text-xs text-stone-400">{stats.dueThisWeek.length} invoices</span>
           </div>
-          {stats.dueThisWeek.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No invoices due this week</div> : (
+          {stats.dueThisWeek.length === 0 ? <div className="py-8 text-center text-sm text-stone-400">No invoices due this week</div> : (
             <div className="grid grid-cols-2 gap-2">
               {stats.dueThisWeek.slice(0, 6).map(inv => {
                 const customer = customers.find(c => c.id === inv.customerId);
@@ -1512,11 +1512,11 @@ export default function DashboardPage() {
                   <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md border border-stone-800 hover:border-stone-700 hover:bg-stone-800/50">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-white truncate">{customer?.name}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5 font-mono">{inv.invoiceNumber}</div>
+                      <div className="text-[11px] text-stone-400 mt-0.5 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
+                      <div className="text-[11px] text-stone-400 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
                     </div>
                   </Link>
                 );
@@ -1529,13 +1529,13 @@ export default function DashboardPage() {
       {/* ── Aging & risk — portfolio structure ───────────────────── */}
       <div className="mt-6 mb-3">
         <h2 className="text-base font-semibold text-white">Aging & risk</h2>
-        <p className="text-[11px] text-stone-500 mt-0.5">Portfolio structure and exposure</p>
+        <p className="text-[11px] text-stone-400 mt-0.5">Portfolio structure and exposure</p>
       </div>
       <div className="grid grid-cols-3 gap-3">
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-sm font-semibold text-white">Aging buckets</h3>
-            <Link href="/reports" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
+            <Link href="/reports" className="text-xs text-stone-400 hover:text-stone-300 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
           </div>
           <div className="space-y-3">
             {["Current", "1-30", "31-60", "61-90", "90+"].map((bucket, i) => {
@@ -1559,7 +1559,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-semibold text-white">Concentration risk</h3>
-              <p className="text-[11px] text-stone-500 mt-0.5">Top 5 customers as % of total AR</p>
+              <p className="text-[11px] text-stone-400 mt-0.5">Top 5 customers as % of total AR</p>
             </div>
             {concentrationRisk.top5Pct > 50 && (
               <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-md">
@@ -1568,7 +1568,7 @@ export default function DashboardPage() {
             )}
           </div>
           {concentrationRisk.rows.length === 0 ? (
-            <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
+            <div className="py-6 text-center text-sm text-stone-400">No open AR</div>
           ) : (
             <div className="space-y-2.5">
               {concentrationRisk.rows.map(({ customer, amount, pct, currency }) => (
@@ -1577,7 +1577,7 @@ export default function DashboardPage() {
                     <span className="text-[12px] font-medium text-stone-300 truncate group-hover:text-white">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
                       <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, currency)}</span>
-                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
+                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-400"}`}>{pct.toFixed(1)}%</span>
                     </div>
                   </div>
                   <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
@@ -1586,7 +1586,7 @@ export default function DashboardPage() {
                 </Link>
               ))}
               <div className="pt-2 border-t border-stone-800 flex items-center justify-between">
-                <span className="text-[11px] text-stone-500">Top 5 total concentration</span>
+                <span className="text-[11px] text-stone-400">Top 5 total concentration</span>
                 <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-400" : "text-emerald-400"}`}>
                   {concentrationRisk.top5Pct.toFixed(1)}%
                 </span>
@@ -1602,7 +1602,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-base font-semibold text-white">AR by Region</h2>
-              <p className="text-[11px] text-stone-500 mt-0.5">Open receivables broken down by region</p>
+              <p className="text-[11px] text-stone-400 mt-0.5">Open receivables broken down by region</p>
             </div>
           </div>
           <div className={`grid gap-3 ${arByRegion.length === 1 ? "grid-cols-1" : arByRegion.length === 2 ? "grid-cols-2" : arByRegion.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
@@ -1621,7 +1621,7 @@ export default function DashboardPage() {
                   <div className="text-2xl font-semibold text-white tracking-tight tabular-nums mb-1">
                     <CurrencyPills breakdown={byCurrency} />
                   </div>
-                  <div className="text-[11px] text-stone-500 mb-3">{count} open invoice{count !== 1 ? "s" : ""}</div>
+                  <div className="text-[11px] text-stone-400 mb-3">{count} open invoice{count !== 1 ? "s" : ""}</div>
                   {/* Stacked bar: current vs overdue */}
                   <div className="h-2 rounded-full overflow-hidden bg-stone-800 mb-2">
                     <div className="h-full flex">
@@ -1661,7 +1661,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-base font-semibold text-white">AR Health</h2>
-            <p className="text-[11px] text-stone-500 mt-0.5">5-dimension quality score — reconciled with AR Reports</p>
+            <p className="text-[11px] text-stone-400 mt-0.5">5-dimension quality score — reconciled with AR Reports</p>
           </div>
           {snapshotLoading && (
             <div className="flex items-center gap-1.5 text-[11px] text-stone-400">
@@ -1682,7 +1682,7 @@ export default function DashboardPage() {
       {/* ── Team activity — collections output & personal tasks ──── */}
       <div className="mt-6 mb-3">
         <h2 className="text-base font-semibold text-white">Team activity</h2>
-        <p className="text-[11px] text-stone-500 mt-0.5">Collections output this week and your open tasks</p>
+        <p className="text-[11px] text-stone-400 mt-0.5">Collections output this week and your open tasks</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Card>
@@ -1706,20 +1706,20 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">My tasks today</h3>
-            <Link href="/tasks" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
+            <Link href="/tasks" className="text-xs text-stone-400 hover:text-stone-300 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
           </div>
-          {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">All caught up</div> : (
+          {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-400">All caught up</div> : (
             <div className="space-y-2">
               {myTasks.map(t => {
                 const overdue = t.dueDate < localToday();
                 const href = t.invoiceId ? `/invoices/${t.invoiceId}` : "/tasks";
                 return (
                   <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-800/60">
-                    <Circle size={14} className="text-stone-600 mt-0.5 flex-shrink-0" />
+                    <Circle size={14} className="text-stone-500 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-white truncate">{t.title}</div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[11px] ${overdue ? "text-rose-600 font-medium" : "text-stone-500"}`}>{fmt.relative(t.dueDate)}</span>
+                        <span className={`text-[11px] ${overdue ? "text-rose-600 font-medium" : "text-stone-400"}`}>{fmt.relative(t.dueDate)}</span>
                         {t.priority === "Urgent" && <Badge variant="red" size="sm">Urgent</Badge>}
                         {t.priority === "High" && <Badge variant="orange" size="sm">High</Badge>}
                       </div>

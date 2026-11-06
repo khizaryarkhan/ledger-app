@@ -106,7 +106,7 @@ export default function AccountingDashboardPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight">Accounting Dashboard</h1>
           <p className="text-sm text-stone-400 mt-1">Cash, ledger health, profitability and aging at a glance</p>
         </div>
-        <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
+        <div className="text-xs text-stone-400">Last updated {fmt.date(new Date())}</div>
       </div>
 
       {error && (
@@ -133,34 +133,34 @@ export default function AccountingDashboardPage() {
       {/* KPI cards */}
       <div className="grid grid-cols-4 gap-3 mb-3">
         <Card padding="md" className="h-full">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Cash</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Cash</div>
           {loading ? <><Sk /><SkSub /></> : <>
             <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(ov?.cash ?? 0, ccy)}</div>
-            <div className="mt-2 text-[11px] text-stone-500">Bank-type accounts, as at {ov?.asOf ? fmt.date(ov.asOf) : "—"}</div>
+            <div className="mt-2 text-[11px] text-stone-400">Bank-type accounts, as at {ov?.asOf ? fmt.date(ov.asOf) : "—"}</div>
           </>}
         </Card>
         <Card padding="md" className="h-full">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Net Profit (MTD)</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Net Profit (MTD)</div>
           {loading ? <><Sk /><SkSub /></> : <>
             <div className={`text-2xl font-semibold tracking-tight ${(ov?.netProfit.mtd ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {fmt.money(ov?.netProfit.mtd ?? 0, ccy)}
             </div>
-            <div className="mt-2 text-[11px] text-stone-500">YTD {fmt.money(ov?.netProfit.ytd ?? 0, ccy)}</div>
+            <div className="mt-2 text-[11px] text-stone-400">YTD {fmt.money(ov?.netProfit.ytd ?? 0, ccy)}</div>
           </>}
         </Card>
         <Card padding="md" className="h-full">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Working Capital</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Working Capital</div>
           {loading ? <><Sk /><SkSub /></> : <>
             <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(ov?.workingCapital ?? 0, ccy)}</div>
-            <div className="mt-2 text-[11px] text-stone-500">Cash + AR + Inventory − AP</div>
+            <div className="mt-2 text-[11px] text-stone-400">Cash + AR + Inventory − AP</div>
           </>}
         </Card>
         <Link href="/accounting/approvals">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Pending Approvals</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Pending Approvals</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(ov?.pendingApprovals.amount ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">{ov?.pendingApprovals.count ?? 0} awaiting approval</div>
+              <div className="mt-2 text-[11px] text-stone-400">{ov?.pendingApprovals.count ?? 0} awaiting approval</div>
             </>}
           </Card>
         </Link>
@@ -169,13 +169,13 @@ export default function AccountingDashboardPage() {
       {/* AR vs AP band */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Receivables</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">Receivables</div>
           {loading ? <div className="grid grid-cols-3 gap-4">{[0, 1, 2].map(i => <div key={i}><Sk /><SkSub /></div>)}</div> : (
             <div className="grid grid-cols-3 gap-4 divide-x divide-stone-800">
               <div className="pr-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total</div>
                 <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ar.total ?? 0, arCcy)}</div>
-                <div className="mt-1 text-[11px] text-stone-500">{ov?.ar.openCount ?? 0} open</div>
+                <div className="mt-1 text-[11px] text-stone-400">{ov?.ar.openCount ?? 0} open</div>
               </div>
               <div className="px-4">
                 <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Overdue</div>
@@ -192,13 +192,13 @@ export default function AccountingDashboardPage() {
           )}
         </Card>
         <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Payables</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">Payables</div>
           {loading ? <div className="grid grid-cols-3 gap-4">{[0, 1, 2].map(i => <div key={i}><Sk /><SkSub /></div>)}</div> : (
             <div className="grid grid-cols-3 gap-4 divide-x divide-stone-800">
               <div className="pr-4">
                 <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total</div>
                 <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.ap.total ?? 0, apCcy)}</div>
-                <div className="mt-1 text-[11px] text-stone-500">{ov?.ap.openCount ?? 0} open</div>
+                <div className="mt-1 text-[11px] text-stone-400">{ov?.ap.openCount ?? 0} open</div>
               </div>
               <div className="px-4">
                 <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Overdue</div>
@@ -218,7 +218,7 @@ export default function AccountingDashboardPage() {
 
       {/* Revenue & Profitability */}
       <Card padding="md" className="mb-3">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">
           <PieChart size={13} /> Revenue &amp; Profitability
         </div>
         {loading ? <div className="grid grid-cols-3 gap-4">{[0, 1, 2].map(i => <div key={i}><Sk /><SkSub /></div>)}</div> : (
@@ -226,17 +226,17 @@ export default function AccountingDashboardPage() {
             <div className="pr-4">
               <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Revenue</div>
               <div className="text-xl font-semibold tabular-nums text-white">{fmt.money(ov?.revenue.mtd ?? 0, ccy)}</div>
-              <div className="mt-1 text-[11px] text-stone-500">MTD · YTD {fmt.money(ov?.revenue.ytd ?? 0, ccy)}</div>
+              <div className="mt-1 text-[11px] text-stone-400">MTD · YTD {fmt.money(ov?.revenue.ytd ?? 0, ccy)}</div>
             </div>
             <div className="px-4">
               <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">Gross Profit</div>
               <div className="text-xl font-semibold tabular-nums text-sky-400">{fmt.money(ov?.grossProfit.mtd ?? 0, ccy)}</div>
-              <div className="mt-1 text-[11px] text-stone-500">{pct(ov?.grossProfit.mtd ?? 0, ov?.revenue.mtd ?? 0).toFixed(1)}% margin</div>
+              <div className="mt-1 text-[11px] text-stone-400">{pct(ov?.grossProfit.mtd ?? 0, ov?.revenue.mtd ?? 0).toFixed(1)}% margin</div>
             </div>
             <div className="pl-4">
               <div className="text-[10px] uppercase tracking-wider text-emerald-500/80 font-semibold mb-1">Net Profit</div>
               <div className="text-xl font-semibold tabular-nums text-emerald-400">{fmt.money(ov?.netProfit.mtd ?? 0, ccy)}</div>
-              <div className="mt-1 text-[11px] text-stone-500">{pct(ov?.netProfit.mtd ?? 0, ov?.revenue.mtd ?? 0).toFixed(1)}% margin</div>
+              <div className="mt-1 text-[11px] text-stone-400">{pct(ov?.netProfit.mtd ?? 0, ov?.revenue.mtd ?? 0).toFixed(1)}% margin</div>
             </div>
           </div>
         )}
@@ -286,7 +286,7 @@ export default function AccountingDashboardPage() {
 
       {/* Quick links */}
       <Card padding="md">
-        <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Reports &amp; tools</div>
+        <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-4">Reports &amp; tools</div>
         <div className="grid grid-cols-4 gap-2">
           {QUICK_LINKS.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href} className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-stone-800 hover:border-stone-600 hover:bg-stone-800/50 transition-colors">

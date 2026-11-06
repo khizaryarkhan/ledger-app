@@ -66,7 +66,7 @@ export default function SupplyChainDashboardPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight">Supply Chain Dashboard</h1>
           <p className="text-sm text-stone-400 mt-1">Procurement, fulfilment, inventory and manufacturing at a glance</p>
         </div>
-        <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
+        <div className="text-xs text-stone-400">Last updated {fmt.date(new Date())}</div>
       </div>
 
       {error && (
@@ -82,7 +82,7 @@ export default function SupplyChainDashboardPage() {
         <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-white">Needs attention</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Late or blocked purchase orders, job work and production</p>
+            <p className="text-xs text-stone-400 mt-0.5">Late or blocked purchase orders, job work and production</p>
           </div>
           <Link href="/accounting/reports/delivery-risk" className="text-xs text-stone-400 hover:text-white inline-flex items-center gap-1">
             View all <ArrowUpRight size={12} />
@@ -93,10 +93,10 @@ export default function SupplyChainDashboardPage() {
         ) : totalAlerts === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <div className="w-10 h-10 rounded-full bg-stone-800 flex items-center justify-center mb-3">
-              <CheckCircle2 size={18} className="text-stone-500" />
+              <CheckCircle2 size={18} className="text-stone-400" />
             </div>
             <p className="text-sm font-semibold text-white mb-1">All clear</p>
-            <p className="text-xs text-stone-500">No open delivery-risk alerts.</p>
+            <p className="text-xs text-stone-400">No open delivery-risk alerts.</p>
           </div>
         ) : (
           <div className="p-5 space-y-2">
@@ -124,39 +124,39 @@ export default function SupplyChainDashboardPage() {
       <div className="grid grid-cols-4 gap-3 mb-3">
         <Link href="/accounting/trade/purchase-orders">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open Purchase Orders</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Open Purchase Orders</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(p?.openPoValue ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">{p?.openPoCount ?? 0} open orders</div>
+              <div className="mt-2 text-[11px] text-stone-400">{p?.openPoCount ?? 0} open orders</div>
             </>}
           </Card>
         </Link>
         <Link href="/accounting/trade/sales-orders">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open Sales Orders</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Open Sales Orders</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(f?.openSoValue ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">{f?.openSoCount ?? 0} open orders</div>
+              <div className="mt-2 text-[11px] text-stone-400">{f?.openSoCount ?? 0} open orders</div>
             </>}
           </Card>
         </Link>
         <Link href="/accounting/reports/stock-status">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Inventory Value</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Inventory Value</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(inv?.totalInventoryValue ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">{inv?.trackedItemCount ?? 0} tracked items</div>
+              <div className="mt-2 text-[11px] text-stone-400">{inv?.trackedItemCount ?? 0} tracked items</div>
             </>}
           </Card>
         </Link>
         <Link href="/accounting/reports/stock-status">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Stock Risk</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Stock Risk</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className={`text-2xl font-semibold tracking-tight ${(inv?.outOfStockCount ?? 0) > 0 ? "text-rose-400" : "text-white"}`}>
                 {(inv?.belowMinCount ?? 0) + (inv?.outOfStockCount ?? 0)}
               </div>
-              <div className="mt-2 text-[11px] text-stone-500">{inv?.outOfStockCount ?? 0} out of stock · {inv?.belowMinCount ?? 0} below reorder point</div>
+              <div className="mt-2 text-[11px] text-stone-400">{inv?.outOfStockCount ?? 0} out of stock · {inv?.belowMinCount ?? 0} below reorder point</div>
             </>}
           </Card>
         </Link>
@@ -166,7 +166,7 @@ export default function SupplyChainDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card padding="md">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold"><ShoppingCart size={13} /> Procurement</div>
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-400 font-semibold"><ShoppingCart size={13} /> Procurement</div>
             {!loading && (p?.openBillsOverdueCount ?? 0) > 0 && (
               <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
                 <AlertTriangle size={10} /> {p!.openBillsOverdueCount} overdue bill{p!.openBillsOverdueCount !== 1 ? "s" : ""}
@@ -193,7 +193,7 @@ export default function SupplyChainDashboardPage() {
 
         <Card padding="md">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-500 font-semibold"><Truck size={13} /> Fulfilment</div>
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-stone-400 font-semibold"><Truck size={13} /> Fulfilment</div>
             {!loading && (f?.openInvoicesOverdueCount ?? 0) > 0 && (
               <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
                 <AlertTriangle size={10} /> {f!.openInvoicesOverdueCount} overdue invoice{f!.openInvoicesOverdueCount !== 1 ? "s" : ""}
@@ -227,7 +227,7 @@ export default function SupplyChainDashboardPage() {
               <Factory size={15} className="text-stone-400" />
               <div>
                 <h2 className="text-base font-semibold text-white">Manufacturing &amp; Job Work</h2>
-                <p className="text-xs text-stone-500 mt-0.5">Open subcontracting orders and yield performance</p>
+                <p className="text-xs text-stone-400 mt-0.5">Open subcontracting orders and yield performance</p>
               </div>
             </div>
             <Link href="/accounting/jobwork" className="text-xs text-stone-400 hover:text-white inline-flex items-center gap-1">
@@ -261,7 +261,7 @@ export default function SupplyChainDashboardPage() {
         <Card padding="none">
           <div className="px-5 py-4 border-b border-stone-800">
             <h2 className="text-base font-semibold text-white">Activity (7 days)</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Recent operational output</p>
+            <p className="text-xs text-stone-400 mt-0.5">Recent operational output</p>
           </div>
           <div className="p-5">
             {loading ? (
@@ -271,17 +271,17 @@ export default function SupplyChainDashboardPage() {
                 <div className="text-center bg-stone-800/40 rounded-lg py-3">
                   <PackageCheck size={14} className="mx-auto text-emerald-400 mb-1" />
                   <div className="text-xl font-bold text-emerald-400 tabular-nums">{data?.activity7d.goodsReceiptsPosted ?? 0}</div>
-                  <div className="text-[10px] text-stone-500 mt-1">Receipts</div>
+                  <div className="text-[10px] text-stone-400 mt-1">Receipts</div>
                 </div>
                 <div className="text-center bg-stone-800/40 rounded-lg py-3">
                   <Truck size={14} className="mx-auto text-blue-400 mb-1" />
                   <div className="text-xl font-bold text-blue-400 tabular-nums">{data?.activity7d.shipmentsPosted ?? 0}</div>
-                  <div className="text-[10px] text-stone-500 mt-1">Shipments</div>
+                  <div className="text-[10px] text-stone-400 mt-1">Shipments</div>
                 </div>
                 <div className="text-center bg-stone-800/40 rounded-lg py-3">
                   <Boxes size={14} className="mx-auto text-violet-400 mb-1" />
                   <div className="text-xl font-bold text-violet-400 tabular-nums">{data?.activity7d.buildsCompleted ?? 0}</div>
-                  <div className="text-[10px] text-stone-500 mt-1">Builds</div>
+                  <div className="text-[10px] text-stone-400 mt-1">Builds</div>
                 </div>
               </div>
             )}

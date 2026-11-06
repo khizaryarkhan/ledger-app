@@ -43,6 +43,9 @@ module.exports = {
         // Sidebar surface: pure white on Light so the nav reads crisp against
         // the off-white page, instead of melting into it.
         nav: v('nav-bg'),
+        // Card surface: white on Light so a card lifts off the off-white page
+        // (it was grey on grey); on Dark it stays one step above the black page.
+        card: v('card-bg'),
         white: v('c-white'),
         stone: {
           50: v('st-50'), 100: v('st-100'), 200: v('st-200'), 300: v('st-300'),

@@ -68,7 +68,7 @@ function Legend({ items }: { items: { label: string; cls: string }[] }) {
 /** Two bars per row (logged over planned), scaled to the largest value on the card. */
 function PairedBars({ rows }: { rows: { label: string; planned: number; logged: number }[] }) {
   const max = Math.max(1, ...rows.flatMap((r) => [r.planned, r.logged]));
-  if (!rows.length) return <p className="text-[12px] text-stone-500">Nothing planned or logged in this window.</p>;
+  if (!rows.length) return <p className="text-[12px] text-stone-400">Nothing planned or logged in this window.</p>;
   return (
     <div className="space-y-3">
       {rows.map((r) => (
@@ -125,7 +125,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const subtitle = "Your timesheets, leave, what's planned for you and how the last weeks went.";
 
   if (err) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh}><p className="text-[13px] text-rose-400">{err}</p></ReportShell>;
-  if (!data) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle}><p className="text-[13px] text-stone-500">Loading…</p></ReportShell>;
+  if (!data) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle}><p className="text-[13px] text-stone-400">Loading…</p></ReportShell>;
   if (!data.resource) {
     return (
       <ReportShell shell={shell} title="Dashboard" subtitle={subtitle}>
@@ -149,7 +149,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             <div className="min-w-0">
               <div className="text-[15px] font-semibold text-white truncate">{r.name}</div>
               <div className="text-[12px] text-stone-400 truncate">{r.designation || "—"}</div>
-              <div className="text-[11px] text-stone-500 truncate">{[r.department, r.manager ? `Manager: ${r.manager}` : null].filter(Boolean).join(" · ") || "No manager set"}</div>
+              <div className="text-[11px] text-stone-400 truncate">{[r.department, r.manager ? `Manager: ${r.manager}` : null].filter(Boolean).join(" · ") || "No manager set"}</div>
             </div>
           </div>
 
@@ -158,7 +158,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             <div className="grid grid-cols-2 gap-2">
               {data.timesheets.map((t) => (
                 <div key={t.week}>
-                  <div className="text-[11px] text-stone-500 mb-1">{wk(t.week)}</div>
+                  <div className="text-[11px] text-stone-400 mb-1">{wk(t.week)}</div>
                   <span className={`inline-flex items-center gap-1 h-6 px-2 rounded-md ring-1 text-[11px] font-medium ${STATUS_CHIP[t.status].cls}`}>
                     {t.status === "approved" ? <CheckCircle2 size={11} /> : t.status === "returned" ? <AlertTriangle size={11} /> : <Clock size={11} />}
                     {STATUS_CHIP[t.status].label}
@@ -171,7 +171,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">Leave balance</div>
             {data.leave.length === 0 ? (
-              <p className="text-[12px] text-stone-500">No leave type tracks a balance yet.</p>
+              <p className="text-[12px] text-stone-400">No leave type tracks a balance yet.</p>
             ) : data.leave.slice(0, 2).map((l) => {
               const total = Math.max(l.taken + Math.max(l.remaining, 0), 0.01);
               return (
@@ -192,7 +192,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">This week</div>
             <div className="text-[20px] font-semibold text-white tabular-nums">{h(data.ahead.totals[0] ?? 0)}</div>
-            <div className="text-[11px] text-stone-500">planned across {data.ahead.rows.filter((x) => (x.weeks[0] ?? 0) > 0).length} booking(s)</div>
+            <div className="text-[11px] text-stone-400">planned across {data.ahead.rows.filter((x) => (x.weeks[0] ?? 0) > 0).length} booking(s)</div>
             <Link href={timesheetHref} className="mt-2 inline-block text-[12px] text-emerald-400 hover:text-emerald-300">Open my timesheet →</Link>
           </div>
         </div>
@@ -210,7 +210,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] text-stone-100">{a.title}</div>
-                    <div className="text-[12px] text-stone-500">{a.detail}</div>
+                    <div className="text-[12px] text-stone-400">{a.detail}</div>
                   </div>
                   {a.action === "timesheet" && (
                     <Link href={timesheetHref} className="shrink-0 h-8 inline-flex items-center px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-200 hover:bg-stone-800">Open timesheet</Link>
@@ -229,7 +229,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             </button>
           ) : undefined}>
           {data.ahead.rows.length === 0 ? (
-            <p className="text-[12px] text-stone-500">Nothing is planned for you in these weeks yet.</p>
+            <p className="text-[12px] text-stone-400">Nothing is planned for you in these weeks yet.</p>
           ) : (
             <>
               <div className="space-y-2.5">

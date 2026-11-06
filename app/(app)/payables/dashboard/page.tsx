@@ -100,7 +100,7 @@ export default function PayablesDashboardPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight">Payables Dashboard</h1>
           <p className="text-sm text-stone-400 mt-1">Overview of payables, aging and approval activity</p>
         </div>
-        <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
+        <div className="text-xs text-stone-400">Last updated {fmt.date(new Date())}</div>
       </div>
 
       {error && (
@@ -116,43 +116,43 @@ export default function PayablesDashboardPage() {
         <Link href="/payables/bills">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Payable</div>
+              <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Total Payable</div>
               <div className="text-[10px] text-stone-400">As at {fmt.date(new Date())}</div>
             </div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">
                 <CurrencyPills breakdown={k?.totalByCcy ?? {}} stacked />
               </div>
-              <div className="mt-2 text-[11px] text-stone-500">{k?.openCount ?? 0} open bills</div>
+              <div className="mt-2 text-[11px] text-stone-400">{k?.openCount ?? 0} open bills</div>
             </>}
           </Card>
         </Link>
         <Link href="/payables/bills">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Overdue</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-rose-600 tracking-tight">
                 <CurrencyPills breakdown={k?.overdueByCcy ?? {}} />
               </div>
-              <div className="mt-2 text-[11px] text-stone-500">{k?.overdueCount ?? 0} overdue bills</div>
+              <div className="mt-2 text-[11px] text-stone-400">{k?.overdueCount ?? 0} overdue bills</div>
             </>}
           </Card>
         </Link>
         <Link href="/payables/bills">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">90+ Days</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(k?.over90 ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
+              <div className="mt-2 text-[11px] text-stone-400">Escalation candidates</div>
             </>}
           </Card>
         </Link>
         <Link href="/payables/approval-inbox">
           <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all h-full">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Pending Approval</div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold mb-2">Pending Approval</div>
             {loading ? <><Sk /><SkSub /></> : <>
               <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(k?.pendingApproval ?? 0, ccy)}</div>
-              <div className="mt-2 text-[11px] text-stone-500">{k?.pendingApprovalCount ?? 0} awaiting approval</div>
+              <div className="mt-2 text-[11px] text-stone-400">{k?.pendingApprovalCount ?? 0} awaiting approval</div>
             </>}
           </Card>
         </Link>
@@ -161,7 +161,7 @@ export default function PayablesDashboardPage() {
       {/* Approved to Pay band */}
       <Card padding="md" className="mb-3">
         <div className="flex items-center justify-between mb-4">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Approved to Pay</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-400 font-semibold">Approved to Pay</div>
           {!loading && (atp?.overdue.count ?? 0) > 0 && (
             <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
               <AlertTriangle size={10} /> {atp!.overdue.count} overdue
@@ -174,28 +174,28 @@ export default function PayablesDashboardPage() {
           <div className="grid grid-cols-4 gap-4 divide-x divide-stone-800">
             <div className="pr-4">
               <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Overdue</div>
-              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.overdue.amount ?? 0) > 0 ? "text-rose-400" : "text-stone-600"}`}>
+              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.overdue.amount ?? 0) > 0 ? "text-rose-400" : "text-stone-500"}`}>
                 {fmt.money(atp?.overdue.amount ?? 0, ccy)}
               </div>
-              <div className="mt-1.5 text-[11px] text-stone-500">
+              <div className="mt-1.5 text-[11px] text-stone-400">
                 {(atp?.overdue.count ?? 0) === 0 ? "None — all on track" : `${atp!.overdue.count} bill${atp!.overdue.count !== 1 ? "s" : ""} past due`}
               </div>
             </div>
             <div className="px-4">
               <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
-              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.thisWeek.amount ?? 0) > 0 ? "text-amber-400" : "text-stone-600"}`}>
+              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.thisWeek.amount ?? 0) > 0 ? "text-amber-400" : "text-stone-500"}`}>
                 {fmt.money(atp?.thisWeek.amount ?? 0, ccy)}
               </div>
-              <div className="mt-1.5 text-[11px] text-stone-500">
+              <div className="mt-1.5 text-[11px] text-stone-400">
                 {(atp?.thisWeek.count ?? 0) === 0 ? "Nothing due" : `${atp!.thisWeek.count} bill${atp!.thisWeek.count !== 1 ? "s" : ""} · due ≤7 days`}
               </div>
             </div>
             <div className="px-4">
               <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
-              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.thisMonth.amount ?? 0) > 0 ? "text-sky-400" : "text-stone-600"}`}>
+              <div className={`text-2xl font-semibold tabular-nums tracking-tight ${(atp?.thisMonth.amount ?? 0) > 0 ? "text-sky-400" : "text-stone-500"}`}>
                 {fmt.money(atp?.thisMonth.amount ?? 0, ccy)}
               </div>
-              <div className="mt-1.5 text-[11px] text-stone-500">
+              <div className="mt-1.5 text-[11px] text-stone-400">
                 {(atp?.thisMonth.count ?? 0) === 0 ? "Nothing due" : `${atp!.thisMonth.count} bill${atp!.thisMonth.count !== 1 ? "s" : ""} · due 8–30 days`}
               </div>
             </div>
@@ -204,7 +204,7 @@ export default function PayablesDashboardPage() {
               <div className="text-2xl font-semibold tabular-nums tracking-tight text-white">
                 {fmt.money(atp?.pipeline.amount ?? 0, ccy)}
               </div>
-              <div className="mt-1.5 text-[11px] text-stone-500">{atp?.pipeline.count ?? 0} approved to pay</div>
+              <div className="mt-1.5 text-[11px] text-stone-400">{atp?.pipeline.count ?? 0} approved to pay</div>
             </div>
           </div>
         )}
@@ -215,7 +215,7 @@ export default function PayablesDashboardPage() {
         <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-white">Pending Approvals</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Bills and POs awaiting your approval</p>
+            <p className="text-xs text-stone-400 mt-0.5">Bills and POs awaiting your approval</p>
           </div>
           <Link href="/payables/approval-inbox" className="text-xs text-stone-400 hover:text-white inline-flex items-center gap-1">
             Open inbox <ArrowUpRight size={12} />
@@ -226,10 +226,10 @@ export default function PayablesDashboardPage() {
         ) : (data?.approvals.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="w-10 h-10 rounded-full bg-stone-800 flex items-center justify-center mb-3">
-              <CheckCircle2 size={18} className="text-stone-500" />
+              <CheckCircle2 size={18} className="text-stone-400" />
             </div>
             <p className="text-sm font-semibold text-white mb-1">All clear</p>
-            <p className="text-xs text-stone-500">Nothing is waiting for your approval.</p>
+            <p className="text-xs text-stone-400">Nothing is waiting for your approval.</p>
           </div>
         ) : (
           <ul className="divide-y divide-stone-800">
@@ -253,7 +253,7 @@ export default function PayablesDashboardPage() {
                   </div>
                   <div className="text-right ml-4 shrink-0">
                     <div className="font-semibold text-white tabular-nums text-sm">{fmt.money(a.amount, a.currency)}</div>
-                    {a.dueDate && <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.date(a.dueDate)}</div>}
+                    {a.dueDate && <div className="text-[11px] text-stone-400 mt-0.5">Due {fmt.date(a.dueDate)}</div>}
                   </div>
                 </Link>
               </li>
@@ -269,7 +269,7 @@ export default function PayablesDashboardPage() {
           <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold text-white">Aging buckets</h2>
-              <p className="text-xs text-stone-500 mt-0.5">Outstanding balance grouped by days overdue</p>
+              <p className="text-xs text-stone-400 mt-0.5">Outstanding balance grouped by days overdue</p>
             </div>
             <Link href="/payables/reports" className="text-xs text-stone-400 hover:text-white inline-flex items-center gap-1">
               Aging report <ArrowUpRight size={12} />
@@ -302,7 +302,7 @@ export default function PayablesDashboardPage() {
         <Card padding="none">
           <div className="px-5 py-4 border-b border-stone-800">
             <h2 className="text-base font-semibold text-white">Activity (7 days)</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Recent payables actions</p>
+            <p className="text-xs text-stone-400 mt-0.5">Recent payables actions</p>
           </div>
           <div className="p-5">
             {loading ? (
@@ -312,19 +312,19 @@ export default function PayablesDashboardPage() {
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   <div className="text-center bg-stone-800/40 rounded-lg py-3">
                     <div className="text-xl font-bold text-emerald-400 tabular-nums">{data?.activity7d.billsApproved ?? 0}</div>
-                    <div className="text-[10px] text-stone-500 mt-1">Bills approved</div>
+                    <div className="text-[10px] text-stone-400 mt-1">Bills approved</div>
                   </div>
                   <div className="text-center bg-stone-800/40 rounded-lg py-3">
                     <div className="text-xl font-bold text-violet-400 tabular-nums">{data?.activity7d.posPushed ?? 0}</div>
-                    <div className="text-[10px] text-stone-500 mt-1">POs pushed</div>
+                    <div className="text-[10px] text-stone-400 mt-1">POs pushed</div>
                   </div>
                   <div className="text-center bg-stone-800/40 rounded-lg py-3">
                     <div className="text-xl font-bold text-blue-400 tabular-nums">{data?.activity7d.paymentRuns ?? 0}</div>
-                    <div className="text-[10px] text-stone-500 mt-1">Payment runs</div>
+                    <div className="text-[10px] text-stone-400 mt-1">Payment runs</div>
                   </div>
                 </div>
                 {(data?.recentActivity.length ?? 0) === 0 ? (
-                  <p className="text-xs text-stone-500 text-center py-4">No activity in the last 7 days.</p>
+                  <p className="text-xs text-stone-400 text-center py-4">No activity in the last 7 days.</p>
                 ) : (
                   <ul className="space-y-2.5">
                     {data!.recentActivity.map((item) => (
@@ -334,7 +334,7 @@ export default function PayablesDashboardPage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-[13px] text-stone-200 leading-snug">{item.description}</p>
-                          <p className="text-[11px] text-stone-500 mt-0.5">{timeAgo(item.timestamp)}</p>
+                          <p className="text-[11px] text-stone-400 mt-0.5">{timeAgo(item.timestamp)}</p>
                         </div>
                       </li>
                     ))}
