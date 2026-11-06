@@ -136,7 +136,7 @@ export const COMPOSITION_CATEGORIES: CompCategory[] = [
   },
   // ── Not yet due (emerald) — within payment terms
   {
-    key: "current", label: "Not Yet Due", bar: "bg-emerald-600", dot: "bg-emerald-600", text: "text-emerald-400",
+    key: "current", label: "Not Yet Due", bar: "bg-primary", dot: "bg-primary", text: "text-emerald-400",
     drillColor: "white", group: "current",
     description: "Within payment terms — no action needed yet.",
     match: () => true,

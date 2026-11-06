@@ -106,7 +106,7 @@ export function ReceivingConsole() {
           </button>
         )}
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Receive stock</button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Receive stock</button>
       </ListPageHeader>
       {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
@@ -483,7 +483,7 @@ function PillFooter({ saving, onClose, onSave, saveLabel = "Save", err, pendingM
       {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
       <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-4 py-2.5 rounded-full hover:bg-stone-800">Cancel</button>
       <button onClick={onSave} disabled={saving || saveDisabled}
-        className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-full px-5 py-2.5 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
+        className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-full px-5 py-2.5 hover:bg-primary-hover disabled:opacity-60 shrink-0">
         {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
       </button>
     </div>

@@ -32,9 +32,9 @@ function SchedulingLink() {
       <div className="flex items-center gap-2">
         <input value={url} onChange={e => setUrl(e.target.value)} disabled={!loaded}
           placeholder="https://calendly.com/your-name/intro"
-          className="flex-1 h-9 px-3 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 placeholder-stone-600 focus:outline-none focus:border-emerald-500" />
+          className="flex-1 h-9 px-3 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 placeholder-stone-600 focus:outline-none focus:border-primary" />
         <button onClick={save} disabled={saving || !loaded}
-          className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">
+          className="h-9 px-4 text-sm font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60 flex items-center gap-1.5">
           {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null} {saved ? "Saved" : "Save"}
         </button>
       </div>

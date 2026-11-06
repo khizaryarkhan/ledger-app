@@ -127,7 +127,7 @@ export const radius = {
 export const control =
   "w-full h-9 rounded-lg bg-stone-900 border border-stone-700/70 px-3 text-[13px] text-stone-100 " +
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
-  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 " +
+  "hover:border-stone-600 focus:border-primary focus:ring-2 focus:ring-primary/20 " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 /** Native <select> variant — hide the OS arrow (we draw our own chevron). */
 export const controlSelect = control + " appearance-none pr-9 cursor-pointer";
@@ -142,7 +142,7 @@ export const fieldLabel = "block " + t.label + " mb-1.5";
 export const controlInset =
   "w-full h-9 rounded-lg bg-stone-950 border border-stone-700/70 px-3 text-[13px] text-stone-100 " +
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
-  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 " +
+  "hover:border-stone-600 focus:border-primary focus:ring-2 focus:ring-primary/20 " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 export const controlSelectInset = controlInset + " appearance-none pr-9 cursor-pointer";
 
@@ -156,7 +156,7 @@ export const controlSelectInset = controlInset + " appearance-none pr-9 cursor-p
 export const controlMultiline =
   "w-full min-h-[76px] rounded-md bg-stone-950 border border-stone-700/70 px-3 py-2 text-[13px] text-stone-100 " +
   "placeholder:text-stone-600 outline-none resize-y transition-[border-color,box-shadow,background-color] duration-150 " +
-  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 " +
+  "hover:border-stone-600 focus:border-primary focus:ring-2 focus:ring-primary/20 " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 
 /**
@@ -168,7 +168,7 @@ export const controlMultiline =
 export const controlCompact =
   "h-8 rounded-md bg-stone-950 border border-stone-700/70 px-2.5 text-[13px] text-stone-100 " +
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
-  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
+  "hover:border-stone-600 focus:border-primary focus:ring-2 focus:ring-primary/20";
 
 /** Compact control carrying a leading icon — adds room for it. */
 export const controlCompactIcon = controlCompact + " pl-8";
@@ -177,7 +177,7 @@ export const controlCompactIcon = controlCompact + " pl-8";
 export const cell =
   "w-full h-8 rounded-md bg-transparent border border-transparent px-2 text-[13px] text-stone-100 " +
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
-  "hover:bg-stone-900/70 hover:border-stone-700/70 focus:bg-stone-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  "hover:bg-stone-900/70 hover:border-stone-700/70 focus:bg-stone-900 focus:border-primary focus:ring-2 focus:ring-primary/15";
 export const cellSelectCls = cell + " appearance-none pr-6 cursor-pointer";
 
 // A bare number as typed so far — including the empty string and a lone "-"
@@ -307,8 +307,8 @@ export function QtyUnitField({
 }) {
   const isCell = variant === "cell";
   const shell = isCell
-    ? "flex items-stretch w-full h-8 rounded-md bg-stone-950/60 border border-stone-700/60 overflow-hidden transition-[border-color,box-shadow] duration-150 hover:border-stone-600 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/15"
-    : "flex items-stretch w-full h-9 rounded-lg bg-stone-950 border border-stone-700/70 overflow-hidden transition-[border-color,box-shadow] duration-150 hover:border-stone-600 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20";
+    ? "flex items-stretch w-full h-8 rounded-md bg-stone-950/60 border border-stone-700/60 overflow-hidden transition-[border-color,box-shadow] duration-150 hover:border-stone-600 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15"
+    : "flex items-stretch w-full h-9 rounded-lg bg-stone-950 border border-stone-700/70 overflow-hidden transition-[border-color,box-shadow] duration-150 hover:border-stone-600 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20";
   const pad = isCell ? "px-2" : "px-3";
   return (
     <div className={`${shell} ${disabled ? "opacity-50" : ""}`}>
@@ -491,7 +491,7 @@ export function DrawerFooter({
       {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
       <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
       <button onClick={onSave} disabled={saving || saveDisabled}
-        className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
+        className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover disabled:opacity-60 shrink-0">
         {saving ? <Loader size={14} className="animate-spin" /> : (icon ?? <Check size={14} />)} {saveLabel}
       </button>
     </div>

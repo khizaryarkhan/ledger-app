@@ -66,7 +66,7 @@ export default function AdminInboxPage() {
         <span className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4"><Plug size={22} className="text-emerald-400" /></span>
         <h1 className="text-lg font-bold text-white">No mailbox connected</h1>
         <p className="text-[13px] text-stone-500 mt-1.5 mb-5">Connect your own <span className="text-stone-300">@primeaccountax.com</span> mailbox to send and receive email here.</p>
-        <Link href="/admin/settings/email" className="inline-flex items-center gap-2 h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">
+        <Link href="/admin/settings/email" className="inline-flex items-center gap-2 h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white">
           <Plug size={14} /> Go to Email Integration
         </Link>
       </div>
@@ -83,7 +83,7 @@ export default function AdminInboxPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => loadMessages(mailbox)} className="flex items-center gap-1.5 h-9 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><RefreshCw size={13} className={loadingMsgs ? "animate-spin" : ""} /> Refresh</button>
-          <button onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })} className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><PenSquare size={14} /> Compose</button>
+          <button onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })} className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white"><PenSquare size={14} /> Compose</button>
           <Link href="/admin/settings/email" title="Mailbox settings" className="h-9 w-9 flex items-center justify-center rounded-lg border border-stone-700 text-stone-400 hover:bg-stone-800"><SettingsIcon size={14} /></Link>
         </div>
       </div>
@@ -154,7 +154,7 @@ export default function AdminInboxPage() {
       </div>
 
       {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); setToast({ ok: true, msg: "Sent" }); }} onToast={setToast} />}
-      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
+      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-primary text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
 }
@@ -169,7 +169,7 @@ function Compose({ initial, onClose, onSent, onToast }: {
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
   const [sending, setSending] = useState(false);
-  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
 
   const send = async () => {
     if (!to.trim()) { onToast({ ok: false, msg: "Recipient required" }); return; }
@@ -191,7 +191,7 @@ function Compose({ initial, onClose, onSent, onToast }: {
       footer={
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
-          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
+          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
         </div>
       }
     >

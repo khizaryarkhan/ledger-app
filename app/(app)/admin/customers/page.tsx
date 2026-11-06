@@ -585,7 +585,7 @@ function ManualModal({ open, onClose, onSaved, existing }: {
     } finally { setSaving(false); }
   };
 
-  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
 
   return (
     <Modal open={open} onClose={onClose} title={existing ? "Edit subscription" : "Add manual subscription"}
@@ -795,7 +795,7 @@ export default function CustomersPage() {
             <FileText size={13} /> Create invoice
           </button>
           <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 h-8 px-3 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+            className="flex items-center gap-2 h-8 px-3 text-xs font-medium rounded-lg bg-primary hover:bg-primary-hover text-white transition-colors">
             <Plus size={13} /> Add manual
           </button>
         </div>

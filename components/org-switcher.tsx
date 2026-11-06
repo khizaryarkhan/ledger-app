@@ -114,7 +114,7 @@ export function OrgSwitcher() {
                 <input
                   type="text" value={query} onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search organisations…" autoFocus
-                  className="w-full text-[12px] pl-7 pr-2 py-1.5 rounded-md border border-stone-700 bg-stone-800 text-white placeholder-stone-500 focus:border-emerald-500 focus:outline-none"
+                  className="w-full text-[12px] pl-7 pr-2 py-1.5 rounded-md border border-stone-700 bg-stone-800 text-white placeholder-stone-500 focus:border-primary focus:outline-none"
                 />
               </div>
             </div>

@@ -37,7 +37,7 @@ export function MyDetails({ shell }: { shell: ReportShellKind }) {
     <div className="flex items-center gap-3">
       {msg && <span className={msg.ok ? "text-[12px] text-emerald-400" : "text-[12px] text-rose-400"}>{msg.text}</span>}
       <button onClick={save} disabled={saving || !hook.state.dirty}
-        className="h-8 inline-flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 hover:bg-emerald-700 disabled:opacity-50">
+        className="h-8 inline-flex items-center gap-1.5 text-[12px] font-semibold bg-primary text-white rounded-md px-3 hover:bg-primary-hover disabled:opacity-50">
         {saving ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Save changes
       </button>
     </div>

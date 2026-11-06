@@ -41,7 +41,7 @@ export default function ItemsPage() {
           <h1 className="text-xl font-bold text-white">Items</h1>
           <p className="text-xs text-stone-500 mt-0.5">Reusable products &amp; services to add to invoices — like a price book.</p>
         </div>
-        <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> New item</button>
+        <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white"><Plus size={14} /> New item</button>
       </div>
 
       {needsSetup && (
@@ -84,7 +84,7 @@ export default function ItemsPage() {
         <ItemModal item={editing} onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={() => { setCreating(false); setEditing(null); load(); setToast({ ok: true, msg: "Saved" }); }} onToast={setToast} />
       )}
-      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
+      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-primary text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
 }
@@ -97,7 +97,7 @@ function ItemModal({ item, onClose, onSaved, onToast }: { item: Item | null; onC
   const [taxRate, setTaxRate] = useState(item?.taxRate != null ? String(item.taxRate) : "");
   const [active, setActive] = useState(item?.active ?? true);
   const [saving, setSaving] = useState(false);
-  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   const lbl = "text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1";
 
   const save = async () => {
@@ -116,7 +116,7 @@ function ItemModal({ item, onClose, onSaved, onToast }: { item: Item | null; onC
       footer={
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
-          <button onClick={save} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {item ? "Save" : "Create item"}</button>
+          <button onClick={save} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {item ? "Save" : "Create item"}</button>
         </div>
       }
     >

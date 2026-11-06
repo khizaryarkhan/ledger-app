@@ -464,7 +464,7 @@ export default function TeamSettingsPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-[11px] text-stone-400">Email <span className="text-stone-300">{m.email}</span> a secure 1-hour reset link. They set their own password.</div>
                         <button onClick={() => resetPassword(m, "link")} disabled={pwBusy}
-                          className="shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                          className="shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-50">
                           Send reset link
                         </button>
                       </div>
@@ -474,7 +474,7 @@ export default function TeamSettingsPage() {
                         <div className="text-[11px] text-stone-400 mb-1.5">Or set a password manually (for users without working email) — share it securely and ask them to change it.</div>
                         <div className="flex items-center gap-1.5">
                           <input type="text" value={pwValue} onChange={e => setPwValue(e.target.value)} placeholder="New password (min 8 chars)"
-                            className="flex-1 text-[12px] border border-stone-700 rounded px-2.5 py-1.5 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500 font-mono" />
+                            className="flex-1 text-[12px] border border-stone-700 rounded px-2.5 py-1.5 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary font-mono" />
                           <button onClick={() => resetPassword(m, "set")} disabled={pwBusy || pwValue.trim().length < 8}
                             className="shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded ring-1 ring-stone-600 text-stone-200 hover:bg-stone-800 disabled:opacity-50">
                             Set password
@@ -544,15 +544,15 @@ export default function TeamSettingsPage() {
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })}
                 placeholder="Full name *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
               <input value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
                 placeholder="Email *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
               <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })}
                 placeholder="Password (8+ chars) *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
               <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 focus:ring-2 focus:ring-primary focus:outline-none">
                 <option value="company_user">Full Access</option>
                 <option value="company_admin">Admin</option>
                 <option value="rep">Rep / PM</option>
@@ -614,7 +614,7 @@ export default function TeamSettingsPage() {
             <input value={newRegion} onChange={e => setNewRegion(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleAddRegion()}
               placeholder="Region name"
-              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
             <Button size="sm" icon={Plus} disabled={addingRegion || !newRegion.trim()} onClick={handleAddRegion}>
               {addingRegion ? "Adding…" : "Add"}
             </Button>
@@ -658,7 +658,7 @@ export default function TeamSettingsPage() {
             <input value={newCountry} onChange={e => setNewCountry(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleAddCountry()}
               placeholder="Country name"
-              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
             <Button size="sm" icon={Plus} disabled={addingCountry || !newCountry.trim()} onClick={handleAddCountry}>
               {addingCountry ? "Adding…" : "Add"}
             </Button>

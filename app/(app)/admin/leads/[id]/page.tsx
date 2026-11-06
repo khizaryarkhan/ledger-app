@@ -178,7 +178,7 @@ export default function LeadWorkspace() {
         <div className="flex items-center gap-2 shrink-0">
           <div className="relative">
             <select value={lead.status} onChange={e => setStatus(e.target.value)} disabled={savingStatus}
-              className="appearance-none h-9 pl-3 pr-8 text-xs font-medium rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500">
+              className="appearance-none h-9 pl-3 pr-8 text-xs font-medium rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary">
               {STATUS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
@@ -224,7 +224,7 @@ export default function LeadWorkspace() {
           footer={
             <div className="flex justify-end gap-2">
               <button onClick={() => setLogKind(null)} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200">Cancel</button>
-              <button onClick={submitLog} disabled={logSaving} className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">
+              <button onClick={submitLog} disabled={logSaving} className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60">
                 {logSaving ? "Saving…" : "Save"}
               </button>
             </div>
@@ -333,7 +333,7 @@ export default function LeadWorkspace() {
           onSent={() => { setCompose(null); load(); setToast({ ok: true, msg: "Email sent" }); }} onToast={setToast} />
       )}
 
-      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
+      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-primary text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
 }
@@ -408,13 +408,13 @@ function Composer({ leadId, lead, onSent, onToast, onCompose }: any) {
     setBusy(false);
     if (r.ok) { setNote(""); onSent(); onToast({ ok: true, msg: "Note added" }); } else onToast({ ok: false, msg: "Failed" });
   };
-  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   return (
     <div className="rounded-xl border border-stone-800 bg-stone-900/40 p-3">
       <textarea className={`${inp} resize-none`} rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="Log a note about this lead…" />
       <div className="flex justify-between items-center mt-2">
         <button onClick={onCompose} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Compose email</button>
-        <button onClick={saveNote} disabled={busy || !note.trim()} className="h-8 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{busy ? <Loader size={12} className="animate-spin" /> : <Plus size={12} />} Add note</button>
+        <button onClick={saveNote} disabled={busy || !note.trim()} className="h-8 px-3.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white flex items-center gap-1.5">{busy ? <Loader size={12} className="animate-spin" /> : <Plus size={12} />} Add note</button>
       </div>
     </div>
   );
@@ -502,7 +502,7 @@ function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
   const [subject, setSubject] = useState(initial.subject || "");
   const [body, setBody] = useState(initial.body || "");
   const [sending, setSending] = useState(false);
-  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
 
   const send = async () => {
     if (!to.trim()) { onToast({ ok: false, msg: "Recipient required" }); return; }
@@ -524,7 +524,7 @@ function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
       footer={
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
-          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
+          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
         </div>
       }
     >
@@ -582,7 +582,7 @@ function DealPanel({ lead, onChange, onToast }: any) {
   };
 
   const hasDeal = isDealStage(lead.status) || lead.value != null || !!lead.expectedCloseDate;
-  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   const startEditing = () => { if (!isDealStage(lead.status)) setStage("proposal"); setEditing(true); };
 
   return (
@@ -597,7 +597,7 @@ function DealPanel({ lead, onChange, onToast }: any) {
             <select className={inp} value={currency} onChange={e => setCurrency(e.target.value)}>{["USD", "EUR", "GBP"].map(c => <option key={c}>{c}</option>)}</select>
           </div>
           <input className={inp} type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} />
-          <button onClick={save} disabled={saving} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white">{saving ? "Saving..." : "Save deal"}</button>
+          <button onClick={save} disabled={saving} className="w-full h-7 text-[11px] font-semibold rounded-md bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white">{saving ? "Saving..." : "Save deal"}</button>
         </div>
       ) : hasDeal ? (
         <div className="space-y-2 text-[12px]">
@@ -630,7 +630,7 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
     const r = await fetch(`/api/admin/leads/${leadId}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, dueDate: due || null, type, priority: prio }) });
     if (r.ok) { setTitle(""); setDue(""); setType("todo"); setPrio("normal"); setAdding(false); onChange(); onToast({ ok: true, msg: "Task added" }); } else onToast({ ok: false, msg: "Failed" });
   };
-  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   return (
     <Panel title={`Tasks${open.length ? ` (${open.length})` : ""}`} right={<button onClick={() => setAdding(a => !a)} className="text-stone-500 hover:text-emerald-400"><Plus size={14} /></button>}>
       {adding && (
@@ -645,7 +645,7 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
             </select>
           </div>
           <input className={inp} type="datetime-local" value={due} onChange={e => setDue(e.target.value)} />
-          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Add task</button>
+          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-primary hover:bg-primary-hover text-white">Add task</button>
         </div>
       )}
       {open.length === 0 ? <p className="text-[12px] text-stone-600">No open tasks.</p> : (
@@ -749,7 +749,7 @@ function ContactsPanel({ leadId, contacts, onChange, onToast }: any) {
     await fetch(`/api/admin/leads/${leadId}/contacts/${cid}`, { method: "DELETE" });
     onChange(); onToast({ ok: true, msg: "Contact removed" });
   };
-  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   return (
     <Panel title="Contacts" right={<button onClick={() => setAdding(a => !a)} className="text-stone-500 hover:text-emerald-400"><Plus size={14} /></button>}>
       {adding && (
@@ -757,7 +757,7 @@ function ContactsPanel({ leadId, contacts, onChange, onToast }: any) {
           <input className={inp} value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
           <input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
           <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder="Title / role" />
-          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Add contact</button>
+          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-primary hover:bg-primary-hover text-white">Add contact</button>
         </div>
       )}
       {contacts.length === 0 ? <p className="text-[12px] text-stone-600">No contacts.</p> : (
@@ -798,7 +798,7 @@ function SequencePanel({ leadId, active, sequences, onChange, onToast }: any) {
           <button onClick={stop} className="text-[11px] text-stone-500 hover:text-rose-400">Stop</button>
         </div>
       ) : sequences.length === 0 ? <p className="text-[12px] text-stone-600">No active sequences.</p> : (
-        <select defaultValue="" onChange={e => { apply(e.target.value); e.target.value = ""; }} className="w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-300 focus:outline-none focus:border-emerald-500">
+        <select defaultValue="" onChange={e => { apply(e.target.value); e.target.value = ""; }} className="w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-300 focus:outline-none focus:border-primary">
           <option value="">Apply sequence…</option>
           {sequences.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>

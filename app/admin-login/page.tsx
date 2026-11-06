@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
                 autoComplete="email"
                 autoFocus
                 placeholder="admin@primeaccountax.com"
-                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors"
               />
             </div>
 
@@ -83,7 +83,7 @@ export default function AdminLoginPage() {
                   type={showPw ? "text" : "password"}
                   required
                   autoComplete="current-password"
-                  className="w-full h-10 px-3 pr-10 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+                  className="w-full h-10 px-3 pr-10 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors"
                 />
                 <button
                   type="button"
@@ -105,7 +105,7 @@ export default function AdminLoginPage() {
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="6-digit code or recovery code"
-                  className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors font-mono tracking-widest"
+                  className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors font-mono tracking-widest"
                 />
               </div>
             )}
@@ -132,7 +132,7 @@ export default function AdminLoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full h-10 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 mt-2"
+              className="w-full h-10 rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 mt-2"
             >
               {loading
                 ? <><Loader2 size={14} className="animate-spin" /> Signing in…</>

@@ -164,7 +164,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
   };
 
 
-  const inputCls = "w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
+  const inputCls = "w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary";
 
   return (
     /* A drawer, not a centred dialog. This is a long form — merge choices, the
@@ -192,7 +192,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
             )}
             <button onClick={onClose} className="px-4 py-2 text-[13px] font-medium text-stone-400 hover:text-stone-200">Cancel</button>
             <button onClick={send} disabled={sending || sendable.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-[13px] font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-[13px] font-semibold rounded-lg hover:bg-primary-hover disabled:opacity-50">
               {sending && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
               <Send size={14} />
               {sending
@@ -300,7 +300,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
               <select
                 onChange={e => { if (e.target.value) applyTemplate(e.target.value); e.target.value = ""; }}
                 defaultValue=""
-                className="w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="" disabled>Select a template…</option>
                 {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -322,7 +322,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
               <div className="text-[11px] text-stone-500">{attachStatement ? (willSplit ? "A statement (each domain's invoices only) will be attached." : "The same statement PDF as Export will be attached.") : "No statement attached."}</div>
             </div>
             <button type="button" role="switch" aria-checked={attachStatement} onClick={() => setAttachStatement(v => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachStatement ? "bg-emerald-600" : "bg-stone-600"}`}>
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachStatement ? "bg-primary" : "bg-stone-600"}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachStatement ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
@@ -332,7 +332,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
               <div className="text-[11px] text-stone-500">{attachPdf ? "Each invoice PDF will be attached." : "No individual invoice PDFs attached."}</div>
             </div>
             <button type="button" role="switch" aria-checked={attachPdf} onClick={() => setAttachPdf(v => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachPdf ? "bg-emerald-600" : "bg-stone-600"}`}>
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachPdf ? "bg-primary" : "bg-stone-600"}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachPdf ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
@@ -342,7 +342,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
               <div className="text-[11px] text-stone-500">{includePortal ? "A \"View & Respond\" button will be included." : "No portal link — recipients reply by email only."}</div>
             </div>
             <button type="button" role="switch" aria-checked={includePortal} onClick={() => setIncludePortal(v => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-emerald-600" : "bg-stone-600"}`}>
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-primary" : "bg-stone-600"}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>

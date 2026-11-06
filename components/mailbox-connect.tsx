@@ -41,7 +41,7 @@ export function MailboxConnect() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t); } }, [toast]);
 
-  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   const lbl = "text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1";
   const set = (k: string, v: any) => setF(p => ({ ...p, [k]: v }));
 
@@ -94,10 +94,10 @@ export function MailboxConnect() {
         <p className="text-[11px] text-stone-600">We verify the connection before saving. Your password is encrypted at rest.</p>
         <div className="flex justify-between items-center pt-1">
           {account?.connected ? <button onClick={disconnect} className="text-[12px] text-stone-500 hover:text-rose-400">Disconnect mailbox</button> : <span />}
-          <button onClick={connect} disabled={saving} className="h-9 px-4 text-[12px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {saving ? "Verifying…" : account?.connected ? "Update" : "Connect"}</button>
+          <button onClick={connect} disabled={saving} className="h-9 px-4 text-[12px] font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {saving ? "Verifying…" : account?.connected ? "Update" : "Connect"}</button>
         </div>
       </div>
-      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-[13px] font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
+      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-[13px] font-medium shadow-xl ${toast.ok ? "bg-primary text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
 }

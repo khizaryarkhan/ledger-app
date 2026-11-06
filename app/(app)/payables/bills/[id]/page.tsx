@@ -392,7 +392,7 @@ export default function BillDetailPage() {
               <button
                 onClick={() => callAction(`/api/payables/bills/${id}/approve`)}
                 disabled={actionLoading}
-                className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-primary hover:bg-primary-hover text-white disabled:opacity-50"
               >
                 {actionLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCheck size={14} />}
                 Approve

@@ -202,7 +202,7 @@ export default function CompanySettingsPage() {
                   value={brandingForm.displayName}
                   onChange={e => setBrandingForm(p => ({ ...p, displayName: e.target.value }))}
                   placeholder={orgSettings?.name || "Company name shown in sidebar"}
-                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">Override the sidebar company name.</p>
               </div>
@@ -240,7 +240,7 @@ export default function CompanySettingsPage() {
                   value={brandingForm.logoUrl}
                   onChange={e => setBrandingForm(p => ({ ...p, logoUrl: e.target.value }))}
                   placeholder="…or paste a logo URL"
-                  className="w-full h-9 px-3 mt-2 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full h-9 px-3 mt-2 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">PNG, JPG or SVG · up to 4 MB. Used on statements and in the sidebar.</p>
               </div>
@@ -477,7 +477,7 @@ export default function CompanySettingsPage() {
                 role="switch"
                 aria-checked={showPaymentHistory}
                 onClick={() => setShowPaymentHistory(v => !v)}
-                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-stone-900 ${showPaymentHistory ? "bg-emerald-600" : "bg-stone-700"}`}
+                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-stone-900 ${showPaymentHistory ? "bg-primary" : "bg-stone-700"}`}
               >
                 <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${showPaymentHistory ? "translate-x-4" : ""}`} />
               </button>
@@ -496,7 +496,7 @@ export default function CompanySettingsPage() {
                 role="switch"
                 aria-checked={payLinksEnabled}
                 onClick={() => setPayLinksEnabled(v => !v)}
-                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-stone-900 ${payLinksEnabled ? "bg-emerald-600" : "bg-stone-700"}`}
+                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-stone-900 ${payLinksEnabled ? "bg-primary" : "bg-stone-700"}`}
               >
                 <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${payLinksEnabled ? "translate-x-4" : ""}`} />
               </button>

@@ -158,18 +158,18 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
               <div>
                 <label className="text-[11px] font-medium text-stone-400">Outcome</label>
                 <select value={outcome} onChange={e => setOutcome(e.target.value)}
-                  className="w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white outline-none focus:border-emerald-500">
+                  className="w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white outline-none focus:border-primary">
                   {DISPUTE_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
             )}
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
               placeholder={action!.mode === "resolve" ? "Resolution note (optional)" : "Reason for rejecting (optional)"}
-              className="w-full text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white placeholder-stone-500 outline-none focus:border-emerald-500 resize-none" />
+              className="w-full text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white placeholder-stone-500 outline-none focus:border-primary resize-none" />
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setAction(null)} className="px-3 py-1.5 text-[12px] font-medium text-stone-400 hover:text-white">Cancel</button>
               <button onClick={submitAction} disabled={busy === d.id}
-                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-700 hover:bg-stone-800"}`}>
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-primary hover:bg-primary-hover" : "bg-stone-700 hover:bg-stone-800"}`}>
                 {busy === d.id ? "Saving…" : action!.mode === "resolve" ? "Confirm resolve" : "Confirm reject"}
               </button>
             </div>

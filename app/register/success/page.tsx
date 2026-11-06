@@ -167,7 +167,7 @@ function SuccessPageInner() {
               </div>
 
               <Link href="/register"
-                className="block w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center">
+                className="block w-full h-10 bg-primary hover:bg-primary-hover text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center">
                 Try again
               </Link>
               <Link href="/login"

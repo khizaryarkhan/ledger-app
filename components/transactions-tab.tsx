@@ -201,7 +201,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Type</label>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
+              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:outline-none">
               {typeFiltersFor(scope).map(f => {
                 const n = f.id === "all" ? (counts.total ?? 0) : (counts[f.id] ?? 0);
                 if (scope === "project" && f.id === "Refund Receipt") return null;
@@ -212,7 +212,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Date</label>
             <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
+              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:outline-none">
               {DATE_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
@@ -221,7 +221,7 @@ export function TransactionsTab({
           {hasSelection && onSendSelected && (
             <button
               onClick={() => onSendSelected(selectedIds)}
-              className="flex items-center gap-2 h-8 px-3 text-[13px] font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+              className="flex items-center gap-2 h-8 px-3 text-[13px] font-medium rounded-md bg-primary hover:bg-primary-hover text-white transition-colors"
             >
               <Send size={13} />
               Send {selectedIds.length} invoice{selectedIds.length !== 1 ? "s" : ""}

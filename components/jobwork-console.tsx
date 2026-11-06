@@ -109,7 +109,7 @@ export function JobWorkConsole() {
     <ListPage>
       <ListPageHeader title="Job Work" subtitle="Send your own material to a vendor for external processing (knitting, dyeing, ...) and receive it back transformed — still owned throughout, no purchase or sale. A dispatch can come back across several partial receipts; close the order once no more are expected to recognize any wastage.">
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={orders === null ? "animate-spin" : ""} /></button>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Send to job worker</button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Send to job worker</button>
       </ListPageHeader>
       {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
@@ -205,7 +205,7 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
           ) : (
             <>
               <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
                 {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Dispatch
               </button>
             </>
@@ -310,7 +310,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
       footer={
         <div className="flex items-center justify-end gap-2">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Post receipt
           </button>
         </div>
@@ -401,7 +401,7 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
       footer={
         <>
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader size={14} className="animate-spin" /> : <PackageCheck size={15} />} Close order
           </button>
         </>

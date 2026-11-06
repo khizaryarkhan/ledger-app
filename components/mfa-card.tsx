@@ -112,7 +112,7 @@ export function MfaCard() {
           <div className="flex items-center gap-2">
             <input value={disarmCode} onChange={(e) => setDisarmCode(e.target.value)}
               placeholder="Code to disable"
-              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
             <Button variant="ghost" onClick={disable} disabled={disarming || !disarmCode}>
               {disarming ? <Loader2 size={14} className="animate-spin" /> : "Disable"}
             </Button>
@@ -132,7 +132,7 @@ export function MfaCard() {
           <div className="flex items-center gap-2">
             <input value={code} onChange={(e) => setCode(e.target.value)}
               inputMode="numeric" placeholder="6-digit code"
-              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none" />
             <Button onClick={confirmEnable} disabled={busy || code.length < 6}>
               {busy ? <Loader2 size={14} className="animate-spin" /> : "Verify & enable"}
             </Button>

@@ -27,7 +27,7 @@ function SectionCard({ n, title, empty, children }: { n: number; title: string; 
   return (
     <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-stone-800 flex items-center gap-2">
-        <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{n}</span>
+        <span className="w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{n}</span>
         <span className="text-[12.5px] font-semibold text-stone-200">{title}</span>
       </div>
       {empty ? <p className="px-4 py-6 text-[12.5px] text-stone-500 italic">{empty}</p> : <div className="overflow-x-auto">{children}</div>}

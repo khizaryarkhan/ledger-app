@@ -140,7 +140,7 @@ export default function ProjectDetailPage() {
                 value={project.repId ?? ""}
                 onChange={e => handleRepChange(e.target.value)}
                 disabled={repSaving}
-                className="h-7 px-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+                className="h-7 px-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:outline-none disabled:opacity-50"
               >
                 <option value="">— Assign Rep / ED/RM —</option>
                 {regularReps.length > 0 && (

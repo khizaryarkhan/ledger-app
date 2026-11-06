@@ -1690,7 +1690,7 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div>
               <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Emails sent</span><span className="text-lg font-semibold text-white">{stats.emailsSent}</span></div>
-              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-600 rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
+              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-primary rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
             </div>
             <div>
               <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Replies received</span><span className="text-lg font-semibold text-white">{stats.replies}</span></div>

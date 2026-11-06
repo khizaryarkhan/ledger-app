@@ -36,7 +36,7 @@ export function ModuleGate({ children }: { children: React.ReactNode }) {
         </p>
         {elsewhere && (
           <Link href={MODULE_HOME[elsewhere]}
-            className="inline-block mt-5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-semibold transition-colors">
+            className="inline-block mt-5 px-3 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold transition-colors">
             Go to {MODULES[elsewhere].label}
           </Link>
         )}

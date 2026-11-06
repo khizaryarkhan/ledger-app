@@ -326,7 +326,7 @@ export function ManageStagesDrawer({ stages, onClose, onChanged }: { stages: PoS
               {COLOR_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
             </SelectField></div>
             <button disabled={busy || !label.trim()} onClick={async () => { if (await run("POST", { label, color })) setLabel(""); }}
-              className="inline-flex h-9 items-center gap-1 rounded-lg bg-emerald-600 px-3 text-[13px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"><Plus size={14} /> Add</button>
+              className="inline-flex h-9 items-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-semibold text-white hover:bg-primary-hover disabled:opacity-50"><Plus size={14} /> Add</button>
           </div>
         </section>
       </div>

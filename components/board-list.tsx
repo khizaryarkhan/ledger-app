@@ -1200,7 +1200,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }
 
   const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap";
-  const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500";
+  const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-primary";
 
   const showRegion   = !hiddenCols.has("region");
   const showRep      = !hiddenCols.has("rep");
@@ -1302,7 +1302,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <div className="flex-1" />
             <button
               onClick={() => { setBatchPanel(p => p === "stage" ? null : "stage"); if (!escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-emerald-600 text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
+              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-primary text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
               <Pencil size={13} /> Change Stage
             </button>
             <button
@@ -1376,7 +1376,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               <button
                 disabled={!batchStageVal || batchBusy || (batchStageVal === "Escalated" && !!batchEscTarget && !batchEscType) || (batchStageVal === "Committed" && !batchCommitDate)}
                 onClick={runBatchStage}
-                className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-emerald-700">
+                className="flex items-center gap-1.5 text-[12px] font-semibold bg-primary text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-primary-hover">
                 {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</> : <><Check size={13} /> Apply</>}
               </button>
               <button onClick={() => setBatchPanel(null)} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
@@ -1808,7 +1808,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </div>
               </div>
               <button role="switch" aria-checked={notifyPortal} onClick={() => setNotifyPortal(v => !v)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${notifyPortal ? "bg-emerald-600" : "bg-stone-600"}`}>
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${notifyPortal ? "bg-primary" : "bg-stone-600"}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifyPortal ? "translate-x-6" : "translate-x-1"}`} />
               </button>
             </div>
@@ -2586,7 +2586,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   setSelectedEscType("");
                                   setEscNoteVal("");
                                 }}
-                                className="text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                                className="text-[11px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
                               >
                                 Confirm
                               </button>
@@ -2600,7 +2600,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               autoFocus
                               value={commitDateVal}
                               onChange={e => setCommitDateVal(e.target.value)}
-                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-primary"
                             />
                             <button
                               disabled={!commitDateVal || busyId === inv.id}
@@ -2612,7 +2612,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                 setPendingCommit(null);
                                 setCommitDateVal("");
                               }}
-                              className="shrink-0 text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                              className="shrink-0 text-[11px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
                             >
                               Confirm
                             </button>
@@ -2924,9 +2924,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="flex items-center gap-1.5">
                               <input value={noteText} onChange={e => setNoteText(e.target.value)}
                                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
-                                placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
+                                placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary" />
                               <button onClick={() => addNote(sortedRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
-                                className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
+                                className="text-[11px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
                             </div>
 
                             {/* Log Chase — record a touchpoint made outside the app */}

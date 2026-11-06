@@ -119,7 +119,7 @@ export default function RolesPage() {
             </p>
           </div>
           <button onClick={openNew} disabled={loading || !!loadErr}
-            className="h-8 inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-md px-3 hover:bg-emerald-700 disabled:opacity-60">
+            className="h-8 inline-flex items-center gap-1.5 text-xs font-semibold bg-primary text-white rounded-md px-3 hover:bg-primary-hover disabled:opacity-60">
             <Plus size={13} /> New role
           </button>
         </div>

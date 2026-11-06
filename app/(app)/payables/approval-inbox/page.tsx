@@ -119,7 +119,7 @@ function ConfirmModal({ open, action, item, onClose, onConfirm }: ConfirmModalPr
             disabled={loading}
             className={`inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md transition-colors disabled:opacity-50 ${
               isApprove
-                ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                ? "bg-primary hover:bg-primary-hover text-white"
                 : "bg-rose-600 hover:bg-rose-500 text-white"
             }`}
           >

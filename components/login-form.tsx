@@ -63,7 +63,7 @@ export function LoginForm({ brandName, brandLogo, next = "/dashboard" }: { brand
             <div>
               <label className="text-xs font-medium text-stone-400 block mb-1.5">Email</label>
               <input ref={emailRef} type="email" required autoComplete="email"
-                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -73,14 +73,14 @@ export function LoginForm({ brandName, brandLogo, next = "/dashboard" }: { brand
                 </Link>
               </div>
               <input ref={passwordRef} type="password" required autoComplete="current-password"
-                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+                className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
             </div>
             {showMfa ? (
               <div>
                 <label className="text-xs font-medium text-stone-400 block mb-1.5">Authentication code</label>
                 <input ref={mfaRef} type="text" inputMode="numeric" autoComplete="one-time-code"
                   placeholder="6-digit code or recovery code"
-                  className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+                  className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
               </div>
             ) : (
               <button type="button" onClick={() => setShowMfa(true)}

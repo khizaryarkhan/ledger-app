@@ -60,7 +60,7 @@ export function TimesheetsConsole() {
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={entries === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowPost(true)} className="text-[13px] font-semibold bg-stone-800 text-stone-200 rounded-lg px-3.5 py-2 hover:bg-stone-700">Post timesheets…</button>
-          <button onClick={() => setShowLog(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Log time</button>
+          <button onClick={() => setShowLog(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Log time</button>
         </div>
       </div>
 

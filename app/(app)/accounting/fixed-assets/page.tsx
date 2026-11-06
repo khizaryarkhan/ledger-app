@@ -66,7 +66,7 @@ export default function FixedAssetsPage() {
           <Play size={13} /> Run depreciation
         </button>
         <button onClick={() => setDrawer("new")}
-          className="h-8 px-3 rounded-md text-[12px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5">
+          className="h-8 px-3 rounded-md text-[12px] font-semibold bg-primary text-white hover:bg-primary-hover flex items-center gap-1.5">
           <Plus size={13} /> New asset
         </button>
       </ListPageHeader>

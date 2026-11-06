@@ -88,7 +88,7 @@ export function CreateMenu() {
   return (
     <div className="relative" onMouseEnter={openNow} onMouseLeave={closeSoon}>
       <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-semibold transition-colors">
+        className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold transition-colors">
         <Plus size={15} /> Create <ChevronDown size={12} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (

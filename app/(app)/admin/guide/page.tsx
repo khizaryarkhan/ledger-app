@@ -15,7 +15,7 @@ type Key = "customer" | "admin";
 const slug = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section";
 
-const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 placeholder-stone-600 focus:outline-none focus:border-emerald-500";
+const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 placeholder-stone-600 focus:outline-none focus:border-primary";
 const lbl = "text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1";
 
 const BLOCK_TYPES: { type: GuideBlock["type"]; label: string }[] = [
@@ -129,7 +129,7 @@ export default function AdminGuideEditor() {
             <RotateCcw size={14} /> Reset to default
           </button>
           <button onClick={save} disabled={saving}
-            className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white transition-colors">
+            className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 text-white transition-colors">
             {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} Save
           </button>
         </div>
@@ -235,7 +235,7 @@ export default function AdminGuideEditor() {
 
       {toast && (
         <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${
-          toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
+          toast.ok ? "bg-primary text-white" : "bg-rose-600 text-white"}`}>
           {toast.msg}
         </div>
       )}

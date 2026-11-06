@@ -49,7 +49,7 @@ export function ResourceBoard() {
           <span className="text-[12px] text-stone-400 tabular-nums">{from} – {to}</span>
           <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500"><ChevronRight size={15} /></button>
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New assignment</button>
+          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> New assignment</button>
         </div>
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Who and what is booked this week, against which Project or production order.</p>

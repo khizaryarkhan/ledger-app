@@ -314,7 +314,7 @@ function ChatWidget() {
                 )}
                 <div className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                   m.role === "user"
-                    ? "bg-emerald-600 text-white rounded-br-sm"
+                    ? "bg-primary text-white rounded-br-sm"
                     : "bg-stone-800 text-stone-200 rounded-bl-sm"
                 }`}>
                   {m.content}

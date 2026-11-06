@@ -90,7 +90,7 @@ export function MoConsole() {
             className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40">
             <PlayCircle size={14} /> Process MO{readyToProcess ? ` (${readyToProcess})` : ""}
           </button>
-          <button onClick={() => setShowSchedule(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Schedule MO</button>
+          <button onClick={() => setShowSchedule(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Schedule MO</button>
         </div>
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Plan and monitor manufacturing orders. Nothing posts until an order is completed: start it, allocate the lots it uses, then complete it to consume them and produce the output.</p>
@@ -464,18 +464,18 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
       </div>
       <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3 flex items-center justify-end gap-2">
         {mo.status === "Scheduled" && (
-          <button onClick={() => transition("Released", "Released for production.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+          <button onClick={() => transition("Released", "Released for production.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover disabled:opacity-50">
             {busy ? <Loader size={14} className="animate-spin" /> : <ChevronRight size={14} />} Release for production
           </button>
         )}
         {mo.status === "Released" && (
-          <button onClick={() => transition("InProgress", "Production started.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+          <button onClick={() => transition("InProgress", "Production started.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover disabled:opacity-50">
             {busy ? <Loader size={14} className="animate-spin" /> : <PlayCircle size={14} />} Start production
           </button>
         )}
         {mo.status === "InProgress" && (
           <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
-            className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+            className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover disabled:opacity-50">
             <Check size={14} /> Complete production →
           </button>
         )}
@@ -659,7 +659,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
         ))}
         {mo.status === "InProgress" && (
           <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
-            className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+            className="flex items-center gap-1.5 text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50">
             {busy ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Complete…
           </button>
         )}
@@ -1129,7 +1129,7 @@ function OutputPicker({ d, o, value, onBack, onSave }: {
       <div className="flex items-center justify-end gap-2 pt-1">
         {value != null && <button onClick={() => onSave(null)} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Clear</button>}
         <button onClick={() => onSave(Number(packs.toFixed(6)))} disabled={!(Number(v) >= 0) || v === ""}
-          className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+          className="text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50">
           Save {qtyFmt(packs)} {unitWord}
         </button>
       </div>
@@ -1324,13 +1324,13 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
                 title="Reserve these lots for the order. Nothing posts."
                 className={onSaveAndRun
                   ? "text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50"
-                  : "text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50"}>
+                  : "text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50"}>
                 {saving ? "Saving…" : "Save for later"}
               </button>
               {onSaveAndRun && (
                 <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSaveAndRun(picks); setSaving(false); }}
                   title="Save, then record a completion run that consumes these lots. The order stays open unless every output is done."
-                  className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+                  className="text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50">
                   {saving ? "Saving…" : "Save & complete a run →"}
                 </button>
               )}

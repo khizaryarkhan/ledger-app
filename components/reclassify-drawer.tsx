@@ -72,7 +72,7 @@ export function ReclassifyDrawer({ entityType, ids, onClose }: {
             {entityType === "project" ? "Change Rep / ED/RM to" : "Change Rep to"}
           </label>
           <select value={repId} onChange={e => setRepId(e.target.value)}
-            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
+            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-primary focus:outline-none">
             <option value="">— No change —</option>
             <option value="null">Unassign{entityType === "customer" ? " rep" : ""}</option>
             {entityType === "project" ? (
@@ -88,7 +88,7 @@ export function ReclassifyDrawer({ entityType, ids, onClose }: {
         <div>
           <label className={`${t.label} block mb-1`}>Change Region to</label>
           <select value={regionId} onChange={e => setRegionId(e.target.value)}
-            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
+            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-primary focus:outline-none">
             <option value="">— No change —</option>
             <option value="null">Unassign region</option>
             {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -97,7 +97,7 @@ export function ReclassifyDrawer({ entityType, ids, onClose }: {
         <div>
           <label className={`${t.label} block mb-1`}>Change Country to</label>
           <select value={countryId} onChange={e => setCountryId(e.target.value)}
-            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
+            className="w-full h-9 px-3 text-[13px] rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-primary focus:outline-none">
             <option value="">— No change —</option>
             <option value="null">Unassign country</option>
             {(countries ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}

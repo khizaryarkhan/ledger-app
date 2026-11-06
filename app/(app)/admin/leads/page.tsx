@@ -121,7 +121,7 @@ function TemplateForm({
         <div className="col-span-2">
           <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Template name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Initial follow-up"
-            className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+            className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
         </div>
         <div>
           <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
@@ -129,7 +129,7 @@ function TemplateForm({
             <span className="ml-1.5 text-stone-600 normal-case tracking-normal font-normal">auto-selected in batch email</span>
           </label>
           <select value={stage} onChange={e => setStage(e.target.value)}
-            className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
+            className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-primary focus:outline-none">
             <option value="">Any stage</option>
             {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
@@ -138,7 +138,7 @@ function TemplateForm({
       <div>
         <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
         <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Prime Accountax — Following up"
-          className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+          className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
       </div>
       <div>
         <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
@@ -149,7 +149,7 @@ function TemplateForm({
         </label>
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={8}
           placeholder={"Hi {{firstName}},\n\nThank you for your interest in Prime Accountax.\n\n"}
-          className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-emerald-500 focus:outline-none leading-relaxed" />
+          className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-primary focus:outline-none leading-relaxed" />
       </div>
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel}
@@ -157,7 +157,7 @@ function TemplateForm({
           Cancel
         </button>
         <button onClick={() => onSave({ name, subject, body, stage: stage || undefined })} disabled={!canSave}
-          className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+          className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
           {saving && <Loader size={11} className="animate-spin" />}
           {initial ? "Save changes" : "Create template"}
         </button>
@@ -582,7 +582,7 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">Cancel</button>
           <button onClick={handleSubmit} disabled={!canSubmit}
-            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
             {saving && <Loader size={11} className="animate-spin" />}
             Add lead
           </button>
@@ -595,38 +595,38 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Full name <span className="text-rose-400">*</span></label>
               <input value={form.fullName} onChange={e => set("fullName", e.target.value)} placeholder="Jane Smith"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Email <span className="text-rose-400">*</span></label>
               <input type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="jane@company.com"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Company</label>
               <input value={form.companyName} onChange={e => set("companyName", e.target.value)} placeholder="Acme Ltd"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Phone</label>
               <input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+353 1 234 5678"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Country</label>
               <input value={form.country} onChange={e => set("country", e.target.value)} placeholder="Ireland"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Interested in</label>
               <input value={form.interestedService} onChange={e => set("interestedService", e.target.value)} placeholder="AR Automation"
-                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-primary focus:outline-none" />
             </div>
           </div>
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Notes / Message</label>
             <textarea value={form.message} onChange={e => set("message", e.target.value)} rows={2} placeholder="Context about this lead…"
-              className="w-full px-3 py-2 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-emerald-500 focus:outline-none" />
+              className="w-full px-3 py-2 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-primary focus:outline-none" />
           </div>
         </div>
     </Drawer>
@@ -724,7 +724,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
           </button>
           {step === "preview" && (
             <button onClick={confirmImport}
-              className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center gap-1.5">
+              className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white transition-colors flex items-center gap-1.5">
               <Upload size={11} /> Import {preview.length} leads
             </button>
           )}
@@ -1746,12 +1746,12 @@ function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: 
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); add(); } }}
             placeholder="Write a note…"
-            className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500"
+            className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary"
           />
           <button
             onClick={add}
             disabled={saving || !text.trim()}
-            className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors flex items-center"
+            className="text-[11px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors flex items-center"
           >
             {saving ? <Loader size={11} className="animate-spin" /> : "Add"}
           </button>
@@ -1792,7 +1792,7 @@ function LeadModal({ lead, onClose, onSave, onEmail }: any) {
           <div className="flex-1" />
           <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">Close</button>
           <button onClick={handleSave} disabled={saving}
-            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
             {saving && <Loader size={11} className="animate-spin" />}
             Save changes
           </button>
@@ -1835,7 +1835,7 @@ function LeadModal({ lead, onClose, onSave, onEmail }: any) {
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
             <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
-              className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
+              className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-primary focus:outline-none">
               {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
             </select>
           </div>
@@ -2047,7 +2047,7 @@ export default function LeadsPage() {
             Seed defaults
           </button>
           <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white transition-colors">
             <Plus size={13} /> Add lead
           </button>
         </div>
@@ -2079,7 +2079,7 @@ export default function LeadsPage() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search name, email, company…"
-            className="w-full h-8 pl-8 pr-3 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-500 focus:outline-none focus:border-emerald-500"
+            className="w-full h-8 pl-8 pr-3 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-500 focus:outline-none focus:border-primary"
           />
           {search && (
             <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
@@ -2088,7 +2088,7 @@ export default function LeadsPage() {
           )}
         </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="h-8 px-2.5 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 focus:outline-none focus:border-emerald-500">
+          className="h-8 px-2.5 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 focus:outline-none focus:border-primary">
           <option value="all">All statuses</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
         </select>
@@ -2203,7 +2203,7 @@ export default function LeadsPage() {
                       <span className="text-[11px] text-stone-600">—</span>
                     ) : (
                       <select defaultValue="" onChange={e => { applySequence(l.id, e.target.value); e.target.value = ""; }}
-                        className="h-7 px-1.5 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-400 hover:text-stone-200 focus:outline-none focus:border-emerald-500 max-w-[140px]">
+                        className="h-7 px-1.5 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-400 hover:text-stone-200 focus:outline-none focus:border-primary max-w-[140px]">
                         <option value="">Apply sequence…</option>
                         {sequences.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>

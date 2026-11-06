@@ -148,7 +148,7 @@ export function ApprovalsConsole() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="tabular-nums text-stone-200 font-medium">{money(Number(r.amount))}</span>
-                <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="inline-flex items-center gap-1 text-[12.5px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 disabled:opacity-50"><Check size={13} /> Approve</button>
+                <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="inline-flex items-center gap-1 text-[12.5px] font-medium bg-primary hover:bg-primary-hover text-white rounded-lg px-3 py-1.5 disabled:opacity-50"><Check size={13} /> Approve</button>
                 <button onClick={() => setRejecting(rejecting === r.id ? null : r.id)} disabled={busyId === r.id} className="inline-flex items-center gap-1 text-[12.5px] font-medium bg-stone-800 hover:bg-stone-700 text-rose-400 rounded-lg px-3 py-1.5 disabled:opacity-50"><X size={13} /> Reject</button>
               </div>
             </div>

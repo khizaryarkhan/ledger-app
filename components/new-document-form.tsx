@@ -1064,7 +1064,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
             {" "}for <span className="text-stone-200 font-medium">{money(totals.total)}</span> {currency || home}
           </p>
           <div className="flex items-center justify-center gap-3 mt-6">
-            <button onClick={reset} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium">New {cfg.title.toLowerCase()}</button>
+            <button onClick={reset} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium">New {cfg.title.toLowerCase()}</button>
             <Link href={cfg.trade ? `/accounting/trade/${cfg.trade}` : "/accounting/journal"} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px]">{cfg.trade ? `View ${cfg.title.toLowerCase()}s` : "View in ledger"}</Link>
           </div>
         </div>
@@ -2090,7 +2090,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                     <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 text-[12.5px] hover:bg-stone-900/60 cursor-pointer">
                       <input type="checkbox" checked={checked}
                         onChange={() => setSweptPaymentIds(ids => checked ? ids.filter(x => x !== p.id) : [...ids, p.id])}
-                        className="rounded border-stone-700 bg-stone-800 text-emerald-500 focus:ring-emerald-500/40" />
+                        className="rounded border-stone-700 bg-stone-800 text-emerald-500 focus:ring-primary/40" />
                       <span className="text-stone-300 font-medium">{p.docNumber}</span>
                       <span className="text-stone-600">{p.date}</span>
                       {p.party && <span className="text-stone-500">{p.party}</span>}
@@ -2182,7 +2182,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
               ) : (
                 <>
                   <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-                  <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+                  <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
                     {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
                   </button>
                 </>

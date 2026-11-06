@@ -223,7 +223,7 @@ function AgencyForm({ accounts, onClose, onSaved, toast }: { accounts: Acct[]; o
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-200">Cancel</button>
-        <button onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50">Save</button>
+        <button onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg disabled:opacity-50">Save</button>
       </div>
     </div>
   );
@@ -287,7 +287,7 @@ function ComponentForm({ agencies, accounts, onClose, onSaved, toast }: { agenci
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-200">Cancel</button>
-        <button onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50">Save</button>
+        <button onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg disabled:opacity-50">Save</button>
       </div>
     </div>
   );

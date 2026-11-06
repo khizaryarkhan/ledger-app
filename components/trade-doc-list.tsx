@@ -269,7 +269,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh">
           <RefreshCw size={15} className={rows === null ? "animate-spin" : ""} />
         </button>
-        <Link href={`/accounting/new/${meta.newType}`} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
+        <Link href={`/accounting/new/${meta.newType}`} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover">
           <Plus size={14} /> New {meta.singular}
         </Link>
       </ListPageHeader>
@@ -378,7 +378,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                           <button onClick={() => setConfirming(r)} className="text-[11px] font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1" title="Commitment & promised dates"><CalendarCheck size={12} /> Confirm</button>
                         )}
                         {isPo && stageKeyOf(r) === "Created" && (
-                          <button onClick={() => setSending([r.id])} className="text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1 inline-flex items-center gap-1"><Send size={11} /> Send to supplier</button>
+                          <button onClick={() => setSending([r.id])} className="text-[11px] font-semibold bg-primary hover:bg-primary-hover text-white rounded px-2 py-1 inline-flex items-center gap-1"><Send size={11} /> Send to supplier</button>
                         )}
                         {isPo && stageKeyOf(r) === "Sent" && (
                           <button onClick={() => setSending([r.id])} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Email it again"><Send size={11} /> Resend</button>
@@ -511,7 +511,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
           <div className="text-[13px] text-stone-300">This {meta.convertTo}: <span className="font-semibold text-white tabular-nums">{money(total)}</span> <span className="text-stone-600 text-[11px]">(before tax)</span></div>
           <div className="flex items-center gap-3">
             <button onClick={onClose} className="text-[13px] text-stone-500 hover:text-stone-300">Cancel</button>
-            <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+            <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
               {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Create {meta.convertTo}
             </button>
           </div>

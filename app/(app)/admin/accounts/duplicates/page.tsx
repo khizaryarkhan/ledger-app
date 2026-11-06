@@ -68,7 +68,7 @@ export default function DuplicatesPage() {
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
                 <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">{g.accounts.length} possible duplicates</span>
                 <button onClick={() => merge(gi)} disabled={busy === gi}
-                  className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">
+                  className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60">
                   {busy === gi ? <Loader size={13} className="animate-spin" /> : <GitMerge size={13} />} Merge
                 </button>
               </div>

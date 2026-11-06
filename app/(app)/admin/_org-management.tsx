@@ -423,7 +423,7 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
             <div>
               <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Status</label>
               <select value={orgStatus} onChange={(e: any) => setOrgStatus(e.target.value)}
-                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
+                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-primary focus:outline-none bg-stone-800 text-stone-300">
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
               </select>
@@ -535,7 +535,7 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
                 )}
                 <div className="flex items-center gap-2">
                   <select value={addForm.role} onChange={(e: any) => setAdd("role", e.target.value)}
-                    className="flex-1 h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
+                    className="flex-1 h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-primary focus:outline-none bg-stone-800 text-stone-300">
                     <option value="company_admin">Company Admin</option>
                     <option value="company_user">User</option>
                   </select>
@@ -580,7 +580,7 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
                         <div>
                           <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
                           <select value={editForm.role} onChange={(e: any) => setEditForm(p => ({ ...p, role: e.target.value }))}
-                            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
+                            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-primary focus:outline-none bg-stone-800 text-stone-300">
                             <option value="company_user">User</option>
                             <option value="company_admin">Company Admin</option>
                           </select>

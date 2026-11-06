@@ -308,7 +308,7 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
             <button
               onClick={() => onDownload(inv)}
               disabled={downloading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-medium active:bg-emerald-700 disabled:opacity-50 transition-colors">
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-white text-sm font-medium active:bg-emerald-700 disabled:opacity-50 transition-colors">
               {downloading
                 ? <><Loader size={14} className="animate-spin" /> Preparing PDF…</>
                 : <><Download size={14} /> Download Invoice PDF</>}
@@ -332,15 +332,15 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
                 <div className="mt-2 space-y-2 rounded-lg ring-1 ring-sky-800 bg-sky-950/30 p-3">
                   <div className="text-[11px] font-semibold text-sky-300">Customer promised to pay…</div>
                   <input type="date" value={pDate} min={todayStr} onChange={e => setPDate(e.target.value)}
-                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary bg-stone-800 text-stone-200" />
                   <input type="number" placeholder="Amount (leave blank = full balance)" value={pAmount} onChange={e => setPAmount(e.target.value)}
-                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary bg-stone-800 text-stone-200 placeholder-stone-600" />
                   <input type="text" placeholder="Note (e.g. spoke to John)" value={pNote} onChange={e => setPNote(e.target.value)}
-                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary bg-stone-800 text-stone-200 placeholder-stone-600" />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400">Cancel</button>
                     <button onClick={submitPromise} disabled={!pDate || saving}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white disabled:opacity-50">
+                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-white disabled:opacity-50">
                       {saving ? "Saving…" : "Save promise"}
                     </button>
                   </div>
@@ -351,11 +351,11 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
                 <div className="mt-2 space-y-2 rounded-lg ring-1 ring-rose-800 bg-rose-950/30 p-3">
                   <div className="text-[11px] font-semibold text-rose-300">Customer raised a query…</div>
                   <select value={dCat} onChange={e => setDCat(e.target.value)}
-                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200">
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary bg-stone-800 text-stone-200">
                     {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <textarea rows={2} placeholder="What's the issue?" value={dReason} onChange={e => setDReason(e.target.value)}
-                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary bg-stone-800 text-stone-200 placeholder-stone-600 resize-none" />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400">Cancel</button>
                     <button onClick={submitDispute} disabled={saving}
@@ -727,7 +727,7 @@ export default function RepPortalPage() {
             <ChevronLeft size={20} />
           </button>
         ) : (
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 select-none leading-tight text-center">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 select-none leading-tight text-center">
             PA
           </div>
         )}
@@ -888,7 +888,7 @@ export default function RepPortalPage() {
                   value={homeSearch}
                   onChange={e => setHomeSearch(e.target.value)}
                   placeholder={`Search ${viewMode === "customer" ? "customers" : "projects"}…`}
-                  className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder:text-stone-500 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder:text-stone-500 focus:ring-2 focus:ring-primary focus:outline-none"
                 />
                 {homeSearch && (
                   <button onClick={() => setHomeSearch("")}

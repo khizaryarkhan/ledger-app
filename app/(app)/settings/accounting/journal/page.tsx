@@ -241,7 +241,7 @@ export default function JournalPage() {
   // Balance report table stays hand-rolled (it's a fixed, unfilterable
   // account-order report, not a funnel-filter list) but reads consistently.
   const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-left";
-  const inputCls = "w-full text-[12px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
+  const inputCls = "w-full text-[12px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary";
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
@@ -257,7 +257,7 @@ export default function JournalPage() {
           <div className="flex items-center gap-2">
             <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
             <button onClick={() => { setErrMsg(""); setShowNew(true); }}
-              className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 transition-colors">
+              className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover transition-colors">
               <Plus size={14} /> New journal entry
             </button>
           </div>
@@ -423,7 +423,7 @@ export default function JournalPage() {
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setShowNew(false)} disabled={posting} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
               <button onClick={post} disabled={posting || !canPost}
-                className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                className="text-[13px] font-semibold bg-primary text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-primary-hover transition-colors">
                 {posting ? "Posting…" : "Post entry"}
               </button>
             </div>

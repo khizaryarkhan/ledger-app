@@ -124,7 +124,7 @@ function ReviewModal({ request, onClose, onDecide }: any) {
             onChange={e => setNotes(e.target.value)}
             rows={2}
             maxLength={500}
-            className="w-full px-3 py-2 rounded-md border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-full px-3 py-2 rounded-md border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 resize-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Optional note for audit trail…"
           />
         </div>

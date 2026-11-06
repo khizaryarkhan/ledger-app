@@ -287,7 +287,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                     placeholder="e.g. Need to export data before renewing, waiting on payment approval…"
                     rows={3}
                     maxLength={1000}
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-700 bg-stone-800/60 text-[13px] text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-lg border border-stone-700 bg-stone-800/60 text-[13px] text-white placeholder-stone-500 resize-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <button

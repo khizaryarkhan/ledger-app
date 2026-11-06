@@ -89,14 +89,14 @@ export const Input = ({ value, onChange, placeholder, type = "text", className =
   <div className={`relative ${className}`}>
     {Icon && <Icon size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-500" strokeWidth={2} />}
     <input type={type} value={value ?? ""} onChange={onChange} placeholder={placeholder}
-      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors`}
+      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors`}
       {...rest} />
   </div>
 );
 
 export const Select = ({ value, onChange, options, placeholder, className = "" }: any) => (
   <select value={value ?? ""} onChange={onChange}
-    className={`h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat ${className}`}
+    className={`h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none appearance-none bg-no-repeat ${className}`}
     style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}>
     {placeholder && <option value="">{placeholder}</option>}
     {options.map((o: any) => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
@@ -189,7 +189,7 @@ export const RegionFilter = ({ value, onChange }: { value: string; onChange: (v:
   const { REGIONS } = require("@/lib/regions");
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
-      className="h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat"
+      className="h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none appearance-none bg-no-repeat"
       style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}>
       <option value="">All regions</option>
       {REGIONS.map((r: any) => <option key={r.id} value={r.id}>{r.label}</option>)}

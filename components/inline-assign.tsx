@@ -29,7 +29,7 @@ export function InlineAssign({
       disabled={busy}
       onClick={e => e.stopPropagation()}
       onChange={e => onChange(e.target.value || null)}
-      className={`text-[11px] font-medium rounded px-1.5 py-0.5 max-w-[150px] cursor-pointer border border-transparent transition-colors focus:outline-none focus:border-emerald-500 disabled:opacity-50 ${has ? set : "bg-transparent text-stone-500 hover:border-stone-600"}`}
+      className={`text-[11px] font-medium rounded px-1.5 py-0.5 max-w-[150px] cursor-pointer border border-transparent transition-colors focus:outline-none focus:border-primary disabled:opacity-50 ${has ? set : "bg-transparent text-stone-500 hover:border-stone-600"}`}
     >
       <option value="">{empty}</option>
       {groups.map(g => g.items.length > 0 && (

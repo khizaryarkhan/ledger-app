@@ -524,12 +524,12 @@ export default function CustomerDetailPage() {
             <div>
               <label className="text-xs text-stone-400 block mb-1.5">New amount ({ccy})</label>
               <input value={newAmount} onChange={e => setNewAmount(e.target.value)} inputMode="decimal" placeholder="499.00"
-                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none" />
             </div>
             <div>
               <label className="text-xs text-stone-400 block mb-1.5">Billing cycle</label>
               <select value={newInterval} onChange={e => setNewInterval(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none">
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none">
                 <option value="month">Monthly</option><option value="year">Yearly</option>
               </select>
             </div>
@@ -551,7 +551,7 @@ export default function CustomerDetailPage() {
             <label className="text-xs text-stone-400 block mb-1.5">Subdomain</label>
             <div className="flex items-center gap-2">
               <input value={subdomainInput} onChange={e => setSubdomainInput(e.target.value.toLowerCase())} placeholder="aberny"
-                className="flex-1 px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+                className="flex-1 px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none" />
               <span className="text-xs text-stone-500 whitespace-nowrap">.primeaccountax.com</span>
             </div>
           </div>
@@ -568,7 +568,7 @@ export default function CustomerDetailPage() {
           <div>
             <label className="text-xs text-stone-400 block mb-1.5">Name</label>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Customer / organisation name"
-              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none" />
           </div>
         </div>
       </Modal>
@@ -586,7 +586,7 @@ export default function CustomerDetailPage() {
           <div>
             <label className="text-xs text-stone-400 block mb-1.5">Stripe Subscription ID</label>
             <input value={linkSubId} onChange={e => setLinkSubId(e.target.value)} placeholder="sub_... or sub_sched_..."
-              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none" />
+              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white font-mono focus:border-primary focus:outline-none" />
             <p className="text-[11px] text-stone-600 mt-1">A Subscription Schedule id (sub_sched_...) works too — resolved to the real subscription automatically once it has started.</p>
           </div>
         </div>
@@ -602,20 +602,20 @@ export default function CustomerDetailPage() {
             <div>
               <label className="text-xs text-stone-400 block mb-1.5">Method</label>
               <select value={payMethod} onChange={e => setPayMethod(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none">
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none">
                 {["bank_transfer", "cheque", "cash", "card_external", "other"].map(m => <option key={m} value={m}>{METHOD_LABEL[m] ?? m}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs text-stone-400 block mb-1.5">Received date</label>
               <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none" />
             </div>
           </div>
           <div>
             <label className="text-xs text-stone-400 block mb-1.5">Reference / note (optional)</label>
             <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="e.g. bank ref 12345 / cheque no."
-              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-primary focus:outline-none" />
           </div>
         </div>
       </Modal>

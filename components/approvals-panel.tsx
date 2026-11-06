@@ -117,7 +117,7 @@ export function ApprovalsPanel() {
         {msg && <span className="text-[12px] text-rose-400">{msg}</span>}
         {busy && <Loader size={14} className="animate-spin text-stone-500" />}
         <button disabled={busy || selected.size === 0} onClick={() => decide(Array.from(selected), "approve")}
-          className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
+          className="h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
           <Check size={13} /> Approve selected{selected.size ? ` (${selected.size})` : ""}
         </button>
       </div>
@@ -164,7 +164,7 @@ export function ApprovalsPanel() {
                 <XIcon size={13} /> Reject
               </button>
               <button disabled={busy} onClick={() => decide(ids, "approve")}
-                className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
+                className="h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
                 <Check size={13} /> Approve
               </button>
             </div>

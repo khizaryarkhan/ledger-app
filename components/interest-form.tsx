@@ -117,8 +117,8 @@ export function InterestForm({ className = "" }: { className?: string }) {
     );
   }
 
-  const selectCls = "w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-900 text-stone-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 appearance-none transition-colors";
-  const inputCls  = "w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-900 text-white placeholder-stone-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors";
+  const selectCls = "w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-900 text-stone-200 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary appearance-none transition-colors";
+  const inputCls  = "w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-900 text-white placeholder-stone-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors";
 
   return (
     <form onSubmit={handleSubmit} className={`space-y-4 ${className}`}>
@@ -203,7 +203,7 @@ export function InterestForm({ className = "" }: { className?: string }) {
         </label>
         <textarea value={form.message} onChange={set("message")} rows={3} maxLength={2000}
           placeholder="Tell us a bit about your business or what you're looking for…"
-          className="w-full px-3 py-2.5 text-sm rounded-lg border border-stone-700 bg-stone-900 text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors"
+          className="w-full px-3 py-2.5 text-sm rounded-lg border border-stone-700 bg-stone-900 text-white placeholder-stone-500 resize-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
         />
       </div>
 

@@ -52,7 +52,7 @@ function BudgetList({ onOpen }: { onOpen: (id: string) => void }) {
     <ListPage>
       <ListPageHeader title="Budgets" subtitle="Plan income and expenses by account and month, then compare to actuals.">
         <Link href="/accounting/reports/budget-vs-actual" className="h-8 px-3 inline-flex items-center text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-stone-100">Budget vs actual</Link>
-        <button onClick={() => setCreating(true)} className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700"><Plus size={13} /> New budget</button>
+        <button onClick={() => setCreating(true)} className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md bg-primary text-white hover:bg-primary-hover"><Plus size={13} /> New budget</button>
       </ListPageHeader>
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {err && <p className="text-sm text-rose-400 mb-3">{err}</p>}
@@ -186,7 +186,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
           <input className={`${controlCompactIcon} w-52`} placeholder="Find account…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {msg && <span className={`text-xs ${msg.ok ? "text-stone-400" : "text-rose-400"}`}>{msg.text}</span>}
-        <button onClick={save} disabled={saving || !meta} className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60">
+        <button onClick={save} disabled={saving || !meta} className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md bg-primary text-white hover:bg-primary-hover disabled:opacity-60">
           {saving ? <Loader size={13} className="animate-spin" /> : <Save size={13} />} Save budget
         </button>
       </ListPageHeader>

@@ -71,7 +71,7 @@ function ResetPasswordForm() {
               autoComplete="new-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+              className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors"
               placeholder="Min. 8 characters"
             />
           </div>
@@ -83,7 +83,7 @@ function ResetPasswordForm() {
               autoComplete="new-password"
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
-              className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+              className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors"
               placeholder="Repeat password"
             />
           </div>

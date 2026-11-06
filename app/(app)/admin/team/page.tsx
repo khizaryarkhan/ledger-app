@@ -41,7 +41,7 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={!canSubmit}
-            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
             {saving && <Loader2 size={11} className="animate-spin" />}
             Add admin
           </button>
@@ -55,19 +55,19 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Full name</label>
             <input value={form.name} onChange={e => set("name", e.target.value)} placeholder="Jane Smith"
-              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-emerald-500 focus:outline-none" />
+              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-primary focus:outline-none" />
           </div>
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Email</label>
             <input type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="admin@primeaccountax.com"
-              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-emerald-500 focus:outline-none" />
+              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-primary focus:outline-none" />
           </div>
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Temporary password</label>
             <div className="relative">
               <input type={showPw ? "text" : "password"} value={form.password} onChange={e => set("password", e.target.value)}
                 placeholder="Min 8 characters"
-                className="w-full h-9 px-3 pr-9 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-emerald-500 focus:outline-none" />
+                className="w-full h-9 px-3 pr-9 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:border-primary focus:outline-none" />
               <button type="button" onClick={() => setShowPw(p => !p)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
                 {showPw ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -77,7 +77,7 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
             <select value={form.role} onChange={e => set("role", e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 focus:border-emerald-500 focus:outline-none">
+              className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800 text-stone-200 focus:border-primary focus:outline-none">
               <option value="platform_admin">Platform Admin — standard admin access</option>
               <option value="super_admin">Super Admin — full access including org creation</option>
             </select>
@@ -151,7 +151,7 @@ export default function TeamPage() {
           <p className="text-xs text-stone-500 mt-0.5">Platform admins with access to this portal</p>
         </div>
         <button onClick={() => setShowAdd(true)} disabled={!isSuperAdmin} title={!isSuperAdmin ? "Only super admins can add team members" : undefined}
-          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors">
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors">
           <Plus size={13} /> Add admin
         </button>
       </div>

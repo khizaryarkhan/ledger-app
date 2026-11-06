@@ -224,7 +224,7 @@ export function MyTimesheet() {
         <span className="text-[13px] text-stone-300 ml-1">{formatDateShort(days[0])} to {formatDateShort(days[6], { year: true })}</span>
         <div className="flex-1" />
         {busy && <Loader size={14} className="animate-spin text-stone-500" />}
-        <button onClick={() => act("submit")} disabled={busy || counts.submit === 0} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white font-semibold`}
+        <button onClick={() => act("submit")} disabled={busy || counts.submit === 0} className={`${btn} bg-primary hover:bg-primary-hover text-white font-semibold`}
           title="Submit the ticked Draft and Rejected lines">
           <Send size={13} /> Submit{counts.submit ? ` (${counts.submit})` : ""}
         </button>

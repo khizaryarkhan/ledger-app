@@ -54,7 +54,7 @@ export const listRow = (selected = false) =>
   `h-[40px] border-b border-stone-800 transition-colors ${selected ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "hover:bg-stone-800/50"}`;
 
 const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap";
-const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500";
+const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-primary";
 const BLANK = "(Blank)";
 
 // ─────────────────────────────────────────────────────────────────────────────

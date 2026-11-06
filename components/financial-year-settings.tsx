@@ -119,7 +119,7 @@ export function FinancialYearSettings() {
                     <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className={`${inputCls} mt-1 block`} />
                   </label>
                   <button onClick={closePeriod} disabled={busy || !periodEnd}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
+                    className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
                     {busy ? <Loader size={13} className="animate-spin" /> : <Lock size={13} />} Close period
                   </button>
                 </div>

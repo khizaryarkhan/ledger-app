@@ -53,7 +53,7 @@ function CopyField({ value, label }: { value: string; label: string }) {
         type="button"
         onClick={copy}
         disabled={!value}
-        className="h-9 px-3 rounded-md text-[12px] font-medium inline-flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+        className="h-9 px-3 rounded-md text-[12px] font-medium inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary-hover disabled:opacity-50"
       >
         {copied ? <Check size={13} /> : <Copy size={13} />}
         {copied ? "Copied" : "Copy"}

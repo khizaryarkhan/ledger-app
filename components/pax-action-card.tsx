@@ -73,7 +73,7 @@ export function PaxActionCard({ action }: { action: UiAction }) {
       {pending ? (
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => decide("apply")} disabled={busy}
-            className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
+            className="h-8 px-3 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}Apply
           </button>
           <button type="button" onClick={() => decide("reject")} disabled={busy}

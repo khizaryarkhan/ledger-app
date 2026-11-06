@@ -570,7 +570,7 @@ function ReminderProgramme() {
               value={currentStage ?? ""}
               disabled={isStageChange}
               onChange={e => handleStageChange(entity.id, openInvoices, e.target.value)}
-              className={`w-full h-8 px-2 text-xs rounded-md border focus:border-emerald-500 focus:outline-none bg-stone-800 disabled:opacity-50 ${
+              className={`w-full h-8 px-2 text-xs rounded-md border focus:border-primary focus:outline-none bg-stone-800 disabled:opacity-50 ${
                 isMixed ? "text-amber-400 border-amber-500/50" : "text-stone-300 border-stone-700"
               }`}
             >
@@ -605,7 +605,7 @@ function ReminderProgramme() {
               }}
               onKeyDown={(e) => { if (e.key === "Enter") saveEmail(entity, emailVal, row); }}
               onBlur={() => { if (isDirty && emailVal.trim()) saveEmail(entity, emailVal, row); }}
-              className={`w-full h-8 px-2.5 text-sm rounded-md border focus:border-emerald-500 focus:outline-none transition-colors text-white placeholder:text-stone-500 ${
+              className={`w-full h-8 px-2.5 text-sm rounded-md border focus:border-primary focus:outline-none transition-colors text-white placeholder:text-stone-500 ${
                 isDirty ? "border-amber-500/50 bg-amber-500/10" : "border-stone-700 bg-stone-800"
               }`}
             />
@@ -829,7 +829,7 @@ function ReminderProgramme() {
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as any); setSelected(new Set()); }}
-          className="h-9 px-2.5 pr-7 text-sm rounded-md border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-stone-300"
+          className="h-9 px-2.5 pr-7 text-sm rounded-md border border-stone-700 focus:border-primary focus:outline-none bg-stone-800 text-stone-300"
         >
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
@@ -842,7 +842,7 @@ function ReminderProgramme() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
           <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${isProjectLevel ? "projects" : "customers"}…`}
-            className="w-full h-9 pl-8 pr-3 text-sm rounded-md border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-stone-300 placeholder-stone-500" />
+            className="w-full h-9 pl-8 pr-3 text-sm rounded-md border border-stone-700 focus:border-primary focus:outline-none bg-stone-800 text-stone-300 placeholder-stone-500" />
         </div>
 
         <div className="ml-auto text-[11px] text-stone-500">{rows.length} {isProjectLevel ? "projects" : "customers"}</div>
@@ -1341,7 +1341,7 @@ function EmailTemplates() {
                   value={editing.name}
                   onChange={(e) => setEditing((p) => p && ({ ...p, name: e.target.value }))}
                   placeholder="e.g. Friendly Reminder, Final Demand"
-                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
                 />
               </div>
 
@@ -1355,7 +1355,7 @@ function EmailTemplates() {
                 <select
                   value={editing.collectionStage ?? ""}
                   onChange={(e) => setEditing((p) => p && ({ ...p, collectionStage: e.target.value || null }))}
-                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-white"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-primary focus:outline-none bg-stone-800 text-white"
                 >
                   <option value="">— Not assigned —</option>
                   {orgStages.map((s) => (
@@ -1380,7 +1380,7 @@ function EmailTemplates() {
                   <select
                     value={editing.escalationType ?? ""}
                     onChange={(e) => setEditing((p) => p && ({ ...p, escalationType: e.target.value || null }))}
-                    className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-white"
+                    className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-primary focus:outline-none bg-stone-800 text-white"
                   >
                     <option value="" disabled={genericEscalatedTaken}>
                       — Any (generic fallback) —{genericEscalatedTaken ? " (already assigned)" : ""}
@@ -1403,7 +1403,7 @@ function EmailTemplates() {
                   value={editing.subject}
                   onChange={(e) => setEditing((p) => p && ({ ...p, subject: e.target.value }))}
                   placeholder="e.g. Payment Reminder | {ref}"
-                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
                 />
               </div>
 
@@ -1420,7 +1420,7 @@ function EmailTemplates() {
                   onChange={(e) => setEditing((p) => p && ({ ...p, body: e.target.value }))}
                   rows={10}
                   placeholder={`Hi {name},\n\nI hope you are well. Please find the following invoices outstanding on your account:\n\n{invoiceLines}\n\nPlease don't hesitate to get in touch if you have any queries.\n\nMany thanks`}
-                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500 resize-none font-mono leading-relaxed"
+                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-stone-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-stone-800/60 text-white placeholder-stone-500 resize-none font-mono leading-relaxed"
                 />
               </div>
 

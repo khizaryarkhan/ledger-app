@@ -104,7 +104,7 @@ export function PaxOrgControls({ onSaved }: { onSaved?: () => void }) {
 
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={save} disabled={busy}
-            className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
+            className="h-8 px-3 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium disabled:opacity-50 inline-flex items-center gap-2">
             {busy && <Loader2 size={14} className="animate-spin" />}Save rules
           </button>
           {notice && <span className="text-[12px] text-emerald-400">{notice}</span>}

@@ -53,7 +53,7 @@ function CreateModal({ open, onClose, onDone, onToast }: { open: boolean; onClos
     finally { setSaving(false); }
   };
 
-  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
   const lbl = "text-xs text-stone-400 block mb-1.5";
 
   return (

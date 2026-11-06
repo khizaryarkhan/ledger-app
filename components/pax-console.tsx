@@ -282,7 +282,7 @@ export function PaxConsole() {
                   <div className="rounded-lg border border-stone-700 bg-stone-900 p-4 space-y-3 max-w-[68ch]">
                     <p className="text-[13px] font-medium text-stone-100">Before you start</p>
                     <p className="text-[13px] leading-relaxed text-stone-300 whitespace-pre-wrap">{info.consentText}</p>
-                    <button type="button" onClick={accept} className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-medium">I understand, continue</button>
+                    <button type="button" onClick={accept} className="h-8 px-3 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium">I understand, continue</button>
                   </div>
                 )}
 
@@ -327,14 +327,14 @@ export function PaxConsole() {
                   )}
                 </div>
               )}
-              <div className="max-w-3xl mx-auto rounded-lg border border-stone-700 bg-stone-900 focus-within:border-emerald-500 p-2 flex items-end gap-2">
+              <div className="max-w-3xl mx-auto rounded-lg border border-stone-700 bg-stone-900 focus-within:border-primary p-2 flex items-end gap-2">
                 <textarea
                   aria-label="Message" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }}
                   placeholder={notConnected ? "Connect your model first" : "Ask about invoices, customers, or your books"}
                   className="flex-1 resize-none bg-transparent outline-none text-[13px] text-stone-100 placeholder:text-stone-600 px-1 py-1" />
                 <button type="submit" aria-label="Send" disabled={busy || notConnected || needsConsent || !draft.trim()}
-                  className="h-8 w-8 flex-shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white inline-flex items-center justify-center disabled:opacity-40">
+                  className="h-8 w-8 flex-shrink-0 rounded-lg bg-primary hover:bg-primary-hover text-white inline-flex items-center justify-center disabled:opacity-40">
                   <Send size={14} />
                 </button>
               </div>

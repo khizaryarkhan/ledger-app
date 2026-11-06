@@ -16,7 +16,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
     <button
       type="button"
       onClick={onToggle}
-      className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${enabled ? "bg-emerald-600" : "bg-stone-700"}`}
+      className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${enabled ? "bg-primary" : "bg-stone-700"}`}
     >
       <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
     </button>
@@ -220,7 +220,7 @@ export default function EmailSettingsPage() {
     ? "SMTP active"
     : null;
 
-  const inputCls = "w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none";
+  const inputCls = "w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none";
 
   return (
     <div className="p-6 max-w-[720px] mx-auto space-y-6">

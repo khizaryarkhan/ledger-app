@@ -120,7 +120,7 @@ export default function StagesSettingsPage() {
         <button
           onClick={handleSave}
           disabled={saving || !canSave}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <Save size={14} />
           {saving ? "Saving…" : "Save changes"}
@@ -205,7 +205,7 @@ export default function StagesSettingsPage() {
                       readOnly={locked}
                       onChange={(e) => !locked && update(stage.key, "label", e.target.value)}
                       title={locked ? "Mandatory stage — name is fixed" : undefined}
-                      className={`w-full h-8 px-2.5 ${locked ? "pr-7" : ""} text-sm rounded-md ring-1 ring-stone-700 focus:outline-none ${locked ? "bg-stone-800/60 text-stone-500 cursor-not-allowed" : "focus:ring-2 focus:ring-emerald-500 bg-stone-800 text-stone-300"}`}
+                      className={`w-full h-8 px-2.5 ${locked ? "pr-7" : ""} text-sm rounded-md ring-1 ring-stone-700 focus:outline-none ${locked ? "bg-stone-800/60 text-stone-500 cursor-not-allowed" : "focus:ring-2 focus:ring-primary bg-stone-800 text-stone-300"}`}
                     />
                     {locked && <Lock size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400" />}
                   </div>
@@ -316,7 +316,7 @@ export default function StagesSettingsPage() {
             onKeyDown={e => e.key === "Enter" && handleAddStage()}
             placeholder="New stage name…"
             maxLength={40}
-            className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-primary focus:outline-none"
           />
           <button
             onClick={handleAddStage}

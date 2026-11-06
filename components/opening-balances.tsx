@@ -103,7 +103,7 @@ export function OpeningBalances() {
         {err && <p className="text-[12px] text-rose-400 mt-3">{err}</p>}
         {msg && <p className="text-[12px] text-emerald-400 mt-3">{msg}</p>}
         <div className="flex items-center justify-end gap-2 mt-4">
-          <button onClick={save} disabled={saving || loading} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
+          <button onClick={save} disabled={saving || loading} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover disabled:opacity-60">
             {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Post opening balances
           </button>
         </div>

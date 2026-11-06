@@ -101,7 +101,7 @@ export function NotificationsFeed({ shell }: { shell: ReportShellKind }) {
             Manage announcements
           </button>
           <button onClick={() => setDraft({ id: null, title: "", body: "", pinned: false, expiresOn: "" })}
-            className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-semibold flex items-center gap-1.5">
+            className="h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center gap-1.5">
             <Plus size={13} /> New announcement
           </button>
         </>

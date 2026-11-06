@@ -157,7 +157,7 @@ function DispositionModal({ lead, onClose, onDone, onToast }: { lead: Lead; onCl
     } finally { setSaving(false); }
   };
 
-  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-emerald-500 focus:outline-none";
+  const inp = "w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-primary focus:outline-none";
 
   return (
     <Modal open onClose={onClose} title={`Log activity — ${lead.fullName}`}

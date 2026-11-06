@@ -152,7 +152,7 @@ export default function GroupAccountsPage() {
             <input value={newCurrency} onChange={(e) => setNewCurrency(e.target.value.toUpperCase())} maxLength={8}
               className="mt-1 block w-24 bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100" />
           </label>
-          <button onClick={createGroup} disabled={busy || !newName.trim()} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2">
+          <button onClick={createGroup} disabled={busy || !newName.trim()} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Create group
           </button>
           <button onClick={() => { setCreating(false); setNewName(""); }} className="px-3 py-2 rounded-lg text-stone-400 hover:text-stone-200 text-sm">Cancel</button>
@@ -262,7 +262,7 @@ export default function GroupAccountsPage() {
                           <option value="ho_manager">HO Manager (full)</option>
                         </select>
                         <button onClick={() => addGroupUser(g.id)} disabled={busy || !draftFor(g.id).email.trim()}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium disabled:opacity-50">
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-medium disabled:opacity-50">
                           <UserPlus size={14} /> Grant access
                         </button>
                       </div>

@@ -336,12 +336,12 @@ export default function EscalationsPage() {
                                           onChange={e => setDrafts(p => ({ ...p, [inv.id]: e.target.value }))}
                                           onKeyDown={e => { if (e.key === "Enter") submit(inv); }}
                                           placeholder="Your update — e.g. 'Spoke to their PM, payment approved for Friday'"
-                                          className="flex-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-950 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500"
+                                          className="flex-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-950 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary"
                                         />
                                         <button
                                           onClick={() => submit(inv)}
                                           disabled={saving === inv.id || !(drafts[inv.id] ?? "").trim()}
-                                          className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                                          className="text-[13px] font-semibold bg-primary text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-primary-hover transition-colors">
                                           {saving === inv.id ? "Saving…" : "Send"}
                                         </button>
                                       </div>

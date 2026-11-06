@@ -135,7 +135,7 @@ export function ProductsRegister() {
           {ITEM_KIND_LIST.map(m => <option key={m.kind} value={m.kind}>{m.label} ({counts[m.kind] ?? 0})</option>)}
         </SelectField>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 h-8 text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3 hover:bg-emerald-700">
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 h-8 text-[12px] font-semibold bg-primary text-white rounded-lg px-3 hover:bg-primary-hover">
           <Plus size={13} /> New item
         </button>
       </ListPageHeader>

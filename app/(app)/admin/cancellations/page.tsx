@@ -124,7 +124,7 @@ function DecideModal({ request, onClose, onDecide }: any) {
           <label className="text-xs text-stone-400 mb-1.5 block">Internal notes <span className="text-stone-600">(optional)</span></label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} maxLength={2000}
             placeholder="Internal notes visible only to admins…"
-            className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 resize-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
       </div>

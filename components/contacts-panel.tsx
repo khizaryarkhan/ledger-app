@@ -225,29 +225,29 @@ function ContactForm({
         <div>
           <label className="text-[10px] font-medium text-stone-500">Name *</label>
           <input value={value.name} onChange={set("name")} placeholder="Jane Smith" autoFocus
-            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600" />
+            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-primary placeholder:text-stone-600" />
         </div>
         <div>
           <label className="text-[10px] font-medium text-stone-500">Title / Role</label>
           <input value={value.title} onChange={set("title")} placeholder="Finance Manager"
-            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600" />
+            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-primary placeholder:text-stone-600" />
         </div>
       </div>
       <div>
         <label className="text-[10px] font-medium text-stone-500">Email *</label>
         <input type="email" value={value.email} onChange={set("email")} placeholder="jane@company.com"
-          className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600" />
+          className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-primary placeholder:text-stone-600" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-[10px] font-medium text-stone-500">Phone</label>
           <input value={value.phone} onChange={set("phone")} placeholder="+1 555 000 0000"
-            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600" />
+            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-primary placeholder:text-stone-600" />
         </div>
         <div>
           <label className="text-[10px] font-medium text-stone-500">Type</label>
           <select value={value.type} onChange={set("type")}
-            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+            className="w-full mt-0.5 text-[12px] border border-stone-700 rounded px-2 py-1.5 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-primary">
             {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
@@ -268,7 +268,7 @@ function ContactForm({
       <div className="flex items-center gap-2 justify-end pt-0.5">
         <button onClick={onCancel} className="text-[11px] text-stone-500 hover:text-stone-300 px-2 py-1">Cancel</button>
         <button onClick={onSubmit} disabled={saving || !value.name.trim() || !value.email.trim()}
-          className="text-[11px] font-semibold bg-emerald-600 text-white rounded px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-40 transition-colors">
+          className="text-[11px] font-semibold bg-primary text-white rounded px-3 py-1.5 hover:bg-primary-hover disabled:opacity-40 transition-colors">
           {saving ? "Saving…" : submitLabel}
         </button>
       </div>

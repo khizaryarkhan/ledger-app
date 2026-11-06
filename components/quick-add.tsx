@@ -90,7 +90,7 @@ export function QuickAdd({ kind, accountTypes, onClose, onCreated }: {
       footer={
         <div className="flex items-center justify-end gap-3">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={save} disabled={saving || !f.name.trim() || (kind === "account" && !f.type)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
+          <button onClick={save} disabled={saving || !f.name.trim() || (kind === "account" && !f.type)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white text-[13px] font-semibold disabled:opacity-50">
             {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Add {meta.noun}
           </button>
         </div>

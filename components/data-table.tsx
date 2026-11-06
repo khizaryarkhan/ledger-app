@@ -213,7 +213,7 @@ function FilterDropdown({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search values…"
-            className="w-full h-7 pl-6 pr-2 text-[12px] rounded border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-emerald-500"
+            className="w-full h-7 pl-6 pr-2 text-[12px] rounded border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-primary"
           />
         </div>
       </div>
@@ -226,7 +226,7 @@ function FilterDropdown({
             checked={allChecked}
             ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
             onChange={toggleAll}
-            className="rounded border-stone-600 text-emerald-500 focus:ring-emerald-500"
+            className="rounded border-stone-600 text-emerald-500 focus:ring-primary"
           />
           <span className="text-[12px] font-semibold text-stone-300">(Select All)</span>
           <span className="ml-auto text-[10px] text-stone-500">{visible.length}</span>
@@ -244,7 +244,7 @@ function FilterDropdown({
               type="checkbox"
               checked={local.has(v)}
               onChange={() => toggle(v)}
-              className="rounded border-stone-600 text-emerald-500 focus:ring-emerald-500"
+              className="rounded border-stone-600 text-emerald-500 focus:ring-primary"
             />
             <span className="text-[12px] text-stone-300 truncate">{v || "(blank)"}</span>
           </label>
@@ -255,7 +255,7 @@ function FilterDropdown({
       <div className="p-2 border-t border-stone-800 flex gap-2">
         <button
           onClick={apply}
-          className="flex-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] rounded font-medium transition-colors"
+          className="flex-1 h-7 bg-primary hover:bg-primary-hover text-white text-[12px] rounded font-medium transition-colors"
         >
           OK
         </button>

@@ -59,7 +59,7 @@ export default function WorkflowsPage() {
           <button onClick={refreshDefaults} disabled={refreshing} title="Overwrite built-in workflows with correct Prime Accountax copy" className="flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-600 disabled:opacity-50">
             <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} /> Refresh defaults
           </button>
-          <button onClick={create} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> New workflow</button>
+          <button onClick={create} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white"><Plus size={14} /> New workflow</button>
         </div>
       </div>
 
@@ -133,14 +133,14 @@ function WorkflowEditor({ seq, onBack }: { seq: Seq; onBack: () => void }) {
   };
   const delStep = async (id: string) => { setSteps(p => p.filter(s => s.id !== id)); await fetch(`/api/admin/sequences/${seq.id}/steps/${id}`, { method: "DELETE" }).catch(() => {}); };
 
-  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
 
   return (
     <div className="max-w-[800px] mx-auto">
       <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-stone-300 mb-3"><ChevronLeft size={14} /> Workflows</button>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-white">{seq.name}</h1>
-        <button onClick={() => setAdding(a => !a)} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> Add step</button>
+        <button onClick={() => setAdding(a => !a)} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white"><Plus size={14} /> Add step</button>
       </div>
 
       {adding && (
@@ -150,7 +150,7 @@ function WorkflowEditor({ seq, onBack }: { seq: Seq; onBack: () => void }) {
           <textarea className={inp} rows={5} value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))} placeholder="Email body…" />
           <div className="flex justify-end gap-2">
             <button onClick={() => setAdding(false)} className="h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300">Cancel</button>
-            <button onClick={addStep} disabled={saving} className="h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">{saving ? "Saving…" : "Add step"}</button>
+            <button onClick={addStep} disabled={saving} className="h-8 px-3 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60">{saving ? "Saving…" : "Add step"}</button>
           </div>
         </div>
       )}

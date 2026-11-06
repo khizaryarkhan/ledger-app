@@ -437,7 +437,7 @@ export default function PaymentRunDetailPage() {
               <button
                 onClick={() => performAction("approve")}
                 disabled={actionLoading}
-                className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-md bg-primary hover:bg-primary-hover text-white transition-colors disabled:opacity-50"
               >
                 {actionLoading ? (
                   <Loader2 size={14} className="animate-spin" />

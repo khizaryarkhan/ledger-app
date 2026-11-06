@@ -100,7 +100,7 @@ export default function EstimatesPage() {
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none w-40"
+          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none w-40"
         >
           <option value="">All statuses</option>
           {statuses.map(s => <option key={s} value={s}>{s}</option>)}

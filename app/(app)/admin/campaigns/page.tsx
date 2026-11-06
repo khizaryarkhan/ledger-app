@@ -53,7 +53,7 @@ export default function CampaignsPage() {
     }
   };
 
-  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
 
   return (
     <div className="max-w-[1200px] mx-auto">
@@ -62,7 +62,7 @@ export default function CampaignsPage() {
           <h1 className="text-xl font-bold text-white">Campaigns</h1>
           <p className="text-xs text-stone-500 mt-0.5">Marketing campaigns with attribution — leads auto-link by UTM / source. Track source ROI.</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> New campaign</button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white"><Plus size={14} /> New campaign</button>
       </div>
 
       {loading ? (
@@ -109,7 +109,7 @@ export default function CampaignsPage() {
           footer={
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowNew(false)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-              <button onClick={create} disabled={saving || !form.name.trim()} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={13} className="animate-spin" /> : <TrendingUp size={13} />} Create</button>
+              <button onClick={create} disabled={saving || !form.name.trim()} className="h-9 px-4 text-sm font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={13} className="animate-spin" /> : <TrendingUp size={13} />} Create</button>
             </div>
           }
         >

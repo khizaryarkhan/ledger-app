@@ -16,6 +16,8 @@
    contrast on white. Meaning never changes per theme, only the exact step.
    ══════════════════════════════════════════════════════════════════════════ */
 :root {
+  /* Brand action colour (dark theme): a brighter navy that holds on near-black. */
+  --primary: 37 76 160; --primary-hover: 52 96 189;
   /* Tells the browser which palette to use for NATIVE form chrome (select
      dropdown popups, date/time pickers, checkboxes, scrollbars) — these are
      rendered by the OS/browser, not by our CSS, and ignore the app's own
@@ -55,6 +57,8 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  /* Brand action colour (light theme): the logo navy, #092759. */
+  --primary: 9 39 89; --primary-hover: 22 58 122;
   /* stone ramp inverted — bg-stone-950 becomes near-white, text-stone-300
      becomes dark ink, stone-500 is the pivot and stays put */
   --st-50: 12 10 9; --st-100: 28 25 23; --st-200: 41 37 36;

@@ -33,6 +33,11 @@ module.exports = {
           orange:'#E46310',
           'orange-dark': '#c85508',
         },
+        // The brand's action colour (logo navy) — every primary button, toggle
+        // and focus outline. Theme-aware: logo navy on Light, a brighter navy
+        // on Dark so a filled button still reads on near-black. Green stays
+        // for MEANING (paid, success, positive figures), never for "click me".
+        primary: { DEFAULT: v('primary'), hover: v('primary-hover') },
         white: v('c-white'),
         stone: {
           50: v('st-50'), 100: v('st-100'), 200: v('st-200'), 300: v('st-300'),

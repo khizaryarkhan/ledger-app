@@ -61,19 +61,19 @@ function StepDetails({ onNext }: { onNext: (data: { pendingId: string; email: st
         <label className="text-xs font-medium text-stone-400 block mb-1.5">Company name</label>
         <input required value={form.companyName} onChange={e => set("companyName", e.target.value)}
           placeholder="Acme Accounting Ltd"
-          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
       </div>
       <div>
         <label className="text-xs font-medium text-stone-400 block mb-1.5">Your full name</label>
         <input required value={form.adminName} onChange={e => set("adminName", e.target.value)}
           placeholder="Jane Smith"
-          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
       </div>
       <div>
         <label className="text-xs font-medium text-stone-400 block mb-1.5">Work email</label>
         <input required type="email" value={form.adminEmail} onChange={e => set("adminEmail", e.target.value)}
           placeholder="jane@acme.com"
-          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+          className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
       </div>
       {error && <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">{error}</div>}
       <button type="submit" disabled={loading}
@@ -157,7 +157,7 @@ function StepOtp({ pendingId, email, name, onNext, onBack }: {
             type="text" inputMode="numeric" maxLength={1} value={digit}
             onChange={e => handleChange(i, e.target.value)}
             onKeyDown={e => handleKey(i, e)}
-            className="w-11 h-12 text-center text-xl font-bold rounded-lg border border-stone-700 bg-stone-800/60 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+            className="w-11 h-12 text-center text-xl font-bold rounded-lg border border-stone-700 bg-stone-800/60 text-white focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" />
         ))}
       </div>
       {error && <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5 text-center">{error}</div>}

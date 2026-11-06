@@ -74,7 +74,7 @@ export default function AccountsActionQueue() {
                     </button>
                     {r.value ? <span className="text-xs text-stone-300 tabular-nums shrink-0">{money(r.value, r.currency)}</span> : null}
                     <button onClick={() => setInvoiceFor(r)}
-                      className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shrink-0">
+                      className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white shrink-0">
                       <FileText size={13} /> Create invoice
                     </button>
                   </div>
@@ -169,7 +169,7 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
     } catch { setErr("Failed to create invoice"); setSaving(false); }
   };
 
-  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-primary";
   return (
     <Drawer
       title={`Bill ${row.name}`}
@@ -179,7 +179,7 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
       footer={result ? undefined : (
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-          <button onClick={submit} disabled={saving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />} Create & send</button>
+          <button onClick={submit} disabled={saving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />} Create & send</button>
         </div>
       )}
     >
@@ -203,7 +203,7 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
             <p className="text-[11px] text-stone-500">On payment, {adminEmail.trim() || email.trim()} automatically receives a set-password email and the account activates.</p>
             <div className="flex justify-end">
               <button onClick={() => onDone(`Invoice created for ${row.name} — moved to Customers.`)}
-                className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Done</button>
+                className="h-9 px-4 text-sm font-semibold rounded-lg bg-primary hover:bg-primary-hover text-white">Done</button>
             </div>
           </div>
         ) : (

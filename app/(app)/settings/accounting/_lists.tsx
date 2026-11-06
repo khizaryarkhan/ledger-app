@@ -339,7 +339,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
             </button>
           )}
           <button onClick={openNew}
-            className="flex items-center gap-1.5 h-8 text-xs font-semibold bg-emerald-600 text-white rounded-lg px-3 hover:bg-emerald-700 transition-colors">
+            className="flex items-center gap-1.5 h-8 text-xs font-semibold bg-primary text-white rounded-lg px-3 hover:bg-primary-hover transition-colors">
             <Plus size={13} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
           </button>
         </div>
@@ -555,7 +555,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   overwrites (it only ever sets parentId for a real QBO sub-account). */}
               {(!isSyncedEdit || tab === "accounts") && (
                 <button onClick={save} disabled={saving || !(form.name ?? "").trim() || (tab === "tax-rates" && form.rate === "")}
-                  className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                  className="text-[13px] font-semibold bg-primary text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-primary-hover transition-colors">
                   {saving ? "Saving…" : editRec === "new" ? "Create" : "Save changes"}
                 </button>
               )}
