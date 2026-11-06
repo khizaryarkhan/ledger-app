@@ -5572,3 +5572,27 @@ timesheet modules import it without a cycle through `time-entries-server`).
 - **Not built**: email/push delivery, announcement audiences narrower than the whole org, attachments,
   notifications for other modules (the shape is generic — add a kind and a producer). Nothing clicked through in a
   browser; unit tests only (`tests/notifications.test.ts`, the insert-only guard proven failing on a regression).
+
+## Weekly timesheet: lines that split by status (2026-11-06)
+
+Modelled on the EDC portal's My Timesheet (Dynamics-style). The grid
+(`components/my-timesheet.tsx`) is made of LINES: one booking (type + project/order)
+in ONE status. Rules in `lib/resources/timesheet-lines.ts` (pure, 15 tests); actions in
+`timesheet-lines-server.ts`.
+
+- **A line splits when an approver decides part of it.** Storage is still one entry per
+  person/booking/day; `buildLines` groups by booking AND status, so approving Mon–Wed and
+  returning Thu–Fri shows an Approved line and a Rejected line — never one "Mixed" row.
+  Order per booking: New, Draft, Rejected, Submitted, Approved, Posted.
+- Only a Draft (or New) line takes hours on an empty day; a Rejected line's existing cells
+  stay correctable; everything else is read-only. Add Line on a booking that already has an
+  Approved line adds a fresh Draft line beside it.
+- **Tick lines, then Submit / Recall / Delete** (`POST /api/resources/me/timesheet-lines`
+  `{action, ids}`). Own entries only (resource id in every WHERE); each action takes only
+  what it applies to (submit/delete: draft+rejected; recall: submitted, never approved) and
+  counts the rest as skipped, so a mixed selection is safe. `submit-week` still exists.
+- **Copy Week** (`/api/resources/me/copy-week`, 1–4 weeks back): ticked rows come in as
+  Drafts on the same weekday with the same hours, through `createEntry` (all normal checks).
+  Leave, retired types and returned lines never copy; a day already holding time on that
+  booking is skipped, so copying twice never doubles a week.
+- **Not built**: project tasks (no task model), per-line descriptions in the grid.
