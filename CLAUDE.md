@@ -5515,16 +5515,30 @@ employee portal: the first tab, `/my-time/dashboard`, which is now where employe
   `fmt.num2` — the architecture guard flags `.toFixed` on a total as hand-rounded money.
 - **Not built** (EDC has them): tasks / "Project Tasks" (no task model here), 1:1 status, notifications page.
 
-## Resources sidebar follows the EDC portal layout (2026-11-06)
+## Resources menu is capability-driven, never role-named (2026-11-06)
 
-Requested from a screenshot of the team lead's EDC Pulse sidebar. `components/sidebar.tsx`'s
-`resourcesSections`: **My Pulse** (Dashboard, My Reports, My Details) · **Timesheets** (My
-Timesheet, Timesheet Approval, Compliance, Hours Over Plan, Post Timesheets*) · **Project
-Planning** (Resource Planning = the Resource Board, Utilization, Team Reports, Resource Cost*) ·
-**Machinery** (Equipment, Machine Utilisation — machines kept apart from people) · **Setup***
-(collapsible). *Admin only, display-side (`isAdmin` from the session); the routes refuse anyway.
-The workspace switcher opens on the Dashboard. Headings are pink, upper-case, with a rule between
-groups — literal classes, resources workspace only. EDC items with no screen here yet
-(Notifications, Forecasting, Project Opening Request, Hours & Deliverable Tool, Initiation
-Meeting, Project Tasks/Performance, Estimate Progress, Project Finance) are deliberately NOT
-linked: a dead link is worse than a missing one. Add each when its screen exists.
+Product rule from the owner: **Ledger is an ERP that must fit any organisation** — nothing may hard-code one
+client's job titles or tiers. Layout borrowed from the EDC portal (My Pulse / Timesheets / Project Planning /
+Machinery / Setup), access borrowed from its *design*, not its roles: EDC generates its menu from the same
+abilities its routes enforce, so a heading vanishes when empty and no link offers a page that would refuse.
+
+- **`lib/resources/nav.ts` (pure) is the menu as data.** Each link names a generic CAPABILITY: `self` (everyone),
+  `approve` (may approve someone's time — manager with reports, project lead, org-wide approver:
+  `mayApproveAnyone`), `team` (sees beyond themselves — team/department/all scope or leads a project:
+  `canOpenTeamReports`), `admin` (org admin), plus an optional `module` (Machine Utilisation needs
+  `manufacturing`). Capabilities come from the org's OWN designations, custom roles and project leads via
+  `/api/resources/me` (`canApprove`, `canTeamReports`, `isOrgAdmin`). The sidebar fetches them in the Resources
+  workspace and shows the self-only menu until they load.
+- **Pages enforce the same capability**: approvals → `decideEntry`; compliance/team reports → `canOpenTeamReports`;
+  the planning board GET, every booking write and the machine report → `lib/resources/planning-access.ts`
+  (`planningAccess` / `canPlanResource`: team capability, and a PERSON must be in `visibleResourceIds`; equipment
+  is not people-scoped). The board never returns `userId`, nor `costRatePerHour` to a non-admin
+  (`boardSafeResource`) — it used to return whole resource rows to anyone. The booking drawer offers only the
+  people the board shows.
+- **Labour cost stays admin-only** (cost ÷ hours = pay). If an org ever needs money at a lower tier (EDC opens it
+  at Associate Director), make it a role capability in Settings → Roles — never a hard-coded title.
+- No entity tier (EDC's IE/UK) — an org that runs two entities runs two organisations here.
+- `MODULE_HOME.resources` is `/resources/my-dashboard`. `tests/resource-nav.test.ts` pins each capability profile's
+  menu, that every link has a page, that no job title appears in the menu, and that the pages check the same rule
+  (proven failing when the board is downgraded to `self`). Links for EDC screens not built here (Notifications,
+  Forecasting, Tasks, Project Finance, …) are absent until the screen exists.

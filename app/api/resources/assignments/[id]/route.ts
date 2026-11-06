@@ -4,9 +4,10 @@
  */
 
 import { db } from "@/db";
-import { resourceAssignments } from "@/db/schema";
+import { resourceAssignments, resources } from "@/db/schema";
 import { parseAllocation } from "@/lib/resources/assignable";
 import { isRealDate } from "@/lib/resources/time-entry-rules";
+import { planningAccess, canPlanResource } from "@/lib/resources/planning-access";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq } from "drizzle-orm";
@@ -14,14 +15,15 @@ import { and, eq } from "drizzle-orm";
 const STATUSES = ["scheduled", "active", "completed", "cancelled"] as const;
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
 
-  const [existing] = await db.select({ id: resourceAssignments.id, startDate: resourceAssignments.startDate, endDate: resourceAssignments.endDate })
+  const [existing] = await db.select({ id: resourceAssignments.id, startDate: resourceAssignments.startDate, endDate: resourceAssignments.endDate, resourceId: resourceAssignments.resourceId })
     .from(resourceAssignments).where(and(eq(resourceAssignments.id, params.id), eq(resourceAssignments.orgId, orgId!))).limit(1);
   if (!existing) return bad("Assignment not found", 404);
+  if (!(await mayChange(orgId!, session, role, existing.resourceId))) return bad("You cannot change this booking", 403);
 
   const body = await req.json().catch(() => ({}));
   const { startDate, endDate, allocationPercent, status, notes } = body ?? {};
@@ -46,14 +48,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
 
-  const [existing] = await db.select({ id: resourceAssignments.id }).from(resourceAssignments).where(and(eq(resourceAssignments.id, params.id), eq(resourceAssignments.orgId, orgId!))).limit(1);
+  const [existing] = await db.select({ id: resourceAssignments.id, resourceId: resourceAssignments.resourceId }).from(resourceAssignments).where(and(eq(resourceAssignments.id, params.id), eq(resourceAssignments.orgId, orgId!))).limit(1);
   if (!existing) return bad("Assignment not found", 404);
+  if (!(await mayChange(orgId!, session, role, existing.resourceId))) return bad("You cannot change this booking", 403);
 
   await db.delete(resourceAssignments).where(and(eq(resourceAssignments.id, params.id), eq(resourceAssignments.orgId, orgId!)));
   return ok({ ok: true });
+}
+
+/** Same rule as booking: the "team" capability, and the person must be one you may see. */
+async function mayChange(orgId: string, session: any, role: string | null | undefined, resourceId: string): Promise<boolean> {
+  const [res] = await db.select({ id: resources.id, type: resources.type }).from(resources)
+    .where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId))).limit(1);
+  if (!res) return false;
+  return canPlanResource(await planningAccess(orgId, session, role), res);
 }

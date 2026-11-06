@@ -19,9 +19,10 @@ import { and, eq, gte, lte, or, isNull, desc, ne } from "drizzle-orm";
 import { ASSIGNABLE_TYPES, type AssignableType, overlaps, peakDailyAllocation, parseAllocation } from "@/lib/resources/assignable";
 import { assignableExists } from "@/lib/resources/time-entries-server";
 import { isRealDate } from "@/lib/resources/time-entry-rules";
+import { planningAccess, canPlanResource, boardSafeResource } from "@/lib/resources/planning-access";
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -38,17 +39,28 @@ export async function GET(req: Request) {
     const resourceIds = [...new Set(rows.map(r => r.resourceId))];
     const resRows = resourceIds.length ? await db.select().from(resources).where(eq(resources.orgId, orgId!)) : [];
     const byId = new Map(resRows.filter(r => resourceIds.includes(r.id)).map(r => [r.id, r]));
-    return ok(rows.map(r => ({ ...r, resource: byId.get(r.resourceId) ?? null })));
+    // Who is booked on a project is shown on the project itself, to anyone who
+    // can open it — but never their login id or pay rate.
+    const isAdmin = (await planningAccess(orgId!, session, role)).ctx.actor.isOrgAdmin;
+    return ok(rows.map(r => {
+      const res = byId.get(r.resourceId);
+      return { ...r, resource: res ? boardSafeResource(res, isAdmin) : null };
+    }));
   }
 
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   if (!from || !to) return bad("from and to date params are required");
 
+  // The board is the menu's "team" capability: people beyond yourself.
+  const access = await planningAccess(orgId!, session, role);
+  if (!access.allowed) return bad("Resource planning is for people who manage a team, a department or a project", 403);
+
   const resourceId = searchParams.get("resourceId");
   const resConds = [eq(resources.orgId, orgId!), eq(resources.status, "active")];
   if (resourceId) resConds.push(eq(resources.id, resourceId));
-  const allResources = await db.select().from(resources).where(and(...resConds)).orderBy(resources.name);
+  const allResources = (await db.select().from(resources).where(and(...resConds)).orderBy(resources.name))
+    .filter(r => canPlanResource(access, r));
 
   const assignConds = [
     eq(resourceAssignments.orgId, orgId!),
@@ -68,14 +80,14 @@ export async function GET(req: Request) {
   const board = allResources.map(r => {
     const assignments = (byResource.get(r.id) ?? []).filter(a => a.status !== "cancelled");
     // Per day, not summed over the week: bookings on different days never clash.
-    return { ...r, assignments, overAllocated: peakDailyAllocation(assignments, from, to) > 100 };
+    return { ...boardSafeResource(r, access.ctx.actor.isOrgAdmin), assignments, overAllocated: peakDailyAllocation(assignments, from, to) > 100 };
   });
 
   return ok(board);
 }
 
 export async function POST(req: Request) {
-  const { error, orgId, session } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -95,8 +107,10 @@ export async function POST(req: Request) {
     return bad(`That ${assignableType.replace(/_/g, " ")} was not found in this organisation`, 404);
   }
 
-  const [resource] = await db.select({ id: resources.id }).from(resources).where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId!))).limit(1);
+  const [resource] = await db.select({ id: resources.id, type: resources.type }).from(resources).where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId!))).limit(1);
   if (!resource) return bad("Resource not found", 404);
+  const access = await planningAccess(orgId!, session, role);
+  if (!canPlanResource(access, resource)) return bad("You cannot book this resource", 403);
 
   const [row] = await db.insert(resourceAssignments).values({
     orgId: orgId!,

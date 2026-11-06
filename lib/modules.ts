@@ -206,7 +206,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   payables:      "/payables/dashboard",
   accounting:    "/accounting/dashboard",
   manufacturing: "/supply-chain/dashboard",
-  resources:     "/resources/board",
+  resources:     "/resources/my-dashboard",
   studio:        "/batch",
   pax_console:   "/pax-console",
 };

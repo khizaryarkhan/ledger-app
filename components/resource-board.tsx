@@ -54,7 +54,7 @@ export function ResourceBoard() {
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Who and what is booked this week, against which Project or production order.</p>
 
-      {showNew && <NewAssignmentDrawer onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
+      {showNew && <NewAssignmentDrawer bookable={list} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
       {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
         <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No active resources — add People or Equipment first.</div>
@@ -102,14 +102,15 @@ export function ResourceBoard() {
   );
 }
 
-function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [resources, setResources] = useState<any[]>([]);
+function NewAssignmentDrawer({ bookable, onClose, onCreated }: { bookable: any[]; onClose: () => void; onCreated: () => void }) {
+  // Only who the board already shows: the server scoped that list to the people
+  // this viewer may plan, so the picker never offers a booking it would refuse.
+  const resources = bookable;
   const [assignableType, setAssignableType] = useState<AssignableType>("project");
   const [assignableOptions, setAssignableOptions] = useState<any[]>([]);
   const [form, setForm] = useState({ resourceId: "", assignableId: "", startDate: localToday(), endDate: "", allocationPercent: "100", notes: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
 
-  useEffect(() => { fetch("/api/resources?status=active").then(r => r.json()).then(d => setResources(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
   useEffect(() => {
     setForm(f => ({ ...f, assignableId: "" }));
     fetch(ASSIGNABLE_ENDPOINT[assignableType]).then(r => r.json()).then(d => setAssignableOptions(Array.isArray(d) ? d : (d?.rows ?? []))).catch(() => setAssignableOptions([]));

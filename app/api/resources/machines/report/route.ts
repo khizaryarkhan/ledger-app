@@ -15,6 +15,7 @@
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { isAdminRole } from "@/lib/resources/access";
+import { planningAccess } from "@/lib/resources/planning-access";
 import { isRealDate } from "@/lib/resources/time-entry-rules";
 import { loadMachineReport } from "@/lib/resources/machine-report-server";
 import { addDays } from "@/lib/accounting/report-periods";
@@ -25,7 +26,7 @@ const MAX_SPAN_DAYS = 366;
 const DEFAULT_SPAN_DAYS = 30;
 
 export async function GET(req: Request) {
-  const { error, orgId, role } = await requireOrg();
+  const { error, orgId, role, session } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -37,5 +38,7 @@ export async function GET(req: Request) {
   if (from > to) return bad("from cannot be after to");
   if (addDays(from, MAX_SPAN_DAYS) < to) return bad(`The range cannot exceed ${MAX_SPAN_DAYS} days`);
 
+  // Same "team" capability as the menu link (lib/resources/nav.ts).
+  if (!(await planningAccess(orgId!, session, role)).allowed) return bad("Machine utilisation is for people who manage a team, a department or a project", 403);
   return ok(await loadMachineReport(orgId!, from, to, isAdminRole(role)));
 }

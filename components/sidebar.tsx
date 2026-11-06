@@ -14,6 +14,7 @@ import {
   CalendarClock, Wrench, MapPin, Percent, Repeat, Sparkles
 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { resourceNavFor, SELF_ONLY_CAPS, type ResourceCaps, type ResourceNavIcon } from "@/lib/resources/nav";
 import { useData } from "./data-provider";
 import { hasModule, type ModuleKey } from "@/lib/modules";
 
@@ -30,6 +31,13 @@ interface NavItem {
   count?: number;
   urgent?: boolean;
 }
+
+const RESOURCE_NAV_ICONS: Record<ResourceNavIcon, NavItem["icon"]> = {
+  dashboard: LayoutDashboard, reports: Gauge, details: Contact, timesheet: Clock, approve: CheckSquare,
+  compliance: ClipboardList, enquiry: Scale, post: ScrollText, planning: CalendarClock, utilisation: Gauge,
+  team: BarChart3, cost: Scale, equipment: Wrench, machine: Gauge, people: Users, designation: ClipboardList,
+  types: ClipboardList, leave: Scale, calendar: MapPin, payroll: ScrollText,
+};
 
 export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarProps) {
   const pathname = usePathname();
@@ -129,6 +137,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const wanted: Department = pathDepartment ?? lastDept;
   const department: Department = deptVisible[wanted] ? wanted
     : (["ar", "ap", "supplychain", "accounting", "resources", "pax", "reporting", "batch"] as Department[]).find(d => deptVisible[d]) ?? wanted;
+
+  // Resources capabilities for the menu (see resourcesSections below). Fetched
+  // only inside the Resources workspace; a failure leaves the self-only menu.
+  const [resourceCaps, setResourceCaps] = useState<Omit<ResourceCaps, "modules"> | null>(null);
+  useEffect(() => {
+    if (department !== "resources" || resourceCaps) return;
+    fetch("/api/resources/me").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d) setResourceCaps({ approve: !!d.canApprove, team: !!d.canTeamReports, admin: !!d.isOrgAdmin });
+    }).catch(() => {});
+  }, [department, resourceCaps]);
 
   const [wsOpen, setWsOpen] = useState(false);
 
@@ -454,60 +472,18 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const paxSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     { items: [{ href: "/pax-console", label: "PAX Console", icon: Sparkles }] },
   ];
-  // Laid out like the EDC portal the team lead already uses (My Pulse /
-  // Timesheets / Project Planning / ...), with everything about MACHINES in its
-  // own group rather than mixed in with people. Admin-only screens (posting
-  // payroll, labour cost, setup) are hidden from everyone else — the server
-  // refuses them regardless; this only stops offering a page that would 403.
-  const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
-    {
-      label: "My Pulse",
-      items: [
-        { href: "/resources/my-dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/resources/my-reports", label: "My Reports", icon: Gauge },
-        { href: "/resources/my-details", label: "My Details", icon: Contact },
-      ],
-    },
-    {
-      label: "Timesheets",
-      items: [
-        { href: "/resources/my-time", label: "My Timesheet", icon: Clock },
-        { href: "/resources/approvals", label: "Timesheet Approval", icon: CheckSquare },
-        { href: "/resources/compliance", label: "Timesheet Compliance", icon: ClipboardList },
-        { href: "/resources/enquiries", label: "Hours Over Plan", icon: Scale },
-        ...(isAdmin ? [{ href: "/resources/timesheets", label: "Post Timesheets", icon: ScrollText }] : []),
-      ],
-    },
-    {
-      label: "Project Planning",
-      items: [
-        { href: "/resources/board", label: "Resource Planning", icon: CalendarClock },
-        { href: "/resources/utilization", label: "Utilization", icon: Gauge },
-        { href: "/resources/reports", label: "Team Reports", icon: BarChart3 },
-        ...(isAdmin ? [{ href: "/resources/cost", label: "Resource Cost", icon: Scale }] : []),
-      ],
-    },
-    {
-      label: "Machinery",
-      items: [
-        { href: "/resources/equipment", label: "Equipment", icon: Wrench },
-        { href: "/resources/machines", label: "Machine Utilisation", icon: Gauge },
-      ],
-    },
-    ...(isAdmin ? [{
-      label: "Setup",
-      collapsible: true,
-      icon: Database,
-      items: [
-        { href: "/resources/people", label: "People", icon: Users },
-        { href: "/resources/designations", label: "Designations", icon: ClipboardList },
-        { href: "/resources/timesheet-types", label: "Timesheet Types", icon: ClipboardList },
-        { href: "/resources/leave-balances", label: "Leave Balances", icon: Scale },
-        { href: "/resources/holiday-calendars", label: "Holiday Calendars", icon: MapPin },
-        { href: "/resources/payroll-settings", label: "Payroll Settings", icon: ScrollText },
-      ],
-    }] : []),
-  ];
+  // The Resources menu is DATA (lib/resources/nav.ts): each link names the
+  // capability its page enforces — approves time, sees a team, org admin, a
+  // module — never a job title, so it fits any organisation's own designations,
+  // custom roles and project leads. Capabilities come from /api/resources/me,
+  // the same rules the pages apply; until they load, only the viewer's own links.
+  const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] =
+    resourceNavFor({ ...(resourceCaps ?? SELF_ONLY_CAPS), modules: orgSettings?.enabledModules ?? [] }).map((sec) => ({
+      label: sec.label,
+      collapsible: sec.collapsible,
+      icon: sec.collapsible ? Database : undefined,
+      items: sec.items.map((i) => ({ href: i.href, label: i.label, icon: RESOURCE_NAV_ICONS[i.icon] })),
+    }));
 
   const sections = department === "batch" ? batchSections
     : department === "supplychain" ? supplyChainSections
