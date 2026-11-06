@@ -544,7 +544,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
             />
           ) : (
             <div className="flex items-center gap-2.5">
-              <BrandMark className="w-7 h-7 shrink-0" />
+              <OrgInitials name={orgSettings?.displayName || orgSettings?.name || ""} />
               <span className="text-[15px] font-semibold text-white tracking-tight leading-snug">
                 {orgSettings?.displayName || orgSettings?.name || "Prime Accountax"}
               </span>
@@ -695,15 +695,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
 }
 
 /**
- * The Prime Accountax mark (navy + orange), drawn as SVG from the logo so it
- * needs no image file. Shown only when the organisation has no logo of its own.
+ * Stand-in for an organisation that has not uploaded a logo yet: its own
+ * initials in a neutral tile. The top-left corner belongs to the CLIENT's
+ * brand (upload it in Settings → Company), never to ours.
  */
-function BrandMark({ className }: { className?: string }) {
+function OrgInitials({ name }: { name: string }) {
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
   return (
-    <svg viewBox="0 0 100 100" className={className} aria-hidden="true">
-      <path d="M0 0H86L56 30H30V56L0 86Z" fill="#163A7A" />
-      <path d="M100 14V100H14L44 70H70V44Z" fill="#E46310" />
-    </svg>
+    <div className="w-7 h-7 shrink-0 rounded-md bg-stone-800 text-stone-200 flex items-center justify-center text-[11px] font-bold" aria-hidden="true">
+      {initials}
+    </div>
   );
 }
 
