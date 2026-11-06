@@ -35,7 +35,7 @@ export interface ResourceCaps {
 }
 
 export type ResourceNavIcon =
-  | "dashboard" | "reports" | "details" | "timesheet" | "approve" | "compliance"
+  | "dashboard" | "notifications" | "reports" | "details" | "timesheet" | "approve" | "compliance"
   | "enquiry" | "post" | "planning" | "utilisation" | "team" | "cost"
   | "equipment" | "machine" | "people" | "designation" | "types" | "leave"
   | "calendar" | "payroll";
@@ -60,6 +60,7 @@ export const RESOURCE_NAV: readonly ResourceNavSection[] = [
     label: "My Pulse",
     items: [
       { href: "/resources/my-dashboard", label: "Dashboard", icon: "dashboard", requires: "self" },
+      { href: "/resources/notifications", label: "Notifications", icon: "notifications", requires: "self" },
       { href: "/resources/my-reports", label: "My Reports", icon: "reports", requires: "self" },
       { href: "/resources/my-details", label: "My Details", icon: "details", requires: "self" },
     ],

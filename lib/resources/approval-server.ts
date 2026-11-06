@@ -19,6 +19,7 @@ import { addDays } from "@/lib/accounting/report-periods";
 import { weekStartOf } from "./time-entry-rules";
 import { loadCalendars } from "./reports-server";
 import { plannedHours, round2, type AssignmentRow } from "./reports";
+import { notify, loginsForResources } from "@/lib/notifications/notify";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -166,12 +167,27 @@ export interface ReturnRow {
 /** Called by rejectEntry: a rejection opens a thread rather than only stamping a reason. */
 export async function openReturn(
   orgId: string,
-  args: { timeEntryId: string; resourceId: string; returnedBy: string | null; reason: string },
+  args: {
+    timeEntryId: string; resourceId: string; returnedBy: string | null; reason: string;
+    /** For the notification only: what was returned and by whom. */
+    date?: string; hours?: number; returnedByName?: string | null;
+  },
 ): Promise<void> {
-  await db.insert(timesheetReturns).values({
+  const [row] = await db.insert(timesheetReturns).values({
     orgId, timeEntryId: args.timeEntryId, resourceId: args.resourceId,
     returnedBy: args.returnedBy, reason: args.reason,
-  });
+  }).returning({ id: timesheetReturns.id });
+
+  // Tell the person — after the thread exists, and never able to fail it.
+  const login = (await loginsForResources(orgId, [args.resourceId]).catch(() => new Map<string, string>())).get(args.resourceId);
+  if (login && row && login !== args.returnedBy) {
+    const what = args.date ? `${args.hours != null ? `${args.hours} h on ` : ""}${args.date}` : "A timesheet line";
+    await notify(orgId, [{
+      userId: login, kind: "time_returned", sourceType: "timesheet_return", sourceId: row.id,
+      title: `Time returned: ${what}${args.returnedByName ? ` (by ${args.returnedByName})` : ""}`,
+      body: args.reason, href: "/resources/my-time",
+    }]);
+  }
 }
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -221,8 +237,20 @@ export async function answerReturn(
   }
   const rows = await db.update(timesheetReturns).set(patch)
     .where(and(eq(timesheetReturns.id, id), eq(timesheetReturns.orgId, orgId), eq(timesheetReturns.resourceId, resourceId)))
-    .returning({ id: timesheetReturns.id });
+    .returning({ id: timesheetReturns.id, returnedBy: timesheetReturns.returnedBy });
   if (rows.length === 0) return { ok: false, error: "Return not found", status: 404 };
+
+  // A reply goes back to whoever returned the time. One per return: a second
+  // reply edits the thread, it does not notify again (idempotent by source).
+  if (response !== null && rows[0].returnedBy) {
+    const [who] = await db.select({ name: resources.name }).from(resources)
+      .where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId))).limit(1).catch(() => []);
+    await notify(orgId, [{
+      userId: rows[0].returnedBy, kind: "return_reply", sourceType: "timesheet_return", sourceId: id,
+      title: `${who?.name ?? "Someone"} replied to time you returned`,
+      body: (patch.response as string) ?? null, href: "/resources/approvals",
+    }]);
+  }
   return { ok: true };
 }
 

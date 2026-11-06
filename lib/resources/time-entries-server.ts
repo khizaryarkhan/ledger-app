@@ -296,6 +296,7 @@ export async function rejectEntry(ctx: TimeCtx, id: string, reasonRaw: unknown):
   // Its own failure must not undo a decision that already stands.
   await openReturn(ctx.orgId, {
     timeEntryId: row.id, resourceId: row.resourceId, returnedBy: ctx.userId, reason: reason.reason,
+    date: row.date, hours: Number(row.hours), returnedByName: ctx.me?.name ?? null,
   }).catch((e) => { console.error("[timesheet-return] could not open thread for entry", row.id, e); });
 
   return { ok: true, value: row };
@@ -359,6 +360,22 @@ async function assignableNames(orgId: string, rows: TimeEntryRow[]): Promise<Map
  * phase exists to route to them.
  */
 export async function approvalQueue(ctx: TimeCtx): Promise<ApprovalRow[]> {
+  const mine = await decidableSubmitted(ctx);
+  if (mine.length === 0) return [];
+  return describeApprovals(ctx, mine);
+}
+
+/**
+ * How many submitted lines this person may decide — the same candidate set
+ * and the same decideEntry rule as the queue itself (one function, so the
+ * "waiting for your approval" count and the queue can never disagree), minus
+ * the names and plan figures only the queue screen needs.
+ */
+export async function approvalCount(ctx: TimeCtx): Promise<number> {
+  return (await decidableSubmitted(ctx)).length;
+}
+
+async function decidableSubmitted(ctx: TimeCtx) {
   if (ctx.actor.level === "none") return [];
   const visible = visibleResourceIds(ctx.actor, ctx.people);
   const led = ctx.actor.resourceId ? await projectsLedBy(ctx.orgId, ctx.actor.resourceId) : [];
@@ -374,9 +391,10 @@ export async function approvalQueue(ctx: TimeCtx): Promise<ApprovalRow[]> {
   const rows = await db.select().from(timeEntries).where(and(...conds)).orderBy(timeEntries.date);
 
   const leads = await leadsForEntries(ctx.orgId, rows);
-  const mine = rows.filter((r) => decideEntry(ctx.actor, r, ctx.people, leads).ok);
-  if (mine.length === 0) return [];
+  return rows.filter((r) => decideEntry(ctx.actor, r, ctx.people, leads).ok);
+}
 
+async function describeApprovals(ctx: TimeCtx, mine: (typeof timeEntries.$inferSelect)[]): Promise<ApprovalRow[]> {
   const typeIds = Array.from(new Set(mine.map((r) => r.timesheetTypeId)));
   const types = await db.select({ id: timesheetTypes.id, name: timesheetTypes.name }).from(timesheetTypes)
     .where(and(eq(timesheetTypes.orgId, ctx.orgId), inArray(timesheetTypes.id, typeIds)));

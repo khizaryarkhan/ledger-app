@@ -123,7 +123,8 @@ export function checkApiPath(raw: unknown): PathCheck {
  */
 const SENSITIVE_SEGMENT = /(^|-)(send|email|emails|mail|notify|notify-owners|resend)(-|$)/;
 const SENSITIVE_PREFIXES = ["/api/gmail", "/api/chat", "/api/org/settings", "/api/settings"] as const;
-const SENSITIVE_PATTERNS: readonly RegExp[] = [/^\/api\/resources\/[^/]+\/login$/];
+// Announcements broadcast to everyone in the organisation — a message sent, like email.
+const SENSITIVE_PATTERNS: readonly RegExp[] = [/^\/api\/resources\/[^/]+\/login$/, /^\/api\/resources\/announcements(\/|$)/];
 
 export function isSensitiveRoute(path: string): boolean {
   const p = path.toLowerCase();

@@ -4426,3 +4426,51 @@ export const paxConsents = pgTable("pax_consents", {
   orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.userId, t.orgId] }) }));
+
+// Notifications and announcements (2026-11-06, migration 0132). Generic across
+// organisations: events name a person (the recipient's LOGIN), never a role.
+// Idempotent by (user, kind, source) so a retried producer never notifies twice.
+// "Needs your attention" counts are derived live, never stored here.
+export const notifications = pgTable("notifications", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  userId:     uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind:       varchar("kind", { length: 32 }).notNull(),   // see lib/notifications/rules.ts NOTIFICATION_KINDS
+  title:      varchar("title", { length: 200 }).notNull(),
+  body:       text("body"),
+  href:       varchar("href", { length: 300 }),             // an in-app path; the portal maps it (portalHref)
+  sourceType: varchar("source_type", { length: 32 }),
+  sourceId:   uuid("source_id"),
+  readAt:     timestamp("read_at"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  userIdx:    index("notifications_user_idx").on(t.orgId, t.userId, t.createdAt),
+  onceUnique: uniqueIndex("notifications_once_unique").on(t.userId, t.kind, t.sourceId).where(sql`${t.sourceId} IS NOT NULL`),
+}));
+export type Notification = typeof notifications.$inferSelect;
+
+// Company news an org admin posts to everyone in the organisation.
+export const announcements = pgTable("announcements", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  title:       varchar("title", { length: 200 }).notNull(),
+  body:        text("body").notNull(),
+  pinned:      boolean("pinned").notNull().default(false),
+  publishedAt: timestamp("published_at").notNull().defaultNow(),
+  expiresAt:   timestamp("expires_at"),
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("announcements_org_idx").on(t.orgId, t.publishedAt),
+}));
+export type Announcement = typeof announcements.$inferSelect;
+
+export const announcementReads = pgTable("announcement_reads", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  announcementId: uuid("announcement_id").notNull().references(() => announcements.id, { onDelete: "cascade" }),
+  userId:         uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  readAt:         timestamp("read_at").notNull().defaultNow(),
+}, (t) => ({
+  once: uniqueIndex("announcement_reads_unique").on(t.announcementId, t.userId),
+}));

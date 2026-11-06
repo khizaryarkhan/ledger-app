@@ -15,7 +15,7 @@ const admin: ResourceCaps = { approve: true, team: true, admin: true, modules: [
 
 describe("Resources menu is capability-driven", () => {
   it("someone with only their own records sees only their own links, and empty headings vanish", () => {
-    expect(hrefs(self)).toEqual(["/resources/my-dashboard", "/resources/my-reports", "/resources/my-details", "/resources/my-time"]);
+    expect(hrefs(self)).toEqual(["/resources/my-dashboard", "/resources/notifications", "/resources/my-reports", "/resources/my-details", "/resources/my-time"]);
     expect(headings(self)).toEqual(["My Pulse", "Timesheets"]);
   });
   it("approving time adds approval and hours-over-plan, nothing team-wide", () => {

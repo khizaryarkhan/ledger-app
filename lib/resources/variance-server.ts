@@ -15,6 +15,7 @@ import { and, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import { loadCalendars } from "./reports-server";
 import { loadPeople } from "./access-server";
 import { leadsForProjects } from "./approval-server";
+import { notify, loginsForResources } from "@/lib/notifications/notify";
 import { plannedHours, type AssignmentRow } from "./reports";
 import {
   candidatesFor, monthRange, shouldEscalate, bookingKey,
@@ -143,7 +144,26 @@ export async function assessMonth(
     month, kind: c.kind,
     plannedHours: c.planned.toFixed(2), actualHours: c.actual.toFixed(2),
     assignedTo: owners.get(ownerKey(c)) ?? null,
-  }))).onConflictDoNothing().returning({ id: hoursVarianceEnquiries.id });
+  }))).onConflictDoNothing().returning({
+    id: hoursVarianceEnquiries.id, resourceId: hoursVarianceEnquiries.resourceId,
+    assignedTo: hoursVarianceEnquiries.assignedTo, kind: hoursVarianceEnquiries.kind,
+  });
+
+  // Tell whoever must answer. Only for enquiries opened NOW (a re-run inserts
+  // nothing, so it notifies nothing), and never able to fail the assessment.
+  const answerers = Array.from(new Set(inserted.map((r) => r.assignedTo).filter((x): x is string => !!x)));
+  const logins = await loginsForResources(orgId, answerers).catch(() => new Map<string, string>());
+  const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  await notify(orgId, inserted.flatMap((r) => {
+    const login = r.assignedTo ? logins.get(r.assignedTo) : undefined;
+    if (!login) return [];
+    const who = nameOf.get(r.resourceId) ?? "Someone";
+    return [{
+      userId: login, kind: "enquiry_assigned" as const, sourceType: "hours_variance_enquiry", sourceId: r.id,
+      title: r.kind === "unplanned" ? `${who} logged unplanned hours in ${month}` : `${who} went over plan in ${month}`,
+      body: "Please explain the difference on the Hours Over Plan screen.", href: "/resources/enquiries",
+    }];
+  }));
 
   stats.opened = inserted.length;
   stats.existing = candidates.length - inserted.length;

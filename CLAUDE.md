@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0131` at `when` `1793900000000`;
+  this silently dropped a table in prod once). Latest is `0132` at `when` `1794000000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5542,3 +5542,30 @@ abilities its routes enforce, so a heading vanishes when empty and no link offer
   menu, that every link has a page, that no job title appears in the menu, and that the pages check the same rule
   (proven failing when the board is downgraded to `self`). Links for EDC screens not built here (Notifications,
   Forecasting, Tasks, Project Finance, …) are absent until the screen exists.
+
+## Notifications and announcements (2026-11-06)
+
+Closes the gap every Resources phase recorded as "nobody is told". Generic for any organisation: an event is
+addressed to a person's LOGIN because of something that happened to them, never to a role. Migration `0132`
+(additive, **not yet run against any database** — it runs in `vercel-build`). Rules `lib/notifications/rules.ts`
+(pure), feed/admin `lib/notifications/server.ts`, producers call `lib/notifications/notify.ts` (separate so the
+timesheet modules import it without a cycle through `time-entries-server`).
+
+- **Events are stored** (`notifications`), idempotent by the partial unique `(user_id, kind, source_id)`:
+  `time_returned` (openReturn → the person), `return_reply` (answerReturn with a reply → whoever returned it),
+  `enquiry_assigned` (assessMonth → the answerer, only for rows actually INSERTED, so a re-run notifies nobody).
+  `notify` is called AFTER the real write and never throws — a courtesy must not fail what it reports.
+- **Attention is derived live, never stored**: approvals waiting (`approvalCount`, which shares
+  `decidableSubmitted` with `approvalQueue`, so the count and the queue cannot disagree), returns not
+  acknowledged, open enquiries assigned to you. A stored "3 waiting" is wrong the moment one is decided.
+- **Announcements** (`announcements`, `announcement_reads`): company news an org admin posts to everyone, optional
+  pin and last-day-shown (stored as that day's UTC end, read back with `expiryDay`, never a local Date). Admin routes
+  `/api/resources/announcements[/id]`; everyone reads through `GET /api/resources/me/notifications`
+  (`allowEmployee`, user from the session only) and marks read via POST (scoped inside every WHERE).
+  `/api/resources/announcements` is an MCP **sensitive** route (a broadcast, like email).
+- UI: `components/notifications-feed.tsx` at `/resources/notifications` (My Pulse, `self`) and
+  `/my-time/notifications` (portal; `portalHref` maps links, and drops one the portal has no page for).
+  Unread count rides on `/api/resources/me` (`unreadNotifications`) → sidebar badge and portal tab.
+- **Not built**: email/push delivery, announcement audiences narrower than the whole org, attachments,
+  notifications for other modules (the shape is generic — add a kind and a producer). Nothing clicked through in a
+  browser; unit tests only (`tests/notifications.test.ts`, the insert-only guard proven failing on a regression).

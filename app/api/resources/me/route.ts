@@ -10,6 +10,7 @@ import { requireOrg, ok } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { buildCtx } from "@/lib/resources/time-entries-server";
 import { canOpenTeamReports, mayApproveAnyone } from "@/lib/resources/access";
+import { unreadFor } from "@/lib/notifications/server";
 
 export async function GET() {
   const { error, orgId, session, role } = await requireOrg({ allowEmployee: true });
@@ -45,5 +46,7 @@ export async function GET() {
     canApprove: mayApproveAnyone(actor, ctx.people),
     canTeamReports: canOpenTeamReports(actor),
     orgName: org?.displayName || org?.name || "",
+    // The badge on Notifications. Never fails /me: a count is a courtesy.
+    unreadNotifications: await unreadFor(orgId!, ctx.userId).catch(() => 0),
   });
 }

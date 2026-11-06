@@ -33,7 +33,7 @@ interface NavItem {
 }
 
 const RESOURCE_NAV_ICONS: Record<ResourceNavIcon, NavItem["icon"]> = {
-  dashboard: LayoutDashboard, reports: Gauge, details: Contact, timesheet: Clock, approve: CheckSquare,
+  dashboard: LayoutDashboard, notifications: Bell, reports: Gauge, details: Contact, timesheet: Clock, approve: CheckSquare,
   compliance: ClipboardList, enquiry: Scale, post: ScrollText, planning: CalendarClock, utilisation: Gauge,
   team: BarChart3, cost: Scale, equipment: Wrench, machine: Gauge, people: Users, designation: ClipboardList,
   types: ClipboardList, leave: Scale, calendar: MapPin, payroll: ScrollText,
@@ -141,10 +141,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // Resources capabilities for the menu (see resourcesSections below). Fetched
   // only inside the Resources workspace; a failure leaves the self-only menu.
   const [resourceCaps, setResourceCaps] = useState<Omit<ResourceCaps, "modules"> | null>(null);
+  const [resourceUnread, setResourceUnread] = useState(0);
   useEffect(() => {
     if (department !== "resources" || resourceCaps) return;
     fetch("/api/resources/me").then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (d) setResourceCaps({ approve: !!d.canApprove, team: !!d.canTeamReports, admin: !!d.isOrgAdmin });
+      if (d) {
+        setResourceCaps({ approve: !!d.canApprove, team: !!d.canTeamReports, admin: !!d.isOrgAdmin });
+        setResourceUnread(Number(d.unreadNotifications) || 0);
+      }
     }).catch(() => {});
   }, [department, resourceCaps]);
 
@@ -482,7 +486,10 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       label: sec.label,
       collapsible: sec.collapsible,
       icon: sec.collapsible ? Database : undefined,
-      items: sec.items.map((i) => ({ href: i.href, label: i.label, icon: RESOURCE_NAV_ICONS[i.icon] })),
+      items: sec.items.map((i) => ({
+        href: i.href, label: i.label, icon: RESOURCE_NAV_ICONS[i.icon],
+        ...(i.href === "/resources/notifications" && resourceUnread > 0 ? { count: resourceUnread } : {}),
+      })),
     }));
 
   const sections = department === "batch" ? batchSections
