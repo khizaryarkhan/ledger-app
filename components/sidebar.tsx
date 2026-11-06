@@ -498,14 +498,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // Workspace switcher entries — literal Tailwind classes (never build at runtime).
   const reportingEnabled = !!orgSettings?.reportingEnabled;
   const WORKSPACES = [
-    ...(on("receivables") ? [{ key: "ar", label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard", active: "bg-emerald-500/20 text-emerald-400", dot: "bg-emerald-400" }] : []),
-    ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-violet-500/20 text-violet-400", dot: "bg-violet-400" }] : []),
-    ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-orange-500/20 text-orange-400", dot: "bg-orange-400" }] : []),
-    ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400", dot: "bg-teal-400" }] : []),
-    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/my-dashboard", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
-    ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-sky-500/20 text-sky-400", dot: "bg-sky-400" }] : []),
-    ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/20 text-blue-400", dot: "bg-blue-400" }] : []),
-    ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-amber-500/20 text-amber-400", dot: "bg-amber-400" }] : []),
+    ...(on("receivables") ? [{ key: "ar", label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/my-dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
   ];
   const currentWs = WORKSPACES.find(w => w.key === department) ?? WORKSPACES[0]
     ?? { key: "none", label: "No modules", Icon: Shield, href: "/settings", active: "bg-stone-800 text-stone-400", dot: "bg-stone-500" };
@@ -606,8 +606,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                 // Resources reads like the EDC portal: accent, upper-case group
                 // headings with a rule between groups. Literal classes only.
                 <div className={department === "resources"
-                  ? "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-pink-400 tracking-widest"
-                  : "px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest"}>
+                  ? "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-orange-400 tracking-widest"
+                  : "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-orange-400 tracking-widest"}>
                   {sec.label}
                 </div>
               )}
@@ -633,15 +633,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                     onClick={onClose}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                       isActive
-                        ? department === "ap"
-                          ? "bg-violet-500/15 text-violet-400"
-                          : department === "reporting"
-                          ? "bg-blue-500/15 text-blue-400"
-                          : department === "batch"
-                          ? "bg-amber-500/15 text-amber-400"
-                          : department === "resources"
-                          ? "bg-pink-500/15 text-pink-300"
-                          : "bg-emerald-500/15 text-emerald-400"
+                        // Brand navy for every module (logo colours), not one hue per module.
+                        ? "bg-blue-500/15 text-blue-400"
                         : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
                     }`}
                   >
@@ -649,7 +642,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                       size={15}
                       strokeWidth={isActive ? 2.25 : 2}
                       className={isActive
-                        ? department === "ap" ? "text-violet-400" : department === "reporting" ? "text-blue-400" : department === "batch" ? "text-amber-400" : department === "resources" ? "text-pink-300" : "text-emerald-400"
+                        ? "text-blue-400"
                         : "text-stone-500"}
                     />
                     <span className="flex-1">{item.label}</span>
@@ -659,7 +652,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                           (item as any).urgent
                             ? "bg-rose-500 text-white"
                             : isActive
-                              ? department === "ap" ? "bg-violet-500/20 text-violet-400" : "bg-emerald-500/20 text-emerald-400"
+                              ? "bg-blue-500/20 text-blue-400"
                               : "bg-stone-800 text-stone-400"
                         }`}
                       >
@@ -719,7 +712,13 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
   const openNow = () => {
     if (timer.current) clearTimeout(timer.current);
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ left: Math.round(r.right + 6), top: Math.round(r.top) });
+    if (r) {
+      // Keep the whole panel on screen: near the bottom of the sidebar it
+      // opens upward instead of running off the window (Setup was cut off).
+      const estHeight = 40 + items.length * 32;
+      const top = Math.max(8, Math.min(Math.round(r.top), window.innerHeight - estHeight - 8));
+      setPos({ left: Math.round(r.right + 6), top });
+    }
     // The panel is portaled to <body>, outside the themed app shell — carry the
     // active theme across so it isn't stuck on the default (dark) tokens.
     setTheme(document.querySelector("[data-theme]")?.getAttribute("data-theme") ?? "");
@@ -739,15 +738,15 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
       {open && pos && typeof document !== "undefined" && createPortal(
         <div data-theme={theme || undefined}>
           <div style={{ position: "fixed", left: pos.left, top: pos.top }} onMouseEnter={openNow} onMouseLeave={closeSoon}
-            className="z-[60] bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-2 min-w-[220px]">
+            className="z-[60] bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-2 min-w-[220px] max-h-[calc(100vh-16px)] overflow-y-auto">
             <div className="px-3 pb-1.5 text-[10px] font-semibold text-stone-500 uppercase tracking-widest">{label}</div>
             {items.map(item => {
               const Ic = item.icon;
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <Link key={item.href} href={item.href} onClick={() => { setOpen(false); onNavigate(); }}
-                  className={`flex items-center gap-2.5 px-3 py-1.5 text-[13px] font-medium transition-colors ${isActive ? "bg-emerald-500/15 text-emerald-400" : "text-stone-300 hover:bg-stone-800 hover:text-white"}`}>
-                  <Ic size={15} className={isActive ? "text-emerald-400" : "text-stone-500"} />
+                  className={`flex items-center gap-2.5 px-3 py-1.5 text-[13px] font-medium transition-colors ${isActive ? "bg-blue-500/15 text-blue-400" : "text-stone-300 hover:bg-stone-800 hover:text-white"}`}>
+                  <Ic size={15} className={isActive ? "text-blue-400" : "text-stone-500"} />
                   {item.label}
                 </Link>
               );
