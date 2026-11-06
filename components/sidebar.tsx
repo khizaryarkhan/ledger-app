@@ -498,14 +498,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // Workspace switcher entries — literal Tailwind classes (never build at runtime).
   const reportingEnabled = !!orgSettings?.reportingEnabled;
   const WORKSPACES = [
-    ...(on("receivables") ? [{ key: "ar", label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/my-dashboard", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
-    ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-blue-500/15 text-blue-400", dot: "bg-orange-400" }] : []),
+    ...(on("receivables") ? [{ key: "ar", label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/my-dashboard", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(on("pax_console") ? [{ key: "pax", label: "PAX Console", Icon: Sparkles, href: "/pax-console", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
+    ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-primary-ink/10 text-primary-ink", dot: "bg-brand-orange" }] : []),
   ];
   const currentWs = WORKSPACES.find(w => w.key === department) ?? WORKSPACES[0]
     ?? { key: "none", label: "No modules", Icon: Shield, href: "/settings", active: "bg-stone-800 text-stone-400", dot: "bg-stone-500" };
@@ -516,15 +516,15 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   return (
     <aside
       className={[
-        "bg-stone-950 border-r border-stone-800 flex flex-col h-screen overflow-hidden",
+        "bg-nav border-r border-stone-800 flex flex-col h-screen overflow-hidden",
         "fixed inset-y-0 left-0 z-50",
-        // Mobile: always w-60, transform controls visibility
-        "w-60",
+        // Mobile: always w-64, transform controls visibility
+        "w-64",
         isOpen ? "translate-x-0 shadow-2xl shadow-black/60 transition-transform duration-200" : "-translate-x-full transition-transform duration-200",
         // Desktop: sticky, width transitions on collapse
         collapsed
           ? "md:sticky md:top-0 md:translate-x-0 md:shadow-none md:w-0 md:min-w-0 md:border-r-0 md:transition-[width] md:duration-200 md:ease-in-out"
-          : "md:sticky md:top-0 md:translate-x-0 md:shadow-none md:w-60 md:transition-[width] md:duration-200 md:ease-in-out",
+          : "md:sticky md:top-0 md:translate-x-0 md:shadow-none md:w-64 md:transition-[width] md:duration-200 md:ease-in-out",
       ].join(" ")}
     >
       {/* Logo */}
@@ -537,13 +537,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
               className="h-8 w-auto object-contain"
             />
           ) : (
-            <div className="flex items-start gap-2">
-              <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shrink-0 mt-0.5">
-                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-              </div>
-              <span className="text-[13px] font-semibold text-white tracking-tight leading-snug">
+            <div className="flex items-center gap-2.5">
+              <BrandMark className="w-7 h-7 shrink-0" />
+              <span className="text-[15px] font-semibold text-white tracking-tight leading-snug">
                 {orgSettings?.displayName || orgSettings?.name || "Prime Accountax"}
               </span>
             </div>
@@ -564,8 +560,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
           onClick={() => setWsOpen(o => !o)}
           className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md border border-stone-700 hover:bg-stone-800 transition-colors"
         >
-          <span className={`flex items-center gap-2 text-[12px] font-semibold rounded px-1.5 py-0.5 ${currentWs.active}`}>
-            <currentWs.Icon size={13} />
+          <span className={`flex items-center gap-2 text-[13px] font-semibold rounded px-1.5 py-0.5 ${currentWs.active}`}>
+            <currentWs.Icon size={15} />
             {currentWs.label}
           </span>
           <ChevronDown size={13} className={`text-stone-500 transition-transform ${wsOpen ? "rotate-180" : ""}`} />
@@ -578,11 +574,11 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                 <button
                   key={w.key}
                   onClick={() => { router.push(w.href); setWsOpen(false); onClose?.(); }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-left transition-colors ${
-                    w.key === department ? w.active : "text-stone-400 hover:bg-stone-800 hover:text-stone-200"
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-left transition-colors ${
+                    w.key === department ? w.active : "text-stone-200 hover:bg-stone-800 hover:text-stone-50"
                   }`}
                 >
-                  <w.Icon size={13} />
+                  <w.Icon size={15} />
                   {w.label}
                   {w.key === department && <Check size={12} className="ml-auto" />}
                 </button>
@@ -601,13 +597,11 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
               return <FlyoutGroup key={si} label={sec.label ?? ""} Icon={SecIcon} items={sec.items} onNavigate={() => onClose?.()} />;
             }
             return (
-            <div key={si} className={department === "resources" && si > 0 ? "mb-3 pt-3 border-t border-stone-800/80" : "mb-4"}>
+            <div key={si} className={si > 0 ? "mb-3 pt-3 border-t border-stone-800" : "mb-3"}>
               {sec.label && (
-                // Resources reads like the EDC portal: accent, upper-case group
-                // headings with a rule between groups. Literal classes only.
-                <div className={department === "resources"
-                  ? "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-orange-400 tracking-widest"
-                  : "px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-orange-400 tracking-widest"}>
+                // Brand orange, upper-case group headings with a rule between
+                // groups — the same in every module. Literal classes only.
+                <div className="px-3 mb-1.5 text-[11px] font-bold uppercase text-brand-orange tracking-wider">
                   {sec.label}
                 </div>
               )}
@@ -631,19 +625,20 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                     key={`${item.href}-${item.label}`}
                     href={item.href}
                     onClick={onClose}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
+                    className={`relative w-full flex items-center gap-3 px-3 py-2 rounded-md text-[15px] transition-colors mb-0.5 ${
                       isActive
-                        // Brand navy for every module (logo colours), not one hue per module.
-                        ? "bg-blue-500/15 text-blue-400"
-                        : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
+                        // Brand: navy text on a navy tint, with an orange marker
+                        // on the left edge — the same in every module.
+                        ? "bg-primary-ink/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange"
+                        : "text-stone-200 font-medium hover:bg-stone-900 hover:text-stone-50"
                     }`}
                   >
                     <Icon
-                      size={15}
-                      strokeWidth={isActive ? 2.25 : 2}
+                      size={17}
+                      strokeWidth={isActive ? 2.25 : 1.9}
                       className={isActive
-                        ? "text-blue-400"
-                        : "text-stone-500"}
+                        ? "text-primary-ink"
+                        : "text-stone-400"}
                     />
                     <span className="flex-1">{item.label}</span>
                     {item.count != null && item.count > 0 && (
@@ -652,7 +647,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                           (item as any).urgent
                             ? "bg-rose-500 text-white"
                             : isActive
-                              ? "bg-blue-500/20 text-blue-400"
+                              ? "bg-primary-ink/15 text-primary-ink"
                               : "bg-stone-800 text-stone-400"
                         }`}
                       >
@@ -670,12 +665,12 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
 
       <div className="p-3 border-t border-stone-800">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-900 flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
+          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-[12px] font-semibold shrink-0">
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-white truncate">{userName}</div>
-            <div className="text-[10px] text-stone-500 truncate">{(session?.user as any)?.role || "User"}</div>
+            <div className="text-[13px] font-semibold text-white truncate">{userName}</div>
+            <div className="text-[11px] text-stone-400 truncate">{(session?.user as any)?.role || "User"}</div>
           </div>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
@@ -687,6 +682,19 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The Prime Accountax mark (navy + orange), drawn as SVG from the logo so it
+ * needs no image file. Shown only when the organisation has no logo of its own.
+ */
+function BrandMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" className={className} aria-hidden="true">
+      <path d="M0 0H86L56 30H30V56L0 86Z" fill="#163A7A" />
+      <path d="M100 14V100H14L44 70H70V44Z" fill="#E46310" />
+    </svg>
   );
 }
 
@@ -728,10 +736,10 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   return (
-    <div className="mb-4" onMouseEnter={openNow} onMouseLeave={closeSoon}>
+    <div className="mb-3 pt-3 border-t border-stone-800" onMouseEnter={openNow} onMouseLeave={closeSoon}>
       <button ref={btnRef} onClick={openNow}
-        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-semibold transition-colors ${active || open ? "bg-stone-800/70 text-stone-100" : "text-stone-300 hover:bg-stone-800/70 hover:text-stone-100"}`}>
-        <Icon size={15} strokeWidth={2} className="text-stone-400" />
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-[15px] font-semibold transition-colors ${active ? "bg-primary-ink/10 text-primary-ink" : open ? "bg-stone-900 text-stone-50" : "text-stone-200 hover:bg-stone-900 hover:text-stone-50"}`}>
+        <Icon size={17} strokeWidth={2} className={active ? "text-primary-ink" : "text-stone-400"} />
         <span className="flex-1 text-left">{label}</span>
         <ChevronRight size={13} className="text-stone-500" />
       </button>
@@ -739,14 +747,14 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
         <div data-theme={theme || undefined}>
           <div style={{ position: "fixed", left: pos.left, top: pos.top }} onMouseEnter={openNow} onMouseLeave={closeSoon}
             className="z-[60] bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-2 min-w-[220px] max-h-[calc(100vh-16px)] overflow-y-auto">
-            <div className="px-3 pb-1.5 text-[10px] font-semibold text-stone-500 uppercase tracking-widest">{label}</div>
+            <div className="px-3 pb-1.5 text-[11px] font-bold text-brand-orange uppercase tracking-wider">{label}</div>
             {items.map(item => {
               const Ic = item.icon;
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <Link key={item.href} href={item.href} onClick={() => { setOpen(false); onNavigate(); }}
-                  className={`flex items-center gap-2.5 px-3 py-1.5 text-[13px] font-medium transition-colors ${isActive ? "bg-blue-500/15 text-blue-400" : "text-stone-300 hover:bg-stone-800 hover:text-white"}`}>
-                  <Ic size={15} className={isActive ? "text-blue-400" : "text-stone-500"} />
+                  className={`flex items-center gap-3 px-3 py-2 text-[15px] transition-colors ${isActive ? "bg-primary-ink/10 text-primary-ink font-semibold" : "text-stone-200 font-medium hover:bg-stone-800 hover:text-stone-50"}`}>
+                  <Ic size={17} className={isActive ? "text-primary-ink" : "text-stone-400"} />
                   {item.label}
                 </Link>
               );

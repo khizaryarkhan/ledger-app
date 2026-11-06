@@ -53,15 +53,15 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
   const unread = me?.unreadNotifications ?? 0;
   const isActive = (href: string) => (href === "/my-time" ? pathname === "/my-time" : pathname.startsWith(href));
-  const linkClass = (href: string) => `w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium mb-0.5 ${
-    isActive(href) ? "bg-pink-500/15 text-pink-300" : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"}`;
+  const linkClass = (href: string) => `relative w-full flex items-center gap-3 px-3 py-2 rounded-md text-[15px] mb-0.5 ${
+    isActive(href) ? "bg-primary-ink/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange" : "text-stone-200 font-medium hover:bg-stone-900 hover:text-stone-50"}`;
 
   return (
     <div className="h-screen bg-stone-950 text-stone-100 flex flex-col md:flex-row">
-      <aside className="md:w-56 md:h-screen md:border-r border-b md:border-b-0 border-stone-800 bg-stone-950 flex-shrink-0 flex flex-col">
+      <aside className="md:w-64 md:h-screen md:border-r border-b md:border-b-0 border-stone-800 bg-nav flex-shrink-0 flex flex-col">
         <div className="px-4 py-3 border-b border-stone-800 flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-semibold text-white tracking-tight truncate">{me?.orgName || "Timesheet"}</div>
+            <div className="text-[15px] font-semibold text-white tracking-tight truncate">{me?.orgName || "Timesheet"}</div>
             {me?.resource && (
               <div className="text-[11px] text-stone-400 truncate">{me.resource.name}{me.resource.designationName ? ` · ${me.resource.designationName}` : ""}</div>
             )}
@@ -73,17 +73,17 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav aria-label="Sections" className="flex-1 overflow-y-auto py-3 px-2 flex md:block gap-4 overflow-x-auto">
           {sections.map((sec, si) => (
-            <div key={sec.label} className={si > 0 ? "md:mb-3 md:pt-3 md:border-t border-stone-800/80 shrink-0" : "md:mb-3 shrink-0"}>
-              <div className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-pink-400 tracking-widest">{sec.label}</div>
+            <div key={sec.label} className={si > 0 ? "md:mb-3 md:pt-3 md:border-t border-stone-800 shrink-0" : "md:mb-3 shrink-0"}>
+              <div className="px-3 mb-1.5 text-[11px] font-bold uppercase text-brand-orange tracking-wider">{sec.label}</div>
               {sec.items.map((i) => {
                 const Icon = RESOURCE_NAV_ICONS[i.icon];
                 const active = isActive(i.href);
                 return (
                   <Link key={i.href} href={i.href} className={linkClass(i.href)}>
-                    <Icon size={15} strokeWidth={active ? 2.25 : 2} className={active ? "text-pink-300" : "text-stone-500"} />
+                    <Icon size={17} strokeWidth={active ? 2.25 : 1.9} className={active ? "text-primary-ink" : "text-stone-400"} />
                     <span className="flex-1 whitespace-nowrap">{i.label}</span>
                     {i.icon === "notifications" && unread > 0 && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300">{unread}</span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary-ink/15 text-primary-ink">{unread}</span>
                     )}
                   </Link>
                 );

@@ -41,7 +41,7 @@ export function ResourceBoard() {
     <div className="p-6 max-w-6xl">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center"><CalendarClock size={18} className="text-pink-400" /></div>
+          <div className="w-9 h-9 rounded-lg bg-primary-ink/10 flex items-center justify-center"><CalendarClock size={18} className="text-primary-ink" /></div>
           <h1 className="text-[20px] font-semibold text-stone-100">Resource Board</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -84,7 +84,7 @@ export function ResourceBoard() {
                       <td key={dstr} className="px-1.5 py-2 align-top">
                         <div className="space-y-1">
                           {onDay.map((a: any) => (
-                            <div key={a.id} className={`text-[10.5px] rounded px-1.5 py-1 border ${a.status === "cancelled" ? "border-stone-800 text-stone-600 line-through" : "border-pink-800/40 bg-pink-500/10 text-pink-300"}`}>
+                            <div key={a.id} className={`text-[10.5px] rounded px-1.5 py-1 border ${a.status === "cancelled" ? "border-stone-800 text-stone-600 line-through" : "border-primary-ink/30 bg-primary-ink/10 text-primary-ink"}`}>
                               {ASSIGNABLE_LABEL[a.assignableType] ?? a.assignableType} · {a.allocationPercent}%
                             </div>
                           ))}

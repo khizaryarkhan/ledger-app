@@ -37,7 +37,12 @@ module.exports = {
         // and focus outline. Theme-aware: logo navy on Light, a brighter navy
         // on Dark so a filled button still reads on near-black. Green stays
         // for MEANING (paid, success, positive figures), never for "click me".
-        primary: { DEFAULT: v('primary'), hover: v('primary-hover') },
+        // `ink` is the navy for TEXT (active nav item): logo navy on Light, a
+        // light navy on Dark — the fill colour above is too dark to read as text.
+        primary: { DEFAULT: v('primary'), hover: v('primary-hover'), ink: v('primary-ink') },
+        // Sidebar surface: pure white on Light so the nav reads crisp against
+        // the off-white page, instead of melting into it.
+        nav: v('nav-bg'),
         white: v('c-white'),
         stone: {
           50: v('st-50'), 100: v('st-100'), 200: v('st-200'), 300: v('st-300'),

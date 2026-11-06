@@ -153,10 +153,10 @@ export function NotificationsFeed({ shell }: { shell: ReportShellKind }) {
               return (
                 <li key={key} className={unread ? "bg-stone-900/60" : ""}>
                   <button onClick={() => openItem(i)} className="w-full text-left px-4 py-3 flex items-start gap-3">
-                    <Icon size={15} className={`mt-0.5 shrink-0 ${unread ? "text-pink-300" : "text-stone-500"}`} />
+                    <Icon size={15} className={`mt-0.5 shrink-0 ${unread ? "text-primary-ink" : "text-stone-500"}`} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        {unread && <span className="h-1.5 w-1.5 rounded-full bg-pink-400 shrink-0" aria-label="Unread" />}
+                        {unread && <span className="h-1.5 w-1.5 rounded-full bg-brand-orange shrink-0" aria-label="Unread" />}
                         <span className={`text-[13px] truncate ${unread ? "text-stone-100 font-medium" : "text-stone-300"}`}>{i.title}</span>
                         {i.type === "announcement" && <span className="text-[10px] uppercase tracking-wider text-stone-500 shrink-0">Announcement</span>}
                       </div>
@@ -172,7 +172,7 @@ export function NotificationsFeed({ shell }: { shell: ReportShellKind }) {
                   </button>
                   {href && expanded && (
                     <div className="px-11 pb-3 -mt-1">
-                      <Link href={href} className="text-[12px] text-pink-300 hover:text-pink-200 inline-flex items-center gap-1">Open <ArrowRight size={12} /></Link>
+                      <Link href={href} className="text-[12px] text-primary-ink hover:underline inline-flex items-center gap-1">Open <ArrowRight size={12} /></Link>
                     </div>
                   )}
                 </li>
@@ -226,7 +226,7 @@ function ManageAnnouncements({ onEdit, onChanged }: { onEdit: (r: AdminRow) => v
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-b border-stone-800/60">
-                <td className="px-3 py-2 text-stone-100">{r.pinned && <Pin size={11} className="inline mr-1 text-pink-300" />}{r.title}</td>
+                <td className="px-3 py-2 text-stone-100">{r.pinned && <Pin size={11} className="inline mr-1 text-primary-ink" />}{r.title}</td>
                 <td className="px-3 py-2 text-stone-400">{when(r.publishedAt)}{r.authorName ? ` · ${r.authorName}` : ""}</td>
                 <td className="px-3 py-2 text-stone-400">{r.expiresOn ? formatDateShort(r.expiresOn) : "Until removed"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-stone-300">{r.readCount}</td>
