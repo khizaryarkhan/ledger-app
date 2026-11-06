@@ -216,6 +216,9 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
 // requireOrg() can enforce API_OWNERS without each route naming its module.
 // Lives here, not in modules-server.ts, because middleware runs on the Edge.
 export const APP_PATH_HEADER = "x-app-path";
+// Same rule for the HTTP method, so a custom role with "view" access can refuse
+// writes in requireOrg(). Set by middleware alongside x-app-path, never trusted from the client.
+export const APP_METHOD_HEADER = "x-app-method";
 
 /** The module that owns a page, or null when the page is shared / unowned. */
 export function moduleForPage(pathname: string): ModuleKey | null {

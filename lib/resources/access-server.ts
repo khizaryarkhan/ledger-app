@@ -10,13 +10,14 @@ import { db } from "@/db";
 import { resources, resourceDesignations, projects, resourceAssignments, timeEntries } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { buildActor, type Actor, type PersonNode } from "./access";
+import { memberRole } from "@/lib/roles-server";
 
 export interface Person extends PersonNode {
   name: string;
   userId: string | null;
   designationId: string | null;
   designationName: string | null;
-  accessLevel: "self" | "team" | "all";
+  accessLevel: "self" | "team" | "department" | "all";
   department: string | null;
   status: string;
 }
@@ -41,7 +42,7 @@ export async function loadPeople(orgId: string): Promise<Person[]> {
   // A deactivated designation grants nothing: its holders fall back to "self".
   return rows.map(({ designationStatus, ...r }) => ({
     ...r,
-    accessLevel: designationStatus === "active" && (r.accessLevel === "team" || r.accessLevel === "all") ? r.accessLevel : "self",
+    accessLevel: designationStatus === "active" && (r.accessLevel === "team" || r.accessLevel === "department" || r.accessLevel === "all") ? r.accessLevel : "self",
   }));
 }
 
@@ -93,7 +94,11 @@ export async function resolveActor(
   // that forgot to ask would silently show a lead less than they may see,
   // and a scope that changes with the caller is worse than one extra query.
   const ledPeopleIds = me ? await ledPeopleFor(orgId, me.id) : undefined;
-  const actor = buildActor(orgRole, me?.id ?? null, me?.accessLevel ?? null, {
+  // A custom role (Settings → Roles) sets whose people this person sees;
+  // without one, the designation decides, as before.
+  const custom = userId ? await memberRole(orgId, userId).catch(() => null) : null;
+  const level = custom ? custom.peopleScope : me?.accessLevel ?? null;
+  const actor = buildActor(orgRole, me?.id ?? null, level, {
     department: me?.department ?? null,
     ledPeopleIds,
   });

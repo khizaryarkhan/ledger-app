@@ -5,7 +5,9 @@ import { db } from "@/db";
 import { userOrganisations, reps, users, organisations, orgGroupUsers } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { bearerTokenFrom, verifyMobileToken, type MobileAccessClaims } from "@/lib/mobile-auth";
-import { APP_PATH_HEADER, MODULES, hasModule, moduleForApi } from "@/lib/modules";
+import { APP_METHOD_HEADER, APP_PATH_HEADER, MODULES, hasModule, moduleForApi } from "@/lib/modules";
+import { canWriteShared, isWriteMethod, roleAllows } from "@/lib/roles";
+import { loadOrgRole } from "@/lib/roles-server";
 
 // Resolves the caller's session: the web app's NextAuth cookie session, or —
 // when there is none — a mobile bearer token from the Authorization header.
@@ -103,6 +105,7 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
 
   let orgId: string | null = null;
   let orgRole: string | null = null;
+  let customRoleId: string | null = null;
 
   // STEP 3: Validate membership for the requested org.
   // Super admin: can access any org if cookie is set, otherwise their default
@@ -112,19 +115,19 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
   } else {
     // Try cookie first
     if (activeOrgCookie) {
-      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
+      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role, roleId: userOrganisations.roleId })
         .from(userOrganisations)
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, activeOrgCookie)))
         .limit(1);
-      if (m) { orgId = m.orgId; orgRole = m.role; }
+      if (m) { orgId = m.orgId; orgRole = m.role; customRoleId = m.roleId ?? null; }
     }
     // Try the JWT primary org — but ONLY if user still has a junction-table membership for it
     if (!orgId && userRow.orgId) {
-      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
+      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role, roleId: userOrganisations.roleId })
         .from(userOrganisations)
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, userRow.orgId)))
         .limit(1);
-      if (m) { orgId = m.orgId; orgRole = m.role; }
+      if (m) { orgId = m.orgId; orgRole = m.role; customRoleId = m.roleId ?? null; }
     }
     // Final fallback: ANY org the user is a member of. Without this, a user
     // linked to an org purely via user_organisations (e.g. an existing account
@@ -133,12 +136,12 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
     // with "no access to any organisation" despite holding a valid membership.
     // Safe: it only ever resolves an org the user has a real membership row for.
     if (!orgId) {
-      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
+      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role, roleId: userOrganisations.roleId })
         .from(userOrganisations)
         .where(eq(userOrganisations.userId, userId))
         .orderBy(userOrganisations.orgId)
         .limit(1);
-      if (m) { orgId = m.orgId; orgRole = m.role; }
+      if (m) { orgId = m.orgId; orgRole = m.role; customRoleId = m.roleId ?? null; }
     }
   }
 
@@ -172,6 +175,30 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
       .from(organisations).where(eq(organisations.id, orgId)).limit(1);
     if (!hasModule(org?.enabledModules, owner)) {
       return { error: NextResponse.json({ error: `${MODULES[owner].label} is not enabled for this organisation.` }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+    }
+  }
+
+  // STEP 4c: a custom role (Settings → Roles) narrows what the org has bought.
+  // No custom role = the built-in role, exactly as before. Runs for EVERY route,
+  // not only module-owned ones: a shared route (Customers, documents, ledger…)
+  // has no owner, so a view-only role must still be refused a write there.
+  // Self-service routes (allowEmployee: own timesheet) are exempt by design.
+  // The method is stamped by middleware; a missing one counts as a write.
+  if (!isSuperAdmin && customRoleId && !opts.allowEmployee) {
+    const custom = await loadOrgRole(orgId, customRoleId);
+    let method: string | null = null;
+    try { method = headers().get(APP_METHOD_HEADER); } catch { /* not in a request context */ }
+    if (custom) {
+      if (owner && !roleAllows(custom, owner, method)) {
+        const access = custom.modules[owner] ?? "none";
+        const msg = access === "view"
+          ? `Your role (${custom.name}) can view ${MODULES[owner].label} but not change it.`
+          : `Your role (${custom.name}) does not include ${MODULES[owner].label}.`;
+        return { error: NextResponse.json({ error: msg }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+      }
+      if (!owner && isWriteMethod(method) && !canWriteShared(custom)) {
+        return { error: NextResponse.json({ error: `Your role (${custom.name}) is view-only.` }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+      }
     }
   }
 

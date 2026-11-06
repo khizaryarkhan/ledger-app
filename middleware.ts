@@ -1,6 +1,6 @@
 import { auth } from "@/auth.config";
 import { NextResponse } from "next/server";
-import { APP_PATH_HEADER } from "@/lib/modules";
+import { APP_METHOD_HEADER, APP_PATH_HEADER } from "@/lib/modules";
 
 export default auth((req) => {
   const isAuth = !!req.auth;
@@ -115,6 +115,7 @@ export default auth((req) => {
   const withoutPathHeader = () => {
     const h = new Headers(req.headers);
     h.delete(APP_PATH_HEADER);
+    h.delete(APP_METHOD_HEADER);
     return NextResponse.next({ request: { headers: h } });
   };
   if (isCron) return withoutPathHeader();
@@ -144,6 +145,7 @@ export default auth((req) => {
         const headers = new Headers(req.headers);
         headers.set("x-org-subdomain", sub);
         headers.delete(APP_PATH_HEADER);
+        headers.delete(APP_METHOD_HEADER);
         return NextResponse.next({ request: { headers } });
       }
     }
@@ -171,6 +173,7 @@ export default auth((req) => {
   const pass = () => {
     const headers = new Headers(req.headers);
     headers.set(APP_PATH_HEADER, path);
+    headers.set(APP_METHOD_HEADER, req.method);
     return NextResponse.next({ request: { headers } });
   };
 

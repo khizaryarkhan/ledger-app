@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0127` at `when` `1793500000000`;
+  this silently dropped a table in prod once). Latest is `0130` at `when` `1793800000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5401,3 +5401,38 @@ Migration `0129` (three additive tables; **applied to the dev branch only, not p
 A review found `POST /api/invoices/bulk-delete` (and the customer/project equivalents) were proposable: they are plain POSTs that hard-delete rows and never read `ai_deletes_enabled`. A denylist cannot be complete (~73 route files call `db.delete`), so **`checkProposal` now accepts only the routes in `PROPOSABLE` (`lib/pax/policy.ts`)**: promises, disputes, customer responses, an invoice's stage/escalation (and a bulk stage change capped at 50 ids), dispute owner/outcome, logging a communication, tasks, and a customer's auto-reminders. Each is a record of what someone did or agreed, reversible in the app. **Recording a payment, approving/rejecting bills, sending email, deleting and anything in QuickBooks/Xero are deliberately absent** — add a route only with that same test. The destructive-name check (`DESTRUCTIVE_SEGMENT`) stays as a second wall; the apply route re-checks the stored request against the same list.
 - The same review: the card shows the exact stored request first and labels the model's summary as the model's words; `qbo_api` refuses Employee records and redacts personal identifiers (SSN, DOB, tax ids) before the answer reaches a third-party model; a proposal stuck in `running` shows "outcome unknown" after 2 minutes; proposals, rejects and applies are audited (`pax_proposal`, `mcp_write` with summary + body hash).
 - Production has migration 0129 (checked read-only with `db:verify` against `ep-royal-rice`: 175 tables, only the two known `user_organisations` nullability failures).
+
+## People and roles: one person record, admin-defined roles (2026-11-06)
+
+Settings → Team (logins) and Resources → People (staff records) were two lists of the same people. Now
+**every member is one person**: a login (`users` + `user_organisations`) plus a `resources` person row,
+created together (`ensurePersonRecord`, called on every create/attach/role change; migration `0130`
+back-filled every existing member). Every role can submit a timesheet.
+
+- **Roles** (`org_roles`, Settings → Roles, `/api/org/roles`). Researched against QBO Advanced, NetSuite,
+  Dynamics 365, Zoho: ONE role per person per org; a role = per-module access **none / view / edit** +
+  a **people scope** (self / team / department / all). Rules are pure in `lib/roles.ts`.
+- **Every custom role sits on a base type** — `company_user` (Standard), `rep` (Collector, own customers)
+  or `employee` (Timesheet only) — and that base is written to `user_organisations.role`, so the hundreds
+  of existing `company_admin`/`company_user`/`rep`/`employee` checks keep working. **Admin is never a
+  custom base** (`parseRoleInput` refuses it): the role screen cannot mint admins. Editing a role's base
+  re-syncs every holder's membership row.
+- **`role_id` NULL = the built-in role exactly as before**, so deploying 0130 changed nobody's access.
+- **Enforced in `requireOrg()`**, after the org-module gate: a custom role without the route's owning module
+  is refused; "view" refuses any method but GET/HEAD/OPTIONS. The method comes from `x-app-method`, stamped
+  by middleware next to `x-app-path` and stripped on the unstamped cron/public branches — never trusted
+  from the client; a missing method counts as a write (fail closed). Shared `owner: null` routes (Customers,
+  documents, ledger, products…) can be READ by every role but WRITTEN only by a role with edit on at least
+  one module — otherwise view-only would leak through the carve-outs. `allowEmployee` (self-service own
+  timesheet) routes skip the role gate. **Gotcha**: a POST that only reads (search) is refused for view-only.
+- A role can't switch its base to or from Collector while anyone holds it (reps rows/repId are per person);
+  editing a role re-syncs both `user_organisations.role` and the home-org `users.role`.
+- `/api/org/settings` returns `enabledModules` narrowed by the role, so the sidebar, ModuleGate and the
+  Create menu hide what the role can't open. That is display only; requireOrg is the control.
+- A custom role's `peopleScope` overrides the designation in `resolveActor`. Fixed on the way:
+  `loadPeople` collapsed a `department` designation to `self`, so Phase E's department tier never applied.
+- **Guards**: a role cannot name a module the org hasn't bought; a role held by anyone cannot be deleted;
+  nobody can change their own role; demoting, deactivating or deleting the **last active admin** is refused
+  (`wouldRemoveLastAdmin`). `/api/org/roles` is on the MCP deny-list.
+- **Not built**: per-action rights inside a module (approve, post, void, send) beyond view/edit; Resources →
+  People still has its own "Give login" (it creates the same membership, so both lists agree).

@@ -21,6 +21,8 @@ export type EventType =
   | "user_login"               // a user authenticated
   | "user_deactivated"         // a user's access was removed/deactivated
   | "user_role_changed"        // a user's role was changed
+  | "org_role_saved"           // a custom role was created or edited (Settings → Roles)
+  | "org_role_deleted"         // a custom role was deleted
   | "user_password_reset"      // an admin reset a user's password (link or manual)
   | "integration_connected"    // QBO/Xero/Gmail/MS connection established
   | "integration_disconnected" // QBO/Xero/Gmail/MS connection removed

@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3, SunMoon, Coins, CalendarRange, Hash, Bot } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3, SunMoon, Coins, CalendarRange, Hash, Bot, Shield } from "lucide-react";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
@@ -65,6 +65,13 @@ export default function SettingsPage() {
           icon: Users,
           title: "Team",
           description: `${reps?.length ?? 0} rep${(reps?.length ?? 0) !== 1 ? "s" : ""} · ${regions?.length ?? 0} region${(regions?.length ?? 0) !== 1 ? "s" : ""}. Reps, regions, portal logins and classification.`,
+          badge: null,
+        },
+        {
+          href: "/settings/roles",
+          icon: Shield,
+          title: "Roles",
+          description: "Decide what each role can open: modules (none, view or edit) and whose people they see.",
           badge: null,
         },
         {

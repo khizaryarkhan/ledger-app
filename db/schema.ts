@@ -169,8 +169,31 @@ export const userOrganisations = pgTable("user_organisations", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   orgId:  uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   role:   varchar("role", { length: 32 }).notNull().default("company_user"),
+  // The custom role this member holds (org_roles). NULL = their built-in role.
+  // When set, `role` above holds that custom role's base access type, so every
+  // existing company_admin/company_user/rep/employee check keeps working.
+  roleId: uuid("role_id").references((): any => orgRoles.id, { onDelete: "set null" }),
 });
 export type UserOrganisation = typeof userOrganisations.$inferSelect;
+
+// Custom roles an org admin defines (lib/roles.ts is the rule set). Built-in
+// roles are code, not rows. `modules` maps a ModuleKey to "view" | "edit";
+// a module absent from the map is not open to the role.
+export const orgRoles = pgTable("org_roles", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:        varchar("name", { length: 60 }).notNull(),
+  baseRole:    varchar("base_role", { length: 32 }).notNull(),
+  modules:     jsonb("modules").$type<Record<string, string>>().notNull().default({}),
+  peopleScope: varchar("people_scope", { length: 16 }).notNull().default("self"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  // The real guard is org_roles_org_name_unique on (org_id, lower(name)) in
+  // migration 0130 — this drizzle version can't declare an expression index.
+  orgIdx: index("org_roles_org_idx").on(t.orgId),
+}));
+export type OrgRoleRow = typeof orgRoles.$inferSelect;
 
 // =========================================================================
 // USERS

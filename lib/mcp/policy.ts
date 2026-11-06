@@ -35,6 +35,7 @@ export const BLOCKED_PREFIXES: readonly { prefix: string; why: string }[] = [
   { prefix: "/api/health",          why: "health check" },
   { prefix: "/api/org/smtp",        why: "mailbox credentials" },
   { prefix: "/api/org/users",       why: "user, role and password management" },
+  { prefix: "/api/org/roles",       why: "role and permission management" },
   { prefix: "/api/user",            why: "account/session helpers" },
 ];
 

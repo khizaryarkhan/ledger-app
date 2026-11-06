@@ -22,7 +22,13 @@ type TeamUser = {
   repManagerId: string | null;
   status: string;
   createdAt: string;
+  roleId?: string | null;    // custom role (Settings → Roles), if any
+  roleName?: string | null;
+  personId?: string | null;  // the staff record every member has (Resources → People)
+  department?: string | null;
 };
+
+type CustomRole = { id: string; name: string; baseRole: string };
 
 function virtualRole(u: TeamUser): string {
   if (u.role === "rep") return (u.repTier === "ed" || u.repTier === "rd") ? "ed" : "rep";
@@ -34,14 +40,24 @@ const ROLE_LABEL: Record<string, string> = {
   company_user:  "Full Access",
   rep:           "Rep / PM",
   ed:            "ED / RM",
+  employee:      "Employee",
   super_admin:   "Super Admin",
 };
+
+const BUILT_IN_CHOICES = [
+  { v: "company_user", label: "Full Access" },
+  { v: "company_admin", label: "Admin" },
+  { v: "rep", label: "Rep / PM" },
+  { v: "ed",  label: "ED / RM" },
+  { v: "employee", label: "Employee" },
+];
 
 const ROLE_COLOR: Record<string, string> = {
   company_admin: "bg-violet-500/15 text-violet-400 ring-violet-500/30",
   company_user:  "bg-blue-500/15 text-blue-400 ring-blue-500/30",
   rep:           "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30",
   ed:            "bg-orange-500/15 text-orange-400 ring-orange-500/30",
+  employee:      "bg-stone-500/15 text-stone-300 ring-stone-500/30",
   super_admin:   "bg-rose-500/15 text-rose-400 ring-rose-500/30",
 };
 
@@ -94,9 +110,15 @@ export default function TeamSettingsPage() {
       if (res.ok) setMembers(await res.json());
     } finally { setLoadingMembers(false); }
   };
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+  const loadRoles = async () => {
+    const res = await fetch("/api/org/roles");
+    if (res.ok) setCustomRoles(((await res.json()).roles ?? []) as CustomRole[]);
+  };
   useEffect(() => {
     if (isAdmin) {
       loadMembers();
+      loadRoles();
       refresh(); // Sync DataProvider so rep filter dropdowns across the app are up to date
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,9 +136,13 @@ export default function TeamSettingsPage() {
     if (newUser.password.length < 8)      { setCreateError("Password must be 8+ characters"); return; }
     setAddingUser(true);
     try {
+      // "custom:<id>" in the picker = a custom role; the server takes its base type.
+      const payload = newUser.role.startsWith("custom:")
+        ? { ...newUser, role: "company_user", roleId: newUser.role.slice(7) }
+        : newUser;
       const res  = await fetch("/api/org/users", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { setCreateError(data?.error || "Failed to create user"); return; }
@@ -132,21 +158,32 @@ export default function TeamSettingsPage() {
   const [roleSaving,    setRoleSaving]    = useState<string | null>(null);
   const [managerSaving, setManagerSaving] = useState<string | null>(null);
 
+  const [roleError, setRoleError] = useState<{ id: string; text: string } | null>(null);
   const toggleStatus = async (m: TeamUser) => {
-    await fetch("/api/org/users", {
+    const res = await fetch("/api/org/users", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: m.id, status: m.status === "Active" ? "Inactive" : "Active" }),
     });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setRoleError({ id: m.id, text: d?.error || "Could not change the status" });
+    }
     await loadMembers();
   };
 
-  const changeRole = async (m: TeamUser, newVirtualRole: string) => {
+  const changeRole = async (m: TeamUser, newVirtualRole: string, roleId?: string) => {
     setRoleSaving(m.id);
+    setRoleError(null);
     try {
-      await fetch("/api/org/users", {
+      const res = await fetch("/api/org/users", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: m.id, role: newVirtualRole }),
+        body: JSON.stringify(roleId ? { userId: m.id, roleId } : { userId: m.id, role: newVirtualRole }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setRoleError({ id: m.id, text: d?.error || "Could not change the role" });
+        return;
+      }
       await loadMembers();
       // Refresh DataProvider when a user gains or loses a rep/ed role
       const prevVRole = virtualRole(m);
@@ -156,7 +193,11 @@ export default function TeamSettingsPage() {
   };
 
   const deleteUser = async (userId: string) => {
-    await fetch(`/api/org/users?userId=${userId}`, { method: "DELETE" });
+    const res = await fetch(`/api/org/users?userId=${userId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setRoleError({ id: userId, text: d?.error || "Could not remove the user" });
+    }
     setConfirmDelete(null);
     await loadMembers();
   };
@@ -244,7 +285,10 @@ export default function TeamSettingsPage() {
           <ChevronLeft size={14} /> Settings
         </Link>
         <h1 className="text-2xl font-semibold text-white tracking-tight">Team</h1>
-        <p className="text-sm text-stone-400 mt-1">Manage users, access levels, regions and countries.</p>
+        <p className="text-sm text-stone-400 mt-1">
+          Everyone here is one person: their login, their staff record and their timesheets.
+          {isAdmin && <> Decide what each role can open in <Link href="/settings/roles" className="text-stone-200 underline underline-offset-2">Roles</Link>.</>}
+        </p>
       </div>
 
       {/* ── Role overview ──────────────────────────────────────────────────────── */}
@@ -317,31 +361,42 @@ export default function TeamSettingsPage() {
                           trigger={
                             <button
                               className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 cursor-pointer ${ROLE_COLOR[vRole] || "bg-stone-100 text-stone-600 ring-stone-200"} ${roleSaving === m.id ? "opacity-50 pointer-events-none" : ""}`}>
-                              {ROLE_LABEL[vRole] || vRole}
+                              {m.roleName || ROLE_LABEL[vRole] || vRole}
                               <ChevronDown size={9} />
                             </button>
                           }>
-                          {[
-                            { v: "company_user", label: "Full Access" },
-                            { v: "company_admin", label: "Admin" },
-                            { v: "rep", label: "Rep / PM" },
-                            { v: "ed",  label: "ED / RM" },
-                          ].map(({ v, label }) => (
+                          {BUILT_IN_CHOICES.map(({ v, label }) => (
                             <button key={v} onClick={() => changeRole(m, v)}
-                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-800 transition-colors ${vRole === v ? "font-semibold text-white" : "text-stone-400"}`}>
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-800 transition-colors ${!m.roleId && vRole === v ? "font-semibold text-white" : "text-stone-400"}`}>
                               {label}
+                            </button>
+                          ))}
+                          {customRoles.length > 0 && (
+                            <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-stone-500 border-t border-stone-800 mt-1">Your roles</div>
+                          )}
+                          {customRoles.map((r) => (
+                            <button key={r.id} onClick={() => changeRole(m, r.baseRole, r.id)}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-800 transition-colors ${m.roleId === r.id ? "font-semibold text-white" : "text-stone-400"}`}>
+                              {r.name}
                             </button>
                           ))}
                         </PopoverMenu>
                       ) : (
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ${ROLE_COLOR[vRole] || "bg-stone-100 text-stone-600 ring-stone-200"}`}>
-                          {ROLE_LABEL[vRole] || vRole}
+                          {m.roleName || ROLE_LABEL[vRole] || vRole}
                         </span>
                       )}
 
                       {!isActive && <span className="text-[10px] text-stone-400 italic">Inactive</span>}
                     </div>
-                    <div className="text-[11px] text-stone-500">{m.email}</div>
+                    <div className="text-[11px] text-stone-500">
+                      {m.email}
+                      {m.department && <span> · {m.department}</span>}
+                      {m.personId && (
+                        <Link href="/resources/people" className="ml-1.5 text-stone-400 hover:text-stone-200 underline-offset-2 hover:underline">Staff record</Link>
+                      )}
+                    </div>
+                    {roleError?.id === m.id && <div className="text-[11px] text-rose-400 mt-0.5">{roleError.text}</div>}
                   </div>
 
                   {canEdit && (
@@ -477,6 +532,12 @@ export default function TeamSettingsPage() {
                 <option value="company_admin">Admin</option>
                 <option value="rep">Rep / PM</option>
                 <option value="ed">ED / RM</option>
+                <option value="employee">Employee</option>
+                {customRoles.length > 0 && (
+                  <optgroup label="Your roles">
+                    {customRoles.map((r) => <option key={r.id} value={`custom:${r.id}`}>{r.name}</option>)}
+                  </optgroup>
+                )}
               </select>
             </div>
             {createError && (

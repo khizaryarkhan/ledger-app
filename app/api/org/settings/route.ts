@@ -4,6 +4,8 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import { DEFAULT_STAGES, ensureLockedStages, Stage } from "@/lib/stages";
 import { CURRENCY_CODES } from "@/lib/accounting/currencies";
+import { visibleModules } from "@/lib/roles";
+import { memberRole } from "@/lib/roles-server";
 
 /**
  * Company details printed on outbound documents. One list drives the select,
@@ -31,8 +33,11 @@ function getStages(org: any): Stage[] {
 }
 
 export async function GET() {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
+  // A custom role narrows the modules this viewer sees (sidebar, page gate, Create menu).
+  const userId = (session?.user as any)?.id as string | undefined;
+  const customRole = userId ? await memberRole(orgId!, userId).catch(() => null) : null;
 
   // Try full select including cron-state columns (added in migration 0003).
   // If those columns don't exist yet in the DB, fall back to a select without them
@@ -114,7 +119,8 @@ export async function GET() {
     reportingEnabled: org?.reportingEnabled ?? false,
     multicurrencyEnabled: org?.multicurrencyEnabled ?? false,
     fiscalYearStartMonth: org?.fiscalYearStartMonth ?? 1,
-    enabledModules: (org?.enabledModules as string[]) ?? ["receivables", "payables", "studio", "accounting"],
+    enabledModules: visibleModules((org?.enabledModules as string[]) ?? ["receivables", "payables", "studio", "accounting"], customRole),
+    role: customRole ? { id: customRole.id, name: customRole.name, modules: customRole.modules } : null,
   });
 }
 
