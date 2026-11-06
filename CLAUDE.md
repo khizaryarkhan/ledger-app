@@ -5489,3 +5489,10 @@ Asked for so reports can be built while seeing exactly what a user sees. `lib/im
   in the app shell and employee portal. Audit: `impersonation_started` on the target org. Stop is not audited
   (it runs inside NextAuth's update). Tickets have no jti: replayable for 2 minutes by the SAME admin for the
   SAME target and org only. The rep portal has no banner yet.
+- **Opened to Company Admins (same day)**: the route moved to `POST /api/org/impersonate` (`/api/admin/*` is
+  middleware-restricted to platform admins, so a company admin could never have reached it). Rule, one place:
+  `mayImpersonate()` — a super admin may sign in as anyone but a platform admin; a **company admin** only as a
+  non-admin member of **their own** org. The org is always `requireOrg()`'s active org, never a request value.
+  The jwt callback re-reads the ACTOR's global and org role from the DB (`actorRoles`) before switching, so a
+  demoted admin's stale token cannot start one. Buttons: Settings → Team and Resources → People (Login column).
+  `/api/org/impersonate` is on the MCP deny-list.

@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { users, userOrganisations } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import {
-  verifyTicket, startImpersonation, stopImpersonation, isExpired, type Identity,
+  verifyTicket, startImpersonation, stopImpersonation, isExpired, mayImpersonate, type Identity,
 } from "@/lib/impersonation";
 
 /**
@@ -20,6 +20,15 @@ async function withCurrentRole(tok: Record<string, any>): Promise<Record<string,
     if (!u || u.status !== "Active") return { ...tok, role: "inactive" };
     return { ...tok, role: u.role };
   } catch { return tok; }
+}
+
+/** The actor's CURRENT roles — global and in the ticket's org — for mayImpersonate(). */
+async function actorRoles(userId: string, orgId: string): Promise<{ globalRole: string | null; orgRole: string | null } | null> {
+  const [u] = await db.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!u || u.status !== "Active") return null;
+  const [m] = await db.select({ role: userOrganisations.role }).from(userOrganisations)
+    .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId))).limit(1);
+  return { globalRole: u.role, orgRole: m?.role ?? null };
 }
 
 /** The account to sign in as: active, a member of the ticket's org, never an admin of the platform. */
@@ -79,8 +88,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       if (trigger === "update" && (session as any)?.impersonationTicket) {
         const ticket = verifyTicket((session as any).impersonationTicket);
-        const target = ticket ? await impersonationTarget(ticket.as, ticket.orgId) : null;
-        return startImpersonation(token as any, ticket, target) as any;
+        const target = ticket && ticket.by === (token as any).id ? await impersonationTarget(ticket.as, ticket.orgId) : null;
+        const actor = target ? await actorRoles((token as any).id, ticket!.orgId) : null;
+        return startImpersonation(token as any, ticket, target, mayImpersonate(actor, target?.role ?? null)) as any;
       }
       if (isExpired(token as any)) return await withCurrentRole(stopImpersonation(token as any)) as any;
       return token;

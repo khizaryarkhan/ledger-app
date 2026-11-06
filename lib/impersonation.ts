@@ -1,15 +1,16 @@
 /**
- * "Sign in as" for super admins — see what a user sees, without being them.
+ * "Sign in as" for super admins and company admins — see what a user sees,
+ * without being them. Who may sign in as whom: mayImpersonate().
  *
  * How it stays safe:
- *  1. A TICKET is minted only by POST /api/admin/impersonate, after a
- *     DB-revalidated super-admin check (requireSuperAdmin) and target checks.
+ *  1. A TICKET is minted only by POST /api/org/impersonate, after requireOrg()
+ *     (DB-validated membership and role) and the same mayImpersonate() rule.
  *     It is HMAC-signed with AUTH_SECRET, names who (`by`), whom (`as`) and
  *     where (`orgId`), and expires in 2 minutes. The browser cannot forge one.
  *  2. The NextAuth jwt callback (lib/auth.ts) turns a ticket into an
  *     impersonated token only when the ticket is valid AND `by` is the token's
- *     own user AND that user is a super admin AND they are not already
- *     impersonating. The original identity is kept inside the (encrypted)
+ *     own user AND mayImpersonate() holds on roles re-read from the DB AND
+ *     they are not already impersonating. The original identity is kept inside the (encrypted)
  *     token, so "stop" needs no ticket: it can only ever go back to it.
  *  3. READ-ONLY: middleware refuses every non-GET/HEAD/OPTIONS API call while
  *     the token is impersonating (except NextAuth's own /api/auth/*, which is
@@ -64,11 +65,24 @@ const identityOf = (t: Tok): Identity => ({
   id: t.id, role: t.role, orgId: t.orgId ?? null, repId: t.repId ?? null, name: t.name ?? null, email: t.email ?? null,
 });
 
+/**
+ * Who may sign in as whom (re-checked from the DATABASE at switch time, not the token):
+ *  - a super admin: anyone in the org except a super/platform admin;
+ *  - a company admin of THAT org: anyone there except another admin.
+ * `actor` is the actor's current global role and their role in the ticket's org.
+ */
+export function mayImpersonate(actor: { globalRole: string | null; orgRole: string | null } | null, targetOrgRole: string | null): boolean {
+  if (!actor) return false;
+  if (actor.globalRole === "super_admin") return true;
+  if (actor.orgRole === "company_admin") return targetOrgRole !== "company_admin" && targetOrgRole !== "super_admin";
+  return false;
+}
+
 /** Apply a verified ticket to a token. Returns the token unchanged if any rule fails. */
-export function startImpersonation(token: Tok, ticket: Ticket | null, target: Identity | null, now = Date.now()): Tok {
+export function startImpersonation(token: Tok, ticket: Ticket | null, target: Identity | null, actorAllowed: boolean, now = Date.now()): Tok {
   if (!ticket || !target) return token;
   if (token.imp) return token;                 // no chains: stop first
-  if (token.role !== "super_admin") return token;
+  if (!actorAllowed) return token;
   if (ticket.by !== token.id) return token;    // a ticket is only good for the admin it was minted for
   if (ticket.as !== target.id) return token;
   const imp: ImpersonationState = { original: identityOf(token), until: now + IMPERSONATION_MINUTES * 60_000 };

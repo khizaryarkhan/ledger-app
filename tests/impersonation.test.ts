@@ -34,37 +34,37 @@ describe("starting", () => {
   const ticket = () => lib.verifyTicket(lib.mintTicket("admin-1", "user-9", "org-1", NOW), NOW);
 
   it("becomes the target and keeps the original inside the token", () => {
-    const t = lib.startImpersonation({ ...ADMIN }, ticket(), TARGET, NOW);
+    const t = lib.startImpersonation({ ...ADMIN }, ticket(), TARGET, true, NOW);
     expect(t).toMatchObject({ id: "user-9", role: "employee", orgId: "org-1", name: "Jack K." });
     expect(t.imp.original).toMatchObject({ id: "admin-1", role: "super_admin" });
     expect(t.imp.until).toBe(NOW + lib.IMPERSONATION_MINUTES * 60_000);
   });
-  it("refuses a non-super-admin, even with a valid ticket", () => {
-    const t = lib.startImpersonation({ ...ADMIN, role: "company_admin" }, ticket(), TARGET, NOW);
+  it("refuses when the actor is not allowed (roles re-read from the DB), even with a valid ticket", () => {
+    const t = lib.startImpersonation({ ...ADMIN }, ticket(), TARGET, false, NOW);
     expect(t.id).toBe("admin-1");
     expect(t.imp).toBeUndefined();
   });
   it("refuses a ticket minted for a different admin", () => {
-    expect(lib.startImpersonation({ ...ADMIN, id: "admin-2" }, ticket(), TARGET, NOW).id).toBe("admin-2");
+    expect(lib.startImpersonation({ ...ADMIN, id: "admin-2" }, ticket(), TARGET, true, NOW).id).toBe("admin-2");
   });
   it("refuses a target that is not the one on the ticket", () => {
-    expect(lib.startImpersonation({ ...ADMIN }, ticket(), { ...TARGET, id: "user-other" }, NOW).id).toBe("admin-1");
+    expect(lib.startImpersonation({ ...ADMIN }, ticket(), { ...TARGET, id: "user-other" }, true, NOW).id).toBe("admin-1");
   });
   it("refuses to chain while already impersonating (the original is never overwritten)", () => {
-    const once = lib.startImpersonation({ ...ADMIN }, ticket(), TARGET, NOW);
+    const once = lib.startImpersonation({ ...ADMIN }, ticket(), TARGET, true, NOW);
     const forged = { ...once, role: "super_admin" };
-    const twice = lib.startImpersonation(forged, ticket(), { ...TARGET, id: "user-9" }, NOW);
+    const twice = lib.startImpersonation(forged, ticket(), { ...TARGET, id: "user-9" }, true, NOW);
     expect(twice).toBe(forged);
     expect(twice.imp.original.id).toBe("admin-1");
   });
   it("refuses a missing ticket or target", () => {
-    expect(lib.startImpersonation({ ...ADMIN }, null, TARGET, NOW).id).toBe("admin-1");
-    expect(lib.startImpersonation({ ...ADMIN }, ticket(), null, NOW).id).toBe("admin-1");
+    expect(lib.startImpersonation({ ...ADMIN }, null, TARGET, true, NOW).id).toBe("admin-1");
+    expect(lib.startImpersonation({ ...ADMIN }, ticket(), null, true, NOW).id).toBe("admin-1");
   });
 });
 
 describe("stopping", () => {
-  const on = () => lib.startImpersonation({ ...ADMIN }, lib.verifyTicket(lib.mintTicket("admin-1", "user-9", "org-1", NOW), NOW), TARGET, NOW);
+  const on = () => lib.startImpersonation({ ...ADMIN }, lib.verifyTicket(lib.mintTicket("admin-1", "user-9", "org-1", NOW), NOW), TARGET, true, NOW);
   it("returns exactly to the original identity", () => {
     const off = lib.stopImpersonation(on());
     expect(off).toMatchObject(ADMIN);
@@ -83,9 +83,11 @@ describe("wiring", () => {
   it("middleware makes every non-read request read-only while impersonating, except NextAuth's own", () => {
     expect(src("middleware.ts")).toMatch(/impersonating && !path\.startsWith\("\/api\/auth\/"\) && !\["GET", "HEAD", "OPTIONS"\]\.includes\(req\.method\)/);
   });
-  it("only a DB-revalidated super admin can mint a ticket, never for a platform admin", () => {
-    const r = src("app/api/admin/impersonate/route.ts");
-    expect(r).toMatch(/requireSuperAdmin\(\)/);
+  it("tickets are minted only for an admin, in their own active org, never for a platform admin", () => {
+    const r = src("app/api/org/impersonate/route.ts");
+    expect(r).toMatch(/requireOrg\(\)/);
+    expect(r).toMatch(/mayImpersonate\(/);
+    expect(r).not.toMatch(/body\?\.orgId/);
     expect(r).toMatch(/globalRole === "super_admin" \|\| target\.globalRole === "platform_admin"/);
     expect(r).toMatch(/impersonation_started/);
   });
@@ -93,6 +95,7 @@ describe("wiring", () => {
     const a = src("lib/auth.ts");
     expect(a).toMatch(/verifyTicket\(\(session as any\)\.impersonationTicket\)/);
     expect(a).toMatch(/impersonationTarget\(ticket\.as, ticket\.orgId\)/);
+    expect(a).toMatch(/mayImpersonate\(actor, target\?\.role/);
   });
   it("the edge config restores an expired session too", () => {
     expect(src("auth.config.ts")).toMatch(/imp\.until < Date\.now\(\)/);
@@ -111,7 +114,25 @@ describe("wiring", () => {
     expect(src("app/api/mcp/settings/route.ts")).toMatch(/impersonatedBy\) return/);
   });
   it("starting needs a same-origin request; stopping re-reads the admin's role", () => {
-    expect(src("app/api/admin/impersonate/route.ts")).toMatch(/if \(!sameOrigin\(req\)\)/);
+    expect(src("app/api/org/impersonate/route.ts")).toMatch(/if \(!sameOrigin\(req\)\)/);
     expect(src("lib/auth.ts")).toMatch(/withCurrentRole\(stopImpersonation/);
+  });
+});
+
+describe("who may sign in as whom", () => {
+  it("a super admin may sign in as anyone who is not a platform admin", () => {
+    expect(lib.mayImpersonate({ globalRole: "super_admin", orgRole: null }, "company_admin")).toBe(true);
+    expect(lib.mayImpersonate({ globalRole: "super_admin", orgRole: null }, "employee")).toBe(true);
+  });
+  it("a company admin may sign in as non-admins in their own org only", () => {
+    expect(lib.mayImpersonate({ globalRole: "company_admin", orgRole: "company_admin" }, "employee")).toBe(true);
+    expect(lib.mayImpersonate({ globalRole: "company_admin", orgRole: "company_admin" }, "company_user")).toBe(true);
+    expect(lib.mayImpersonate({ globalRole: "company_admin", orgRole: "company_admin" }, "company_admin")).toBe(false);
+    expect(lib.mayImpersonate({ globalRole: "company_admin", orgRole: "company_admin" }, "super_admin")).toBe(false);
+  });
+  it("an admin of ANOTHER org, or anyone else, may not", () => {
+    expect(lib.mayImpersonate({ globalRole: "company_admin", orgRole: null }, "employee")).toBe(false);
+    expect(lib.mayImpersonate({ globalRole: "company_user", orgRole: "company_user" }, "employee")).toBe(false);
+    expect(lib.mayImpersonate(null, "employee")).toBe(false);
   });
 });

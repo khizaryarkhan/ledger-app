@@ -29,14 +29,15 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [loginFor, setLoginFor] = useState<any | null>(null);
 
-  // "Sign in as" (super admins only; read-only, 60 minutes — lib/impersonation.ts).
+  // "Sign in as" (admins; read-only, 60 minutes — lib/impersonation.ts).
   const { data: session, update: updateSession } = useSession();
-  const isSuper = (session?.user as any)?.role === "super_admin";
+  // Super admins and company admins; the server refuses an admin target for a company admin.
+  const canSignInAs = ["super_admin", "company_admin"].includes((session?.user as any)?.role);
   const [signingInAs, setSigningInAs] = useState<string | null>(null);
   async function signInAs(r: any) {
     setSigningInAs(r.id);
     try {
-      const res = await fetch("/api/admin/impersonate", {
+      const res = await fetch("/api/org/impersonate", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resourceId: r.id }),
       });
       const d = await res.json().catch(() => ({}));
@@ -109,7 +110,7 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
                             <KeyRound size={12} className={r.hasLogin ? "text-emerald-400" : "text-stone-500"} />
                             {r.hasLogin ? (r.loginEmail || "Has login") : <span className="text-stone-500">No login · Give login</span>}
                           </button>
-                          {isSuper && r.hasLogin && r.status === "active" && (
+                          {canSignInAs && r.hasLogin && r.status === "active" && (
                             <button onClick={() => signInAs(r)} disabled={signingInAs === r.id}
                               title="See the app exactly as this person does (read-only, 60 minutes)"
                               className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded ring-1 ring-amber-600/50 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">

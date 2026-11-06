@@ -161,7 +161,7 @@ export default function TeamSettingsPage() {
     setRoleError(null);
     try {
       // The server signs in as them in the organisation this Team page is showing.
-      const res = await fetch("/api/admin/impersonate", {
+      const res = await fetch("/api/org/impersonate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: m.id }),
       });
@@ -418,7 +418,7 @@ export default function TeamSettingsPage() {
                     {roleError?.id === m.id && <div className="text-[11px] text-rose-400 mt-0.5">{roleError.text}</div>}
                   </div>
 
-                  {isSuper && m.id !== currentUserId && m.role !== "super_admin" && isActive && (
+                  {isAdmin && m.id !== currentUserId && m.role !== "super_admin" && (isSuper || m.role !== "company_admin") && isActive && (
                     <button onClick={() => signInAs(m)} disabled={signingInAs === m.id} title="See the app exactly as this user does (read-only, 60 minutes)"
                       className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded ring-1 ring-amber-600/50 text-amber-300 hover:bg-amber-500/10 shrink-0 disabled:opacity-50">
                       <Eye size={12} /> Sign in as
