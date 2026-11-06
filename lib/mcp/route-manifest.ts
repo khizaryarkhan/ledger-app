@@ -474,6 +474,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/resources/me", methods: ["GET"] },
   { path: "/api/resources/me/approvals", methods: ["GET","POST"] },
   { path: "/api/resources/me/options", methods: ["GET"] },
+  { path: "/api/resources/me/personal-details", methods: ["GET","PUT"] },
   { path: "/api/resources/me/report", methods: ["GET"], params: ["today","weeksAhead","weeksBack"] },
   { path: "/api/resources/me/reports/employee", methods: ["GET"], params: ["from","to"] },
   { path: "/api/resources/me/reports/project", methods: ["GET"], params: ["from","key","projectId","to"] },

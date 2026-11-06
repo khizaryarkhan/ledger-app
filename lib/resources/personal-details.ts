@@ -27,6 +27,14 @@ export const PLAIN_FIELDS = [
 
 export const SECRET_FIELDS = ["nationalId", "taxNumber", "bankAccountNumber", "bankSortCode"] as const;
 
+/**
+ * What a person may NOT change about themselves (self-service): their
+ * employment record. Job title, number, type and dates are the employer's
+ * statements, not the employee's — a person who could edit their own start
+ * date could edit their own service length.
+ */
+export const SELF_LOCKED_FIELDS = ["employeeNumber", "jobTitle", "employmentType", "startDate", "endDate"] as const;
+
 export type PlainField = (typeof PLAIN_FIELDS)[number];
 export type SecretField = (typeof SECRET_FIELDS)[number];
 

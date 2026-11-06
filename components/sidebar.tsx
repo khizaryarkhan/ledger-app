@@ -460,6 +460,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
         { href: "/resources/my-time", label: "My Timesheet", icon: Clock },
         { href: "/resources/my-reports", label: "My Reports", icon: Gauge },
+        { href: "/resources/my-details", label: "My Details", icon: Contact },
         { href: "/resources/approvals", label: "Approvals", icon: ClipboardList },
         { href: "/resources/reports", label: "Team Reports", icon: ScrollText },
         { href: "/resources/timesheets", label: "Timesheets", icon: Clock },

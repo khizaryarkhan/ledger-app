@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { fromDaily, toDaily } from "@/lib/resources/capacity-unit";
-import { maskSecret, parseDetailsPatch, datesOutOfOrder } from "@/lib/resources/personal-details";
+import { maskSecret, parseDetailsPatch, datesOutOfOrder, SELF_LOCKED_FIELDS, PLAIN_FIELDS } from "@/lib/resources/personal-details";
 import { checkApiPath } from "@/lib/mcp/policy";
 
 const src = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
@@ -60,15 +60,38 @@ describe("parseDetailsPatch", () => {
 
 describe("wiring", () => {
   const route = src("app/api/resources/[id]/personal-details/route.ts");
+  const shared = src("lib/resources/personal-details-server.ts");
   it("is admin-only and only ever returns masked secrets", () => {
     expect(route).toMatch(/isAdminRole\(ctx\.role\)/);
-    expect(route).toMatch(/maskSecret\(decryptSecret/);
-    expect(route).toMatch(/encryptSecret\(v\)/);
+    expect(shared).toMatch(/maskSecret\(decryptSecret/);
+    expect(shared).toMatch(/encryptSecret\(v\)/);
   });
   it("the audit row names the fields, never their values", () => {
-    expect(route).toMatch(/fields: changed/);
+    expect(shared).toMatch(/fields: changed/);
   });
   it("AI connections cannot reach it", () => {
     expect(checkApiPath("/api/resources/abc/personal-details").ok).toBe(false);
+  });
+});
+
+describe("self-service", () => {
+  const self = src("app/api/resources/me/personal-details/route.ts");
+  const shared = src("lib/resources/personal-details-server.ts");
+  it("finds the person from the session, never from the request", () => {
+    expect(self).toMatch(/eq\(resources\.userId, userId\)/);
+    expect(self).not.toMatch(/params/);
+    expect(self).toMatch(/allowEmployee: true/);
+  });
+  it("saves through the same code as the admin route, marked as self", () => {
+    expect(self).toMatch(/self: true/);
+    expect(src("app/api/resources/[id]/personal-details/route.ts")).toMatch(/self: false/);
+  });
+  it("refuses — not ignores — a change to an employment field", () => {
+    expect(shared).toMatch(/opts\.self && \(SELF_LOCKED_FIELDS/);
+    expect(SELF_LOCKED_FIELDS).toEqual(["employeeNumber", "jobTitle", "employmentType", "startDate", "endDate"]);
+    for (const f of SELF_LOCKED_FIELDS) expect(PLAIN_FIELDS as readonly string[]).toContain(f);
+  });
+  it("AI connections cannot reach it either", () => {
+    expect(checkApiPath("/api/resources/me/personal-details").ok).toBe(false);
   });
 });

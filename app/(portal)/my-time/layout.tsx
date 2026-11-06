@@ -42,6 +42,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const tabs = [
     { href: "/my-time", label: "Timesheet", show: true },
     { href: "/my-time/reports", label: "My Reports", show: true },
+    { href: "/my-time/details", label: "My Details", show: !!me?.resource },
     { href: "/my-time/approvals", label: "Approvals", show: !!me?.canApprove },
     { href: "/my-time/team", label: "Team Reports", show: !!me?.canTeamReports },
   ].filter((t) => t.show);

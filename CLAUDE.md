@@ -5456,6 +5456,13 @@ details. Migration `0131` (additive).
   `lib/resources/personal-details.ts`; route `GET/PUT /api/resources/[id]/personal-details`, **org admins
   only** (manager scope is about timesheets, not bank accounts). Audit logs field NAMES, never values. The
   path segment `personal-details` is on the MCP deny-list, so no AI model reads it.
-- **Not built**: self-service (a person editing their own details), document uploads (passport scans,
+- **Self-service (same day)**: My Details (`/resources/my-details` in the app, `/my-time/details` in the
+  employee portal, `components/my-details.tsx`) → `GET/PUT /api/resources/me/personal-details`, which finds the
+  person from the SESSION (`resources.userId`), never a request id, and opts into `allowEmployee`. Admin and
+  self routes save through ONE function, `updateDetails` (`lib/resources/personal-details-server.ts`), so they
+  cannot drift. A person may not change their own employment record (`SELF_LOCKED_FIELDS`: number, job title,
+  type, start/end date) — such a change is REFUSED with 403, not silently ignored. Secrets stay masked even to
+  the person themselves. Audit meta carries `selfService`.
+- **Not built**: document uploads (passport scans,
   contracts), the People list still shows capacity per day, and nothing was clicked through in a browser.
   If ENCRYPTION_KEY/AUTH_SECRET is missing, lib/crypto stores plaintext (pre-existing behaviour).

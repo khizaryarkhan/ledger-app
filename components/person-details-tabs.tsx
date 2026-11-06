@@ -25,13 +25,19 @@ export interface PersonDetailsState {
 
 const EMPTY: PersonDetailsState = { loaded: false, error: null, details: {}, masked: {}, secretEdits: {}, dirty: false };
 
-export function usePersonDetails(id: string | undefined) {
-  const [state, setState] = useState<PersonDetailsState>(id ? EMPTY : { ...EMPTY, loaded: true });
+/**
+ * `endpoint` overrides where details load from and save to — the self-service
+ * page passes /api/resources/me/personal-details, which finds the person from
+ * the session rather than from an id.
+ */
+export function usePersonDetails(id: string | undefined, endpoint?: string) {
+  const loadUrl = endpoint ?? (id ? `/api/resources/${id}/personal-details` : null);
+  const [state, setState] = useState<PersonDetailsState>(loadUrl ? EMPTY : { ...EMPTY, loaded: true });
 
   useEffect(() => {
-    if (!id) return;
+    if (!loadUrl) return;
     let live = true;
-    fetch(`/api/resources/${id}/personal-details`)
+    fetch(loadUrl)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         if (!live) return;
@@ -40,7 +46,7 @@ export function usePersonDetails(id: string | undefined) {
       })
       .catch(() => { if (live) setState({ ...EMPTY, loaded: true, error: "Could not load personal details" }); });
     return () => { live = false; };
-  }, [id]);
+  }, [loadUrl]);
 
   const setField = (k: string, v: string) =>
     setState((s) => ({ ...s, dirty: true, details: { ...s.details, [k]: v } }));
@@ -48,11 +54,13 @@ export function usePersonDetails(id: string | undefined) {
     setState((s) => ({ ...s, dirty: true, secretEdits: { ...s.secretEdits, [k]: v } }));
 
   /** Save for `resourceId` (passed in so a just-created person can be saved too). */
-  async function save(resourceId: string): Promise<string | null> {
+  async function save(resourceId?: string): Promise<string | null> {
     if (!state.dirty) return null;
+    const url = endpoint ?? (resourceId ? `/api/resources/${resourceId}/personal-details` : null);
+    if (!url) return "Save the person first";
     const body: Record<string, string> = { ...state.details };
     for (const [k, v] of Object.entries(state.secretEdits)) if (v !== undefined) body[k] = v;
-    const r = await fetch(`/api/resources/${resourceId}/personal-details`, {
+    const r = await fetch(url, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     const d = await r.json().catch(() => ({}));
@@ -66,19 +74,19 @@ export function usePersonDetails(id: string | undefined) {
 
 type Hook = ReturnType<typeof usePersonDetails>;
 
-function Text({ hook, k, label, type = "text", className = "" }: { hook: Hook; k: string; label: string; type?: string; className?: string }) {
+function Text({ hook, k, label, type = "text", className = "", readOnly = false }: { hook: Hook; k: string; label: string; type?: string; className?: string; readOnly?: boolean }) {
   return (
     <Field label={label} className={className}>
-      <input type={type} className={controlInset}
+      <input type={type} className={controlInset} readOnly={readOnly} disabled={readOnly}
         value={hook.state.details[k] ?? ""} onChange={(e) => hook.setField(k, e.target.value)} />
     </Field>
   );
 }
 
-function Choice({ hook, k, label, options, className = "" }: { hook: Hook; k: string; label: string; options: { v: string; l: string }[]; className?: string }) {
+function Choice({ hook, k, label, options, className = "", disabled = false }: { hook: Hook; k: string; label: string; options: { v: string; l: string }[]; className?: string; disabled?: boolean }) {
   return (
     <Field label={label} className={className}>
-      <SelectField inset value={hook.state.details[k] ?? ""} onChange={(e) => hook.setField(k, e.target.value)}>
+      <SelectField inset disabled={disabled} value={hook.state.details[k] ?? ""} onChange={(e) => hook.setField(k, e.target.value)}>
         <option value="">Not stated</option>
         {options.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
       </SelectField>
@@ -122,7 +130,9 @@ const MARITAL = [{ v: "single", l: "Single" }, { v: "married", l: "Married" }, {
 const RELATIONSHIPS = ["Spouse / partner", "Parent", "Child", "Sibling", "Friend", "Other"].map((r) => ({ v: r, l: r }));
 const EMPLOYMENT = EMPLOYMENT_TYPES.map((t) => ({ v: t, l: EMPLOYMENT_TYPE_LABEL[t] }));
 
-export function PersonalTab({ hook }: { hook: Hook }) {
+/** `lockEmployment`: self-service — employment fields are the administrator's to change. */
+export function PersonalTab({ hook, lockEmployment = false }: { hook: Hook; lockEmployment?: boolean }) {
+  const lock = lockEmployment;
   const g = gate(hook);
   if (g) return g;
   return (
@@ -153,13 +163,14 @@ export function PersonalTab({ hook }: { hook: Hook }) {
       </div>
       <div>
         <Heading>Employment</Heading>
+        {lock && <p className="text-[12px] text-stone-500 -mt-1 mb-3">Your administrator keeps these up to date. Ask them if something is wrong.</p>}
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Text hook={hook} k="employeeNumber" label="Employee number" />
-          <Text hook={hook} k="jobTitle" label="Job title" />
-          <Choice hook={hook} k="employmentType" label="Employment type" options={EMPLOYMENT} />
+          <Text hook={hook} k="employeeNumber" label="Employee number" readOnly={lock} />
+          <Text hook={hook} k="jobTitle" label="Job title" readOnly={lock} />
+          <Choice hook={hook} k="employmentType" label="Employment type" options={EMPLOYMENT} disabled={lock} />
           <Secret hook={hook} k="taxNumber" label="Tax / NI number" />
-          <Text hook={hook} k="startDate" label="Start date" type="date" />
-          <Text hook={hook} k="endDate" label="End date" type="date" />
+          <Text hook={hook} k="startDate" label="Start date" type="date" readOnly={lock} />
+          <Text hook={hook} k="endDate" label="End date" type="date" readOnly={lock} />
         </div>
       </div>
     </div>
