@@ -54,7 +54,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const unread = me?.unreadNotifications ?? 0;
   const isActive = (href: string) => (href === "/my-time" ? pathname === "/my-time" : pathname.startsWith(href));
   const linkClass = (href: string) => `relative w-full flex items-center gap-3 px-3 py-2 rounded-md text-[15px] mb-0.5 ${
-    isActive(href) ? "bg-primary-ink/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange" : "text-stone-200 font-medium hover:bg-stone-900 hover:text-stone-50"}`;
+    isActive(href) ? "bg-blue-500/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange" : "text-stone-200 font-medium hover:bg-stone-900 hover:text-stone-50"}`;
 
   return (
     <div className="h-screen bg-stone-950 text-stone-100 flex flex-col md:flex-row">

@@ -510,6 +510,12 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const currentWs = WORKSPACES.find(w => w.key === department) ?? WORKSPACES[0]
     ?? { key: "none", label: "No modules", Icon: Shield, href: "/settings", active: "bg-stone-800 text-stone-400", dot: "bg-stone-500" };
 
+  // The one nav link that best matches the current page (longest matching href).
+  const activeHref = sections
+    .flatMap(s => s.items.map(i => i.href))
+    .filter(h => pathname === h || pathname.startsWith(h + "/"))
+    .sort((a, b) => b.length - a.length)[0] ?? null;
+
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
 
@@ -615,7 +621,10 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                 // only the first item claiming a given href within this
                 // section is eligible to show as current.
                 const isFirstWithHref = sec.items.findIndex(i => i.href === item.href) === idx;
-                const isActive = isFirstWithHref && (pathname === item.href || pathname.startsWith(item.href + "/"));
+                // Only the MOST specific matching link lights up: Production
+                // Orders is /supply-chain, a prefix of every Supply Chain page,
+                // so a plain prefix test lit it beside the real page's link.
+                const isActive = isFirstWithHref && item.href === activeHref;
                 return (
                   <Link
                     // Not always unique: Supply Chain's "Production Schedule"
@@ -629,7 +638,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                       isActive
                         // Brand: navy text on a navy tint, with an orange marker
                         // on the left edge — the same in every module.
-                        ? "bg-primary-ink/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange"
+                        ? "bg-blue-500/10 text-primary-ink font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-brand-orange"
                         : "text-stone-200 font-medium hover:bg-stone-900 hover:text-stone-50"
                     }`}
                   >
