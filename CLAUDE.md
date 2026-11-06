@@ -5496,3 +5496,21 @@ Asked for so reports can be built while seeing exactly what a user sees. `lib/im
   The jwt callback re-reads the ACTOR's global and org role from the DB (`actorRoles`) before switching, so a
   demoted admin's stale token cannot start one. Buttons: Settings → Team and Resources → People (Login column).
   `/api/org/impersonate` is on the MCP deny-list.
+
+## Employee dashboard (2026-11-06)
+
+Modelled on the EDC portal's employee dashboard (screenshots + `edc-portal-master.zip`), rebuilt in our theme as
+one scrolling page: `components/employee-dashboard.tsx` → `GET /api/resources/me/dashboard?weeksBack=3|6|12`
+(caller's own person only, `allowEmployee`). App: Resources → My Dashboard (`/resources/my-dashboard`);
+employee portal: the first tab, `/my-time/dashboard`, which is now where employee logins LAND (middleware).
+
+- Sections: profile; last two finished timesheets; leave balance (taken this calendar year / remaining, per
+  balance-tracked leave type); what needs attention (unacknowledged returns, last two weeks unsubmitted, open
+  hours-over-plan enquiries — the lead answers those, so they read as info, not a task); planned hours this week +
+  next three, stacked per booking with a table; planned vs logged for the weeks behind, per week and per project.
+- Loaded with the SAME helpers as My Reports (`plannedByWeek`, `loggedByWeek`, `loadCalendars`…), so figures agree.
+  Pure rules in `lib/resources/dashboard.ts`: `weekStatus` is worst-first (returned > draft > submitted > approved)
+  and an EMPTY week is "missing", never approved; per-project drops leave/internal ("type:") time.
+- Bars are plain elements (no chart library in the app); colours are literal Tailwind classes. Hours go through
+  `fmt.num2` — the architecture guard flags `.toFixed` on a total as hand-rounded money.
+- **Not built** (EDC has them): tasks / "Project Tasks" (no task model here), 1:1 status, notifications page.

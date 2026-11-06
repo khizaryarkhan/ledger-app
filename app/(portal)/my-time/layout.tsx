@@ -41,6 +41,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   const me = load.state === "ready" ? load.me : null;
   const tabs = [
+    { href: "/my-time/dashboard", label: "Dashboard", show: true },
     { href: "/my-time", label: "Timesheet", show: true },
     { href: "/my-time/reports", label: "My Reports", show: true },
     { href: "/my-time/details", label: "My Details", show: !!me?.resource },

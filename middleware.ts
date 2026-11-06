@@ -136,7 +136,7 @@ export default auth((req) => {
       // Logged-in users skip the login page and go straight to the app.
       // ("/" is the public marketing site — everyone can view it.)
       if (path === "/login" || path === "/register") {
-        const dest = role === "rep" ? "/rep-portal" : role === "employee" ? "/my-time" : "/dashboard";
+        const dest = role === "rep" ? "/rep-portal" : role === "employee" ? "/my-time/dashboard" : "/dashboard";
         return NextResponse.redirect(new URL(dest, req.nextUrl));
       }
     }
@@ -211,7 +211,7 @@ export default auth((req) => {
   if (role === "employee") {
     const isMyTime = path === "/my-time" || path.startsWith("/my-time/");
     if (!isMyTime && !isApi) {
-      return NextResponse.redirect(new URL("/my-time", req.nextUrl));
+      return NextResponse.redirect(new URL("/my-time/dashboard", req.nextUrl));
     }
     return pass();
   }
