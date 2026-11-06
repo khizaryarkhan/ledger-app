@@ -187,6 +187,20 @@ export function canEnterTimeFor(actor: Actor, targetId: string): boolean {
 }
 
 /**
+ * Does this person have ANY time they may be asked to approve? Drives whether
+ * the Approvals tab is offered. Must agree with `canApproveEntry`: a project
+ * lead approves their project's time at any tier, and a `department` person
+ * approves their own reporting chain — both used to be missing, so a lead's
+ * queue had entries routed to it that the lead could not open.
+ */
+export function mayApproveAnyone(actor: Actor, nodes: readonly PersonNode[]): boolean {
+  if (actor.isOrgAdmin || actor.level === "all" || actor.level === "team") return true;
+  if ((actor.ledPeopleIds?.size ?? 0) > 0) return true;
+  if (actor.level === "department" && actor.resourceId) return reportIds(actor.resourceId, nodes).size > 0;
+  return false;
+}
+
+/**
  * Approve or reject `targetId`'s time. Never your own (unless you are an org
  * admin, who has no one above them to ask). `team` approves for the people
  * under them; `all` approves for anyone.

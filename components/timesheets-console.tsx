@@ -31,7 +31,8 @@ export function TimesheetsConsole() {
 
   async function load() {
     const qs = statusFilter ? `?status=${statusFilter}` : "";
-    setEntries(await fetch(`/api/resources/time-entries${qs}`).then(r => r.json()).catch(() => []));
+    const d = await fetch(`/api/resources/time-entries${qs}`).then(r => r.json()).catch(() => []);
+    setEntries(Array.isArray(d) ? d : []);
   }
   useEffect(() => { load(); }, [statusFilter]);
   useEffect(() => {
@@ -101,7 +102,7 @@ export function TimesheetsConsole() {
                   <td className="py-2 pr-2 text-stone-500">{e.assignableType ? `${ASSIGNABLE_LABEL[e.assignableType as AssignableType] ?? e.assignableType}` : "—"}</td>
                   <td className="py-2 pr-2"><span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${STATUS_CLASS[e.status]}`}>{STATUS_LABEL[e.status]}</span></td>
                   <td className="py-2 pr-2 text-right space-x-2">
-                    {e.status === "draft" && <button onClick={() => act(e.id, "submit")} className="text-[12px] text-stone-400 hover:text-stone-200">Submit</button>}
+                    {(e.status === "draft" || e.status === "rejected") && <button onClick={() => act(e.id, "submit")} className="text-[12px] text-stone-400 hover:text-stone-200">{e.status === "rejected" ? "Resubmit" : "Submit"}</button>}
                     {e.status === "submitted" && (
                       <>
                         <button onClick={() => act(e.id, "approve")} className="text-[12px] text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1"><Check size={12} /> Approve</button>

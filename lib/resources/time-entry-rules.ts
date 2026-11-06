@@ -64,9 +64,12 @@ export function isDecidableStatus(status: string): boolean {
 export function parseHours(v: unknown): { ok: true; hours: number } | { ok: false; error: string } {
   const h = typeof v === "string" ? Number(v.trim()) : Number(v);
   if (v === null || v === undefined || v === "" || !Number.isFinite(h)) return { ok: false, error: "hours must be a number" };
-  if (h <= 0) return { ok: false, error: "hours must be a positive number" };
-  if (h > MAX_HOURS_PER_DAY) return { ok: false, error: `hours cannot exceed ${MAX_HOURS_PER_DAY} in a day` };
-  return { ok: true, hours: Math.round(h * 100) / 100 };
+  // Round FIRST: 0.004 must be refused, not stored as a 0.00h entry the grid
+  // shows as empty and can never delete.
+  const rounded = Math.round(h * 100) / 100;
+  if (rounded <= 0) return { ok: false, error: "hours must be at least 0.01" };
+  if (rounded > MAX_HOURS_PER_DAY) return { ok: false, error: `hours cannot exceed ${MAX_HOURS_PER_DAY} in a day` };
+  return { ok: true, hours: rounded };
 }
 
 /** Would adding `adding` hours to what is already logged push the day past 24? */

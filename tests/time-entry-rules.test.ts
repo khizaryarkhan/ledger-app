@@ -3,7 +3,7 @@ import {
   isRealDate, weekdayIndex, weekStartOf, weekDates, isEditableStatus, isSubmittableStatus,
   isDecidableStatus, parseHours, exceedsDay, parseReason, decideEntry,
 } from "@/lib/resources/time-entry-rules";
-import { buildActor, type PersonNode } from "@/lib/resources/access";
+import { buildActor, mayApproveAnyone, type PersonNode } from "@/lib/resources/access";
 
 // boss <- lead <- dev ; peer reports to boss
 const people: PersonNode[] = [
@@ -54,6 +54,9 @@ describe("input", () => {
     expect(parseHours("").ok).toBe(false);
     expect(parseHours("abc").ok).toBe(false);
     expect(parseHours(25).ok).toBe(false);
+    // Rounds before the zero check: 0.004 would otherwise be stored as a 0.00h entry.
+    expect(parseHours(0.004).ok).toBe(false);
+    expect(parseHours(0.005)).toEqual({ ok: true, hours: 0.01 });
   });
   it("caps a day at 24 hours", () => {
     expect(exceedsDay(16, 8)).toBe(false);
@@ -168,5 +171,19 @@ describe("approval follows the project's lead", () => {
     const lineManager = buildActor("company_user", "lead", "team");
     const empty = new Map<string, string>();
     expect(decideEntry(lineManager, onProject("dev"), people, empty).ok).toBe(true);
+  });
+});
+
+describe("mayApproveAnyone (drives the Approvals tab)", () => {
+  it("offers approvals to a project lead at any tier", () => {
+    const a = buildActor("company_user", "dev", "self", { ledPeopleIds: new Set(["peer"]) });
+    expect(mayApproveAnyone(a, people)).toBe(true);
+  });
+  it("offers approvals to a department person who has reports", () => {
+    expect(mayApproveAnyone(buildActor("company_user", "lead", "department"), people)).toBe(true);
+    expect(mayApproveAnyone(buildActor("company_user", "dev", "department"), people)).toBe(false);
+  });
+  it("does not offer it to a plain self user", () => {
+    expect(mayApproveAnyone(buildActor("company_user", "dev", "self"), people)).toBe(false);
   });
 });

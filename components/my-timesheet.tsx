@@ -18,6 +18,7 @@ import { weekDates, weekStartOf, isEditableStatus } from "@/lib/resources/time-e
 import { MyReturns } from "@/components/my-returns";
 import { addDays } from "@/lib/accounting/report-periods";
 import { localToday, formatDateShort } from "@/lib/format";
+import { evalArithmetic } from "@/lib/calc";
 
 interface Me {
   resource: { id: string; name: string; dailyCapacity: number } | null;
@@ -55,7 +56,9 @@ async function api<T>(url: string, init?: RequestInit): Promise<{ ok: true; data
   try {
     const r = await fetch(url, init);
     const body = await r.json().catch(() => ({}));
-    if ("error" in r) return { ok: false, error: body?.error || "Something went wrong" };
+    // A fetch Response never has an `error` property, so the old `"error" in r`
+    // test passed every 4xx/5xx through as success: refusals were invisible.
+    if (!r.ok) return { ok: false, error: body?.error || "Something went wrong" };
     return { ok: true, data: body as T };
   } catch {
     return { ok: false, error: "Network problem. Try again." };
@@ -68,7 +71,14 @@ export function MyTimesheet() {
   const [weekStart, setWeekStart] = useState(() => weekStartOf(localToday()));
   const [entries, setEntries] = useState<Entry[]>([]);
   const [extraRows, setExtraRows] = useState<RowKey[]>([]);
-  const [busy, setBusy] = useState(false);
+  // Saves in flight. Cells are NOT disabled while a save runs: disabling the
+  // cell the person just tabbed into dropped focus and lost their keystrokes.
+  const [saving, setSaving] = useState(0);
+  const busy = saving > 0;
+  const setBusy = (on: boolean) => setSaving((n) => Math.max(0, n + (on ? 1 : -1)));
+  // Bumped after a refused save so every cell re-reads the stored value
+  // instead of keeping the number that was refused.
+  const [rev, setRev] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [newType, setNewType] = useState("");
   const [newAssignable, setNewAssignable] = useState("");
@@ -77,7 +87,7 @@ export function MyTimesheet() {
 
   const loadWeek = useCallback(async () => {
     const res = await api<Entry[]>(`/api/resources/me/time-entries?from=${weekStart}&to=${addDays(weekStart, 6)}`);
-    if ("error" in res) setErr(res.error); else setEntries(res.data);
+    if ("error" in res) setErr(res.error); else setEntries(Array.isArray(res.data) ? res.data : []);
   }, [weekStart]);
 
   useEffect(() => {
@@ -101,7 +111,7 @@ export function MyTimesheet() {
   const assignableLabel = (t: string | null, id: string | null) =>
     !t || !id ? "" : options?.assignables[t as AssignableType]?.find((a) => a.id === id)?.label ?? "";
 
-  if (err && !me) return <div className="p-6 text-[13px] text-rose-400">{err}</div>;
+  if (err && (!me || !options)) return <div className="p-6 text-[13px] text-rose-400">{err}</div>;
   if (!me || !options) return <div className="p-6 text-[13px] text-stone-500">Loading...</div>;
   if (!me.resource) {
     return (
@@ -123,7 +133,10 @@ export function MyTimesheet() {
     setErr(null);
     const existing = cellEntries(r, date);
     if (existing.length > 1) return;
-    const value = raw.trim() === "" ? 0 : Number(raw);
+    const text = raw.trim();
+    // The field is a calculator: "4+4" arrives here as text (CalcInput's own
+    // evaluation is still a queued state update), so evaluate it the same way.
+    const value = text === "" ? 0 : Number.isFinite(Number(text)) ? Number(text) : evalArithmetic(text) ?? NaN;
     if (!Number.isFinite(value) || value < 0) { setErr("Hours must be a number."); return; }
     const entry = existing[0];
     if (entry && !isEditableStatus(entry.status)) return;
@@ -134,7 +147,7 @@ export function MyTimesheet() {
     if (entry && value === 0) res = await api(`/api/resources/me/time-entries/${entry.id}`, { method: "DELETE" });
     else if (entry) res = await api(`/api/resources/me/time-entries/${entry.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hours: value }) });
     else res = await api("/api/resources/me/time-entries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, hours: value, timesheetTypeId: r.typeId, assignableType: r.aType, assignableId: r.aId }) });
-    if ("error" in res) setErr(res.error);
+    if ("error" in res) { setErr(res.error); setRev((x) => x + 1); }
     await loadWeek();
     setBusy(false);
   }
@@ -229,12 +242,14 @@ export function MyTimesheet() {
                     const locked = ce.length > 1 || (ce[0] ? !isEditableStatus(ce[0].status) : false);
                     const total = ce.reduce((s, e) => s + Number(e.hours), 0);
                     return (
-                      <td key={d} className="px-1 py-1.5">
+                      <td key={`${d}-${rev}`} className="px-1 py-1.5">
                         <CalcInput
                           value={total ? hrs(total) : ""}
                           onChange={() => { /* committed on blur */ }}
                           onBlur={(e) => saveCell(r, d, e.currentTarget.value)}
-                          disabled={locked || busy}
+                          // Enter saves too: blurring runs CalcInput's own commit and then saveCell.
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          disabled={locked}
                           aria-label={`${typeName(r.typeId)} hours on ${d}`}
                           placeholder="0"
                           className={`${cell} text-center tabular-nums ${locked ? "text-stone-500" : ""}`}

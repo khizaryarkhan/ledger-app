@@ -12,7 +12,7 @@
  */
 
 import { db } from "@/db";
-import { timeEntries, timesheetTypes, resources, timesheetBatches } from "@/db/schema";
+import { timeEntries, timesheetTypes, resources, timesheetBatches, pendingApprovals } from "@/db/schema";
 import { and, eq, gte, lte, inArray } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { ensurePayrollClearingAccount } from "@/lib/accounting/system-accounts";
@@ -21,7 +21,13 @@ import { costTimesheetEntries, type CostableEntry, type TimesheetTypeInfo, type 
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
-export type TimesheetPostInput = { periodStart: string; periodEnd: string; notes?: string | null };
+/**
+ * `approvedAmount` is stamped by the approval stage, never by a caller: on
+ * resume the period is reloaded, and if more time was approved in it since,
+ * posting a larger figure than the second approver saw would bypass the
+ * threshold. Resume refuses instead.
+ */
+export type TimesheetPostInput = { periodStart: string; periodEnd: string; notes?: string | null; approvedAmount?: number };
 
 async function loadApprovedEntries(orgId: string, periodStart: string, periodEnd: string) {
   const rows = await db.select().from(timeEntries).where(and(
@@ -74,8 +80,23 @@ export async function postTimesheets(orgId: string, input: TimesheetPostInput, a
     .limit(1);
   if (existing) err("This period has already been posted.");
 
+  if (opts?.skipApprovalCheck && input.approvedAmount != null
+      && Math.abs(costing.totalAmount - input.approvedAmount) > 0.005) {
+    err(`The approved time in this period changed since it was sent for approval `
+      + `(${input.approvedAmount.toFixed(2)} then, ${costing.totalAmount.toFixed(2)} now). `
+      + `Reject this approval and post the period again.`);
+  }
+
   if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "timesheet_batch", costing.totalAmount)) {
-    const pending = await stagePendingApproval(orgId, "timesheet_batch", input, costing.totalAmount, actorId);
+    // One pending approval per period: pressing Post twice must not queue two.
+    const waiting = await db.select({ id: pendingApprovals.id, payload: pendingApprovals.payloadJson })
+      .from(pendingApprovals)
+      .where(and(eq(pendingApprovals.orgId, orgId), eq(pendingApprovals.entityType, "timesheet_batch"), eq(pendingApprovals.status, "Pending")));
+    if (waiting.some(w => (w.payload as any)?.periodStart === input.periodStart && (w.payload as any)?.periodEnd === input.periodEnd)) {
+      err("This period is already waiting for approval.");
+    }
+    const staged = { periodStart: input.periodStart, periodEnd: input.periodEnd, notes: input.notes ?? null, approvedAmount: costing.totalAmount };
+    const pending = await stagePendingApproval(orgId, "timesheet_batch", staged, costing.totalAmount, actorId);
     return { pending: true, id: pending.id, amount: costing.totalAmount };
   }
 
@@ -91,19 +112,34 @@ export async function postTimesheets(orgId: string, input: TimesheetPostInput, a
     }));
   lines.push({ accountId: clearingAccountId, credit: costing.totalAmount, description: `Payroll clearing — ${input.periodStart} – ${input.periodEnd}` });
 
-  const entry = await postJournalEntry({
-    orgId, entryDate: input.periodEnd, memo: input.notes?.trim() || `Timesheets ${input.periodStart} – ${input.periodEnd}`,
-    series: "Payroll", sourceType: "Payroll", createdBy: actorId, lines,
-  });
-
-  const [batch] = await db.insert(timesheetBatches).values({
-    orgId, periodStart: input.periodStart, periodEnd: input.periodEnd, entryId: entry.id,
+  // CLAIM the period before posting anything. The unique index on
+  // (org, period) decides the winner of two concurrent posts — the old
+  // read-then-post let both through and left a duplicate Payroll entry in the
+  // GL. neon-http has no transactions, so a failed post releases the claim.
+  const [claim] = await db.insert(timesheetBatches).values({
+    orgId, periodStart: input.periodStart, periodEnd: input.periodEnd,
     totalHours: costing.totalHours.toString(), totalAmount: costing.totalAmount.toString(),
-    status: "posted", createdBy: actorId,
-  } as any).returning({ id: timesheetBatches.id });
+    status: "posting", createdBy: actorId,
+  } as any).onConflictDoNothing().returning({ id: timesheetBatches.id });
+  if (!claim) err("This period has already been posted.");
 
+  let entry;
+  try {
+    entry = await postJournalEntry({
+      orgId, entryDate: input.periodEnd, memo: input.notes?.trim() || `Timesheets ${input.periodStart} – ${input.periodEnd}`,
+      series: "Payroll", sourceType: "Payroll", createdBy: actorId, lines,
+    });
+  } catch (e) {
+    await db.delete(timesheetBatches).where(eq(timesheetBatches.id, claim.id));
+    throw e;
+  }
+
+  const batch = { id: claim.id };
+  await db.update(timesheetBatches).set({ entryId: entry.id, status: "posted" }).where(eq(timesheetBatches.id, batch.id));
+
+  // Only entries still approved: one returned in the meantime must not be marked posted.
   await db.update(timeEntries).set({ status: "posted", batchId: batch.id, updatedAt: new Date() })
-    .where(inArray(timeEntries.id, rows.map(r => r.id)));
+    .where(and(inArray(timeEntries.id, rows.map(r => r.id)), eq(timeEntries.status, "approved")));
 
   return { id: batch.id, entryId: entry.id, totalHours: costing.totalHours, totalAmount: costing.totalAmount, entryCount: rows.length };
 }

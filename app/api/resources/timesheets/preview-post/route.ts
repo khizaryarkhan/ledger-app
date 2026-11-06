@@ -5,13 +5,16 @@
  */
 
 import { requireOrg, ok, bad } from "@/lib/api";
+import { isAdminRole } from "@/lib/resources/access";
 import { requireModule } from "@/lib/modules-server";
 import { previewPost } from "@/lib/payroll/timesheet-posting";
 import { LedgerValidationError } from "@/lib/ledger";
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role } = await requireOrg();
   if (error) return error;
+  // Posting writes payroll cost to the GL and the preview shows it: org admins only.
+  if (!isAdminRole(role)) return bad("Only an admin can post timesheets", 403);
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
 
