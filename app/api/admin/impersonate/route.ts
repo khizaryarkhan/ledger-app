@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
-import { users, userOrganisations } from "@/db/schema";
+import { users, userOrganisations, resources } from "@/db/schema";
 import { requireSuperAdmin } from "@/lib/billing";
 import { logEvent } from "@/lib/audit";
 import { mintTicket, IMPERSONATION_MINUTES } from "@/lib/impersonation";
@@ -29,9 +29,17 @@ export async function POST(req: Request) {
   if (admin.error) return admin.error;
 
   const body = await req.json().catch(() => ({}));
-  const userId = typeof body?.userId === "string" ? body.userId : "";
-  // Defaults to the organisation the admin is looking at (the Team page they clicked from).
+  // Defaults to the organisation the admin is looking at (the page they clicked from).
   const orgId = typeof body?.orgId === "string" && body.orgId ? body.orgId : (cookies().get("active_org_id")?.value ?? "");
+  let userId = typeof body?.userId === "string" ? body.userId : "";
+  // From Resources → People: a person record id, resolved to its login here so
+  // the People list never has to send user ids to the browser.
+  if (!userId && typeof body?.resourceId === "string" && orgId) {
+    const [r] = await db.select({ userId: resources.userId }).from(resources)
+      .where(and(eq(resources.id, body.resourceId), eq(resources.orgId, orgId))).limit(1);
+    if (!r?.userId) return NextResponse.json({ error: "This person has no login to sign in as." }, { status: 400 });
+    userId = r.userId;
+  }
   if (!userId || !orgId) return NextResponse.json({ error: "Pick an organisation first, then a user." }, { status: 400 });
   if (userId === admin.userId) return NextResponse.json({ error: "That is your own account." }, { status: 400 });
 

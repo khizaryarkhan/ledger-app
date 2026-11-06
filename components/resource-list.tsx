@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Loader, Check, Trash2, KeyRound } from "lucide-react";
+import { Plus, RefreshCw, Loader, Check, Trash2, KeyRound, Eye } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { WorkingHoursPanel } from "@/components/working-hours-panel";
 import { MachineDowntimePanel } from "@/components/machine-downtime-panel";
@@ -27,6 +28,23 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [showNew, setShowNew] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [loginFor, setLoginFor] = useState<any | null>(null);
+
+  // "Sign in as" (super admins only; read-only, 60 minutes — lib/impersonation.ts).
+  const { data: session, update: updateSession } = useSession();
+  const isSuper = (session?.user as any)?.role === "super_admin";
+  const [signingInAs, setSigningInAs] = useState<string | null>(null);
+  async function signInAs(r: any) {
+    setSigningInAs(r.id);
+    try {
+      const res = await fetch("/api/admin/impersonate", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resourceId: r.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ticket) { alert(d?.error || "Could not sign in as this person."); return; }
+      await updateSession({ impersonationTicket: d.ticket });
+      window.location.href = "/dashboard"; // middleware sends employee/rep logins to their own portal
+    } finally { setSigningInAs(null); }
+  }
 
   async function load() {
     const d = await fetch(`/api/resources?type=${type}`).then(r => r.json()).catch(() => []);
@@ -86,10 +104,19 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
                         <td className="px-2 py-2 text-stone-300">{r.designationName || "—"}</td>
                         <td className="px-2 py-2 text-stone-300">{r.managerName || "—"}</td>
                         <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center">
                           <button onClick={() => setLoginFor(r)} className="flex items-center gap-1.5 text-[12px] text-stone-300 hover:text-white" title={r.hasLogin ? "Reset password or remove login" : "Give this person a login"}>
                             <KeyRound size={12} className={r.hasLogin ? "text-emerald-400" : "text-stone-500"} />
                             {r.hasLogin ? (r.loginEmail || "Has login") : <span className="text-stone-500">No login · Give login</span>}
                           </button>
+                          {isSuper && r.hasLogin && r.status === "active" && (
+                            <button onClick={() => signInAs(r)} disabled={signingInAs === r.id}
+                              title="See the app exactly as this person does (read-only, 60 minutes)"
+                              className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded ring-1 ring-amber-600/50 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">
+                              <Eye size={11} /> Sign in as
+                            </button>
+                          )}
+                          </div>
                         </td>
                       </>
                     )}
