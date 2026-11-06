@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Field, Section, SelectField, controlInset } from "@/components/form-kit";
 
 const SOURCE_LABEL: Record<string, string> = { opening: "Opening balance", accrual: "Accrual", carry_forward: "Carry-forward", adjustment: "Adjustment", usage: "Usage (leave taken)" };
@@ -64,7 +65,7 @@ export function LeaveBalances() {
               {resources.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </SelectField>
           </Field>
-          <Field label="Leave type" hint={types.length === 0 ? "No leave type has balance tracking turned on yet — enable it in Timesheet Types." : undefined}>
+          <Field label="Leave type" hint={types.length === 0 ? <>No leave type tracks a balance yet. <Link href="/resources/timesheet-types" className="text-emerald-400 underline underline-offset-2">Add one in Timesheet Types</Link> (Category: Leave, then tick &ldquo;Track a leave balance&rdquo;).</> : undefined}>
             <SelectField inset value={timesheetTypeId} onChange={e => setTimesheetTypeId(e.target.value)}>
               <option value="">Choose…</option>
               {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
