@@ -8,7 +8,7 @@
  */
 
 import { db } from "@/db";
-import { resources, resourceAssignments, resourceDesignations, employees, users } from "@/db/schema";
+import { holidayCalendars, resources, resourceAssignments, resourceDesignations, employees, users, timeEntries, leaveBalanceEntries } from "@/db/schema";
 import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { isAdminRole, wouldCreateCycle } from "@/lib/resources/access";
@@ -62,7 +62,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (links.fixedAssetId !== undefined) patch.fixedAssetId = links.fixedAssetId;
   if (name != null) { if (!String(name).trim()) return bad("name cannot be empty"); patch.name = String(name).trim(); }
   if (category !== undefined) patch.category = category || null;
-  if (dailyCapacity !== undefined) patch.dailyCapacity = String(dailyCapacity);
+  if (dailyCapacity !== undefined) {
+    const cap = Number(dailyCapacity);
+    if (dailyCapacity === null || dailyCapacity === "" || !Number.isFinite(cap) || cap < 0 || (isPerson && cap > 24)) {
+      return bad(isPerson ? "Capacity must be between 0 and 24 hours a day" : "Capacity must be 0 or more");
+    }
+    patch.dailyCapacity = String(cap);
+  }
   if (status !== undefined) { if (status !== "active" && status !== "inactive") return bad("status must be 'active' or 'inactive'"); patch.status = status; }
   if (notes !== undefined) patch.notes = notes || null;
   if (employeeId !== undefined && isPerson) {
@@ -73,7 +79,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (costRatePerHour !== null && costRatePerHour !== "" && !Number.isFinite(Number(costRatePerHour))) return bad("costRatePerHour must be a number");
     patch.costRatePerHour = costRatePerHour != null && costRatePerHour !== "" ? String(costRatePerHour) : null;
   }
-  if (holidayCalendarId !== undefined && isPerson) patch.holidayCalendarId = holidayCalendarId || null;
+  if (holidayCalendarId !== undefined && isPerson) {
+    // A foreign or stale id would silently give the person NO public holidays
+    // (reports fall back to the org default only when the id is null).
+    if (holidayCalendarId && !(await ownsInOrg(holidayCalendars, holidayCalendarId, orgId!))) return bad("Holiday calendar not found", 404);
+    patch.holidayCalendarId = holidayCalendarId || null;
+  }
   if (workingDays !== undefined && isPerson) {
     if (workingDays != null && (!Array.isArray(workingDays) || workingDays.some((d: any) => !Number.isInteger(d) || d < 1 || d > 7))) {
       return bad("workingDays must be an array of ISO weekday numbers (1-7)");
@@ -129,12 +140,21 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
 
   const [existing] = await db.select({ id: resources.id, userId: resources.userId }).from(resources).where(and(eq(resources.id, params.id), eq(resources.orgId, orgId!))).limit(1);
   if (!existing) return bad("Resource not found", 404);
-  if (existing.userId) return bad("This person still has a login — remove the login first", 409);
+  if (existing.userId) return bad("This person has a login — remove the login first (a team member's login is removed in Settings → Team)", 409);
 
   const [activeAssignment] = await db.select({ id: resourceAssignments.id }).from(resourceAssignments)
     .where(and(eq(resourceAssignments.resourceId, params.id), eq(resourceAssignments.orgId, orgId!), ne(resourceAssignments.status, "cancelled")))
     .limit(1);
   if (activeAssignment) return bad("This resource has active or scheduled assignments — cancel or complete them first", 409);
+
+  // time_entries / leave_balance_entries / timesheet_returns cascade on delete,
+  // so deleting someone with history would erase posted timesheets from under
+  // their journal entries. Anyone with history is deactivated, never deleted.
+  const [[anyTime], [anyLeave]] = await Promise.all([
+    db.select({ id: timeEntries.id }).from(timeEntries).where(and(eq(timeEntries.resourceId, params.id), eq(timeEntries.orgId, orgId!))).limit(1),
+    db.select({ id: leaveBalanceEntries.id }).from(leaveBalanceEntries).where(and(eq(leaveBalanceEntries.resourceId, params.id), eq(leaveBalanceEntries.orgId, orgId!))).limit(1),
+  ]);
+  if (anyTime || anyLeave) return bad("This person has logged time or leave history — set them to Inactive instead of deleting", 409);
 
   await db.delete(resources).where(and(eq(resources.id, params.id), eq(resources.orgId, orgId!)));
   return ok({ ok: true });

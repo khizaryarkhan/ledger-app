@@ -65,7 +65,10 @@ export default function RolesPage() {
   };
   const openEdit = (r: Role) => {
     setErr(null);
-    setDraft({ id: r.id, name: r.name, baseRole: r.baseRole, modules: { ...r.modules }, peopleScope: r.peopleScope });
+    // Keep only modules the org still has: the editor cannot show the others,
+    // and sending one made every later save of this role fail.
+    const modules = Object.fromEntries(Object.entries(r.modules).filter(([m]) => orgModules.includes(m as any)));
+    setDraft({ id: r.id, name: r.name, baseRole: r.baseRole, modules, peopleScope: r.peopleScope });
   };
 
   const save = async () => {

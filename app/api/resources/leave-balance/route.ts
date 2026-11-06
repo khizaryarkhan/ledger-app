@@ -16,11 +16,13 @@ import { requireModule } from "@/lib/modules-server";
 import { and, eq, desc } from "drizzle-orm";
 import { balanceAsAt } from "@/lib/payroll/leave-balance";
 import { localToday } from "@/lib/format";
+import { buildCtx } from "@/lib/resources/time-entries-server";
+import { canView } from "@/lib/resources/access";
 
 const SOURCE_TYPES = ["opening", "accrual", "carry_forward", "adjustment"] as const;
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -29,6 +31,11 @@ export async function GET(req: Request) {
   const resourceId = searchParams.get("resourceId");
   const timesheetTypeId = searchParams.get("timesheetTypeId");
   if (!resourceId || !timesheetTypeId) return bad("resourceId and timesheetTypeId are required");
+
+  // Someone's leave ledger (sick leave included) is theirs and their managers':
+  // the same visibility as every other per-person read.
+  const ctx = await buildCtx(orgId!, session, role);
+  if (!canView(ctx.actor, resourceId, ctx.people)) return bad("You cannot see this person's leave", 403);
 
   const [balance, entries] = await Promise.all([
     balanceAsAt(orgId!, resourceId, timesheetTypeId, localToday()),

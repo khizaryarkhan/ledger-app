@@ -9,12 +9,15 @@
 import { db } from "@/db";
 import { timesheetTypes, accounts, leavePolicies } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
+import { isAdminRole } from "@/lib/resources/access";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq } from "drizzle-orm";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role } = await requireOrg();
   if (error) return error;
+  // Types carry GL accounts and leave policy; calendars set everyone's capacity. Admin only.
+  if (!isAdminRole(role)) return bad("Only organisation admins can change this", 403);
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
 
@@ -45,13 +48,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     patch.expenseAccountId = expenseAccountId;
   }
 
+  // Validated before the type is saved, so a refusal leaves nothing half-written.
+  if (leavePolicy?.accrualMethod && !["fixed_annual", "monthly"].includes(leavePolicy.accrualMethod)) {
+    return bad("accrualMethod must be 'fixed_annual' or 'monthly'");
+  }
+
   const [row] = await db.update(timesheetTypes).set(patch).where(and(eq(timesheetTypes.id, params.id), eq(timesheetTypes.orgId, orgId!))).returning();
 
   if (existing.category === "leave" && leavePolicy !== undefined) {
     if (leavePolicy === null) {
       await db.delete(leavePolicies).where(and(eq(leavePolicies.orgId, orgId!), eq(leavePolicies.timesheetTypeId, params.id)));
     } else if (leavePolicy.accrualMethod) {
-      if (!["fixed_annual", "monthly"].includes(leavePolicy.accrualMethod)) return bad("accrualMethod must be 'fixed_annual' or 'monthly'");
       const [existingPolicy] = await db.select({ id: leavePolicies.id }).from(leavePolicies)
         .where(and(eq(leavePolicies.orgId, orgId!), eq(leavePolicies.timesheetTypeId, params.id))).limit(1);
       const values = {

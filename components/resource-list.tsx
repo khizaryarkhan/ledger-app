@@ -32,7 +32,13 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
   // "Sign in as" (admins; read-only, 60 minutes — lib/impersonation.ts).
   const { data: session, update: updateSession } = useSession();
   // Super admins and company admins; the server refuses an admin target for a company admin.
-  const canSignInAs = ["super_admin", "company_admin"].includes((session?.user as any)?.role);
+  // Decided by the role in THIS org (from /api/resources/me), not the global
+  // users.role on the session, which is what the server checks against too.
+  const [orgAdmin, setOrgAdmin] = useState(false);
+  useEffect(() => {
+    fetch("/api/resources/me").then(r => r.ok ? r.json() : null).then(d => setOrgAdmin(!!d?.isOrgAdmin)).catch(() => {});
+  }, []);
+  const canSignInAs = orgAdmin;
   const [signingInAs, setSigningInAs] = useState<string | null>(null);
   async function signInAs(r: any) {
     setSigningInAs(r.id);
@@ -83,7 +89,7 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
       </ListPageHeader>
 
       {showNew && <ResourceDrawer type={type} employees={employees} calendars={calendars} designations={designations} people={listRows} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
-      {openId && <ResourceDrawer type={type} employees={employees} calendars={calendars} designations={designations} people={listRows} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
+      {openId && <ResourceDrawer type={type} employees={employees} calendars={calendars} designations={designations} people={listRows} id={openId} canEdit={orgAdmin} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
       {loginFor && <LoginDrawer person={loginFor} defaultEmail={loginFor.employee?.email || ""} onClose={() => setLoginFor(null)} onSaved={() => { setLoginFor(null); load(); }} />}
 
       {rows === null ? (
@@ -106,10 +112,17 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
                         <td className="px-2 py-2 text-stone-300">{r.managerName || "—"}</td>
                         <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center">
+                          {r.hasLogin && r.loginManagedHere === false ? (
+                            <span className="flex items-center gap-1.5 text-[12px] text-stone-300" title="Team member: password and access are managed in Settings → Team">
+                              <KeyRound size={12} className="text-emerald-400" />
+                              {r.loginEmail || "Has login"}
+                            </span>
+                          ) : (
                           <button onClick={() => setLoginFor(r)} className="flex items-center gap-1.5 text-[12px] text-stone-300 hover:text-white" title={r.hasLogin ? "Reset password or remove login" : "Give this person a login"}>
                             <KeyRound size={12} className={r.hasLogin ? "text-emerald-400" : "text-stone-500"} />
                             {r.hasLogin ? (r.loginEmail || "Has login") : <span className="text-stone-500">No login · Give login</span>}
                           </button>
+                          )}
                           {canSignInAs && r.hasLogin && r.status === "active" && (
                             <button onClick={() => signInAs(r)} disabled={signingInAs === r.id}
                               title="See the app exactly as this person does (read-only, 60 minutes)"
@@ -240,7 +253,7 @@ const PERSON_TABS: { key: PersonTab; label: string }[] = [
   { key: "bank", label: "Bank" },
 ];
 
-function ResourceDrawer({ type, employees, calendars, designations, people, id, onClose, onSaved }: { type: "person" | "equipment"; employees: any[]; calendars: any[]; designations: any[]; people: any[]; id?: string; onClose: () => void; onSaved: () => void }) {
+function ResourceDrawer({ type, employees, calendars, designations, people, id, onClose, onSaved, canEdit = false }: { type: "person" | "equipment"; employees: any[]; calendars: any[]; designations: any[]; people: any[]; id?: string; onClose: () => void; onSaved: () => void; canEdit?: boolean }) {
   const isEdit = !!id;
   const isPerson = type === "person";
   const [form, setForm] = useState({
@@ -325,7 +338,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
     setSaving(true); setErr("");
     // A weekly or monthly figure is divided over THIS person's working days at save.
     const daily = isPerson ? toDaily(Number(capEntry) || 0, capUnit, form.workingDays) : Number(form.dailyCapacity) || 1;
-    const body = { type, ...form, dailyCapacity: daily || 1 };
+    const body = { type, ...form, dailyCapacity: daily };
     const r = await fetch(isEdit ? `/api/resources/${id}` : "/api/resources", {
       method: isEdit ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
@@ -455,7 +468,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
               </div>
               {isEdit && id ? (
                 <Section title="Contracted hours (dated)">
-                  <WorkingHoursPanel resourceId={id} canEdit />
+                  <WorkingHoursPanel resourceId={id} canEdit={canEdit} />
                 </Section>
               ) : (
                 <p className="text-[12px] text-stone-500">Dated contracts (a change of hours from a given date) can be added once the person is saved.</p>
@@ -510,7 +523,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
               record is the only source the report will use. */}
           {isEdit && id && (
             <Section title="Available hours">
-              <WorkingHoursPanel resourceId={id} canEdit />
+              <WorkingHoursPanel resourceId={id} canEdit={canEdit} />
             </Section>
           )}
         </div>

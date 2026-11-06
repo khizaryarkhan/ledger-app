@@ -3,12 +3,15 @@
 import { db } from "@/db";
 import { publicHolidays } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
+import { isAdminRole } from "@/lib/resources/access";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq } from "drizzle-orm";
 
 export async function DELETE(_req: Request, { params }: { params: { id: string; dateId: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role } = await requireOrg();
   if (error) return error;
+  // Types carry GL accounts and leave policy; calendars set everyone's capacity. Admin only.
+  if (!isAdminRole(role)) return bad("Only organisation admins can change this", 403);
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
 

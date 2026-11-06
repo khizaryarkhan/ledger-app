@@ -92,12 +92,14 @@ function CalendarDrawer({ id, rows, onClose, onSaved }: { id?: string; rows?: an
     const r = await fetch(`/api/resources/holiday-calendars/${id}/dates`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: newDate, name: newName }),
     });
-    if (r.ok) { setNewDate(""); setNewName(""); loadDates(); }
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not add the date."); return; }
+    setErr(""); setNewDate(""); setNewName(""); loadDates();
   }
 
   async function removeDate(dateId: string) {
     if (!id) return;
-    await fetch(`/api/resources/holiday-calendars/${id}/dates/${dateId}`, { method: "DELETE" });
+    const r = await fetch(`/api/resources/holiday-calendars/${id}/dates/${dateId}`, { method: "DELETE" });
+    if (!r.ok) setErr((await r.json().catch(() => ({})))?.error || "Could not remove the date.");
     loadDates();
   }
 

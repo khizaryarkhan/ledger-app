@@ -7,7 +7,7 @@
  */
 
 import { db } from "@/db";
-import { resources, employees, users, resourceDesignations } from "@/db/schema";
+import { holidayCalendars, resources, employees, users, resourceDesignations, userOrganisations } from "@/db/schema";
 import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { isAdminRole } from "@/lib/resources/access";
@@ -48,6 +48,14 @@ export async function GET(req: Request) {
     ? await db.select({ id: users.id, email: users.email }).from(users).where(inArray(users.id, userIds))
     : [];
   const emailByUser = new Map(loginRows.map(u => [u.id, u.email]));
+  // Only an employee (timesheet-only) login is managed from People; a member's
+  // login (Standard, Collector, Admin) is managed in Settings -> Team, and the
+  // login routes refuse it. Tell the screen which is which.
+  const memberRows = userIds.length
+    ? await db.select({ userId: userOrganisations.userId, role: userOrganisations.role }).from(userOrganisations)
+      .where(and(eq(userOrganisations.orgId, orgId!), inArray(userOrganisations.userId, userIds)))
+    : [];
+  const roleByUser = new Map(memberRows.map(m => [m.userId, m.role]));
 
   return ok(rows.map(r => {
     const { userId, ...rest } = r;
@@ -61,6 +69,7 @@ export async function GET(req: Request) {
       managerName: manager?.name ?? null,
       hasLogin: !!userId,
       loginEmail: userId ? emailByUser.get(userId) ?? null : null,
+      loginManagedHere: userId ? roleByUser.get(userId) === "employee" : true,
     }, isAdmin);
   }));
 }
@@ -77,6 +86,15 @@ export async function POST(req: Request) {
   if (type !== "person" && type !== "equipment") return bad("type must be 'person' or 'equipment'");
   if (!name || typeof name !== "string" || !name.trim()) return bad("name is required");
   if (costRatePerHour != null && costRatePerHour !== "" && !Number.isFinite(Number(costRatePerHour))) return bad("costRatePerHour must be a number");
+  if (dailyCapacity != null && dailyCapacity !== "") {
+    const cap = Number(dailyCapacity);
+    if (!Number.isFinite(cap) || cap < 0 || (type === "person" && cap > 24)) {
+      return bad(type === "person" ? "Capacity must be between 0 and 24 hours a day" : "Capacity must be 0 or more");
+    }
+  }
+  if (type === "person" && holidayCalendarId && !(await ownsInOrg(holidayCalendars, holidayCalendarId, orgId!))) {
+    return bad("Holiday calendar not found", 404);
+  }
   if (workingDays != null && (!Array.isArray(workingDays) || workingDays.some((d: any) => !Number.isInteger(d) || d < 1 || d > 7))) {
     return bad("workingDays must be an array of ISO weekday numbers (1-7)");
   }
@@ -113,7 +131,8 @@ export async function POST(req: Request) {
     employeeId: isPerson && employeeId ? employeeId : null,
     name: name.trim(),
     category: category || null,
-    dailyCapacity: dailyCapacity != null ? String(dailyCapacity) : "1",
+    // People default to 8 h/day; for equipment the column is slots/day (1 = exclusive).
+    dailyCapacity: dailyCapacity != null && dailyCapacity !== "" ? String(Number(dailyCapacity)) : type === "person" ? "8" : "1",
     status: status === "inactive" ? "inactive" : "active",
     notes: notes || null,
     costRatePerHour: costRatePerHour != null && costRatePerHour !== "" ? String(costRatePerHour) : null,
