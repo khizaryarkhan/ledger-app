@@ -18,8 +18,8 @@ export function ConfigMenu() {
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(o => !o)} title="Settings & help"
-        className="p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors">
-        <Settings size={16} />
+        className="p-2 rounded-md hover:bg-stone-900 text-stone-300 hover:text-primary-ink transition-colors">
+        <Settings size={18} />
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1.5 z-50 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-1 min-w-[180px]">

@@ -68,9 +68,9 @@ export function GlobalSearch() {
     <>
       {/* Header trigger */}
       <button onClick={() => setOpen(true)}
-        className="flex items-center gap-2 h-7 pl-2.5 pr-2 rounded-md bg-stone-900 border border-stone-800 text-stone-500 hover:border-stone-600 hover:text-stone-300 transition-colors min-w-[180px] md:min-w-[280px]">
+        className="flex items-center gap-2 h-8 pl-3 pr-2 rounded-md bg-stone-900 border border-stone-700 text-stone-400 hover:border-primary-ink/40 hover:text-stone-200 transition-colors min-w-[180px] md:min-w-[280px]">
         <Search size={13} />
-        <span className="text-[12px] flex-1 text-left">Search everything…</span>
+        <span className="text-[13px] flex-1 text-left">Search everything…</span>
         <kbd className="hidden md:inline text-[10px] font-sans bg-stone-800 border border-stone-700 rounded px-1.5 py-0.5 text-stone-500">⌘K</kbd>
       </button>
 

@@ -23,11 +23,11 @@ function ThemeToggle() {
   return (
     <button
       onClick={() => setPref(resolved === "dark" ? "light" : "dark")}
-      className="p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
+      className="p-2 rounded-md hover:bg-stone-900 text-stone-300 hover:text-primary-ink transition-colors"
       title={`Switch to ${resolved === "dark" ? "light" : "dark"} view · more options in Settings → Appearance`}
       aria-label="Toggle theme"
     >
-      {resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+      {resolved === "dark" ? <Sun size={18} /> : <Moon size={18} />}
     </button>
   );
 }
@@ -84,18 +84,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar */}
-        <header className="h-11 shrink-0 border-b border-stone-800 bg-stone-950 flex items-center px-2 gap-1">
+        <header className="h-11 shrink-0 border-b border-stone-800 bg-nav flex items-center px-3 gap-1">
           {/* Desktop sidebar toggle */}
           <button
-            className="hidden md:flex p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
+            className="hidden md:flex p-2 rounded-md hover:bg-stone-900 text-stone-300 hover:text-primary-ink transition-colors"
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
           {/* Mobile hamburger */}
           <button
-            className="md:hidden p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
+            className="md:hidden p-2 rounded-md hover:bg-stone-900 text-stone-300 hover:text-primary-ink transition-colors"
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open menu"
           >
@@ -104,7 +104,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div className="ml-1"><CreateMenu /></div>
           <div className="ml-2 hidden sm:block"><GlobalSearch /></div>
           <div className="flex-1" />
-          <div className="flex items-center gap-2 pr-3">
+          <div className="flex items-center gap-1.5">
             <AlertBell />
             <ThemeToggle />
             <ConfigMenu />

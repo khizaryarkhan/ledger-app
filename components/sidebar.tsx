@@ -534,7 +534,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       ].join(" ")}
     >
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-stone-800 flex items-start justify-between">
+      <div className="h-11 shrink-0 px-4 border-b border-stone-800 flex items-center justify-between">
         <div className="flex items-start gap-2.5 min-w-0 flex-1">
           {orgSettings?.logoUrl ? (
             <img

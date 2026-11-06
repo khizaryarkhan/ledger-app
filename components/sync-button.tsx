@@ -56,7 +56,7 @@ export function SyncButton() {
         onClick={trigger}
         disabled={syncing}
         title={`Sync ${label} now`}
-        className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-emerald-300 hover:border-emerald-700/50 hover:bg-emerald-500/5 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-md border border-stone-700 text-stone-300 hover:text-primary-ink hover:border-primary-ink/40 hover:bg-blue-500/5 transition-colors disabled:opacity-50"
       >
         <RefreshCw size={11} className={syncing ? "animate-spin text-emerald-400" : ""} />
         {syncing ? "Syncing…" : `Sync ${label}`}

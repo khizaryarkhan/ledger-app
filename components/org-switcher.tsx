@@ -47,9 +47,9 @@ export function OrgSwitcher() {
 
   if (orgs.length === 1 && !isSuperAdmin && orgs[0]?.type !== "group") {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700">
+      <div className="flex items-center gap-2 h-8 px-3 rounded-md bg-stone-900 border border-stone-700">
         <Building2 size={13} className="text-stone-500 shrink-0" />
-        <span className="text-[12px] font-medium text-stone-300">
+        <span className="text-[13px] font-semibold text-stone-200">
           {active.displayName || active.name}
         </span>
       </div>
@@ -78,14 +78,14 @@ export function OrgSwitcher() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(p => !p)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-stone-900 border border-stone-700 hover:border-stone-600 hover:bg-stone-800 transition-colors"
+        className="flex items-center gap-2 h-8 px-3 rounded-md bg-stone-900 border border-stone-700 hover:border-primary-ink/40 transition-colors"
       >
         {active.type === "group"
           ? <Network size={13} className="text-emerald-400 shrink-0" />
           : isSuperAdmin
             ? <Shield size={13} className="text-emerald-400 shrink-0" />
             : <Building2 size={13} className="text-stone-500 shrink-0" />}
-        <span className="text-[12px] font-medium text-stone-300 max-w-[180px] truncate">
+        <span className="text-[13px] font-semibold text-stone-200 max-w-[180px] truncate">
           {active.displayName || active.name}{active.type === "group" ? " · All branches" : ""}
         </span>
         {switching
