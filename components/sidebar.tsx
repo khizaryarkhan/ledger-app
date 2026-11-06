@@ -170,15 +170,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       ],
     },
     {
-      label: "SALES",
-      items: [
-        { href: "/invoices", label: "Invoices", icon: FileText, count: counts.invoices },
-        { href: "/customers", label: "Customers", icon: Users },
-        { href: "/projects", label: "Projects", icon: Briefcase },
-      ],
-    },
-    {
-      label: "RECEIVABLES",
+      label: "OPERATIONS",
       items: [
         { href: "/board", label: "Collections Board", icon: Kanban },
         { href: "/automations", label: "Automations", icon: Zap },
@@ -191,6 +183,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // Customers/Suppliers/Projects below.
         { href: "/batch/history?op=send", label: "Email History", icon: History },
         { href: "/tasks", label: "Tasks", icon: CheckSquare, count: counts.tasks },
+      ],
+    },
+    {
+      label: "SALES",
+      items: [
+        { href: "/invoices", label: "Invoices", icon: FileText, count: counts.invoices },
+        { href: "/customers", label: "Customers", icon: Users },
+        { href: "/projects", label: "Projects", icon: Briefcase },
       ],
     },
     {
@@ -210,14 +210,6 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       ],
     },
     {
-      label: "PAYABLES",
-      items: [
-        { href: "/payables/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
-        { href: "/payables/bills", label: "Bills", icon: Receipt },
-        { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },
-      ],
-    },
-    {
       label: "OPERATIONS",
       items: [
         { href: "/payables/workspace", label: "Workspace", icon: Kanban },
@@ -226,7 +218,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
         { href: "/payables/tasks", label: "Tasks", icon: CheckSquare },
         { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
-        { href: "/payables/reports", label: "Payables Reports", icon: BarChart3 },
+      ],
+    },
+    {
+      label: "PAYABLES",
+      items: [
+        { href: "/payables/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+        { href: "/payables/bills", label: "Bills", icon: Receipt },
+        { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },
       ],
     },
     {
@@ -234,6 +233,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/payables/smart-views", label: "Smart Views", icon: Filter },
         { href: "/payables/performance", label: "Performance", icon: TrendingUp },
+        { href: "/payables/reports", label: "Payables Reports", icon: BarChart3 },
       ],
     },
   ];
@@ -409,7 +409,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     {
       items: [
         { href: "/supply-chain/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/accounting/reports", label: "Supply Chain Reports", icon: BarChart3 },
+      ],
+    },
+    {
+      label: "Operations",
+      items: [
+        { href: "/supply-chain", label: "Production Orders", icon: ListTree },
+        { href: "/supply-chain/bom", label: "Bill of Materials", icon: GitBranch },
+        // Where work is done and what an hour of it costs — the rates BOM
+        // operations and MOs cost labour and overhead from.
+        { href: "/supply-chain/work-centres", label: "Work Centres", icon: Factory },
       ],
     },
     {
@@ -417,16 +426,6 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/trade/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
         { href: "/supply-chain/receiving", label: "Goods Receipts", icon: PackageCheck },
-      ],
-    },
-    {
-      label: "Manufacturing",
-      items: [
-        { href: "/supply-chain", label: "Production Orders", icon: ListTree },
-        { href: "/supply-chain/bom", label: "Bill of Materials", icon: GitBranch },
-        // Where work is done and what an hour of it costs — the rates BOM
-        // operations and MOs cost labour and overhead from.
-        { href: "/supply-chain/work-centres", label: "Work Centres", icon: Factory },
       ],
     },
     {
@@ -457,6 +456,12 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // "Products & Services", matching Accounting — this is literally the
         // same screen, and it was appearing under two different names.
         { href: "/accounting/products", label: "Products & Services", icon: Package },
+      ],
+    },
+    {
+      label: "Insights",
+      items: [
+        { href: "/accounting/reports", label: "Supply Chain Reports", icon: BarChart3 },
       ],
     },
   ];
