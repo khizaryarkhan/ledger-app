@@ -65,6 +65,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/admin/email/send", methods: ["POST"], body: ["cc","html","subject","to"] },
   { path: "/api/admin/guide/[key]", methods: ["GET","PUT"] },
   { path: "/api/admin/guide/upload", methods: ["POST"] },
+  { path: "/api/admin/impersonate", methods: ["POST"], body: ["orgId","userId"] },
   { path: "/api/admin/items", methods: ["GET","POST"], body: ["active","currency","description","name","taxRate","unitAmount"] },
   { path: "/api/admin/items/[id]", methods: ["DELETE","PATCH"], body: ["active","currency","description","name","taxRate","unitAmount"] },
   { path: "/api/admin/leads", methods: ["GET","POST"], params: ["q","status"] },

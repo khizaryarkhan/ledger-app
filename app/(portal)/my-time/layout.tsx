@@ -14,6 +14,7 @@ import { signOut } from "next-auth/react";
 import { Lock, LogOut } from "lucide-react";
 import AuthProvider from "@/components/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 interface MeInfo {
   resource: { name: string; designationName: string | null } | null;
@@ -95,6 +96,7 @@ export default function MyTimeLayout({ children }: { children: React.ReactNode }
     <AuthProvider>
       <ThemeProvider>
         <Shell>{children}</Shell>
+        <ImpersonationBanner />
       </ThemeProvider>
     </AuthProvider>
   );

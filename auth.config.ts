@@ -29,6 +29,13 @@ const config: NextAuthConfig = {
         token.orgId = (user as any).orgId;
         token.repId = (user as any).repId ?? null;
       }
+      // "Sign in as" ends by itself; lib/impersonation.ts can't be imported
+      // here (Node crypto), so the restore is repeated inline: put the original back.
+      const imp = (token as any).imp;
+      if (imp?.original && typeof imp.until === "number" && imp.until < Date.now()) {
+        const { imp: _gone, ...rest } = token as any;
+        return { ...rest, ...imp.original };
+      }
       return token;
     },
     session({ session, token }) {
@@ -37,6 +44,8 @@ const config: NextAuthConfig = {
         (session.user as any).role = token.role;
         (session.user as any).orgId = token.orgId;
         (session.user as any).repId = token.repId ?? null;
+        const imp = (token as any).imp;
+        (session.user as any).impersonatedBy = imp ? { name: imp.original?.name ?? null, until: imp.until } : null;
       }
       return session;
     },

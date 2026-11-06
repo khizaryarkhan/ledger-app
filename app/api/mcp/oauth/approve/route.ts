@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
   if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  // A super admin signed in as someone must never grant an AI client access as them:
+  // the token would outlive the read-only, 60-minute session (lib/impersonation.ts).
+  if ((session?.user as any)?.impersonatedBy) return NextResponse.json({ error: "Not available while signed in as another user" }, { status: 403 });
 
   const b = await req.json().catch(() => null);
   if (!b || typeof b !== "object") return NextResponse.json({ error: "Invalid request" }, { status: 400 });

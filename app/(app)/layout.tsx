@@ -16,6 +16,7 @@ import { SyncButton } from "@/components/sync-button";
 import { Toast } from "@/components/ui";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { ModuleGate } from "@/components/module-gate";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 function ThemeToggle() {
   const { resolved, setPref } = useTheme();
@@ -115,6 +116,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto">
           <SubscriptionGate><ModuleGate>{children}</ModuleGate></SubscriptionGate>
         </main>
+        <ImpersonationBanner />
       </div>
 
       <Toast toast={toastState} onClose={clearToast} />

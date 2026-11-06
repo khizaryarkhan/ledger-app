@@ -178,6 +178,17 @@ export async function requireOrg(opts: { allowEmployee?: boolean } = {}) {
     }
   }
 
+  // STEP 4b-bis: "Sign in as" is read-only (lib/impersonation.ts). Middleware
+  // already refuses non-read methods; this is the second wall for any handler
+  // reached some other way. A missing method counts as a write (fail closed).
+  if ((session.user as any).impersonatedBy) {
+    let m: string | null = null;
+    try { m = headers().get(APP_METHOD_HEADER); } catch { /* not in a request context */ }
+    if (isWriteMethod(m)) {
+      return { error: NextResponse.json({ error: "Read-only: you are signed in as another user." }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+    }
+  }
+
   // STEP 4c: a custom role (Settings → Roles) narrows what the org has bought.
   // No custom role = the built-in role, exactly as before. Runs for EVERY route,
   // not only module-owned ones: a shared route (Customers, documents, ledger…)

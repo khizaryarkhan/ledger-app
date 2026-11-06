@@ -5466,3 +5466,26 @@ details. Migration `0131` (additive).
 - **Not built**: document uploads (passport scans,
   contracts), the People list still shows capacity per day, and nothing was clicked through in a browser.
   If ENCRYPTION_KEY/AUTH_SECRET is missing, lib/crypto stores plaintext (pre-existing behaviour).
+
+## "Sign in as" for super admins — read-only impersonation (2026-11-06)
+
+Asked for so reports can be built while seeing exactly what a user sees. `lib/impersonation.ts` holds the rules.
+
+- **Start**: Settings → Team row → "Sign in as" (super admins only) → `POST /api/admin/impersonate {userId}`
+  (same-origin, `requireSuperAdmin()` DB-revalidated, target must be an Active member of the active org and
+  never a super/platform admin) returns a 2-minute HMAC **ticket** (AUTH_SECRET) naming admin, target and org.
+  The browser passes it to NextAuth `update({ impersonationTicket })`; the jwt callback (`lib/auth.ts`)
+  re-verifies the ticket, requires `token.role === super_admin`, `ticket.by === token.id`, no existing `imp`,
+  re-reads the target from the DB, then swaps identity and keeps the original in `token.imp` (inside the
+  encrypted JWE). **Stop** = `update({ stopImpersonation })` — needs no ticket because it can only return to
+  the original — and re-reads that admin's role from the DB (`withCurrentRole`). Ends by itself after 60 min
+  (both `lib/auth.ts` and the edge `auth.config.ts` restore).
+- **Read-only, enforced twice**: middleware refuses every non-GET/HEAD/OPTIONS request while impersonating
+  (except `/api/auth/*`), and it does so **before** the public/cron early returns — the security review found
+  that placing it after them left `/api/mcp/oauth/approve` (a "public" path that reads the cookie session) open,
+  so an impersonated session could mint a long-lived MCP write token. `requireOrg()` is the second wall
+  (fail closed on a missing method); MCP approve/settings also refuse an impersonated session outright.
+- Banner: `components/impersonation-banner.tsx` (fixed pill — a bar would break every 100vh−44px screen),
+  in the app shell and employee portal. Audit: `impersonation_started` on the target org. Stop is not audited
+  (it runs inside NextAuth's update). Tickets have no jti: replayable for 2 minutes by the SAME admin for the
+  SAME target and org only. The rep portal has no banner yet.

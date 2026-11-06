@@ -110,6 +110,17 @@ export default auth((req) => {
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
   const isAdmin = path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/admin/");
 
+  // "Sign in as" is READ-ONLY (lib/impersonation.ts): no request that could
+  // change anything (API route or a future server action) runs under someone else's name.
+  // It runs BEFORE the public/cron early returns: /api/mcp/oauth/approve is a
+  // "public" path that still reads the cookie session, so a later check let an
+  // impersonated session mint a long-lived MCP write token (security review). NextAuth's own /api/auth/*
+  // stays open — that is how "Return to my account" is sent.
+  const impersonating = !!(req.auth?.user as any)?.impersonatedBy;
+  if (impersonating && !path.startsWith("/api/auth/") && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    return NextResponse.json({ error: "Read-only: you are signed in as another user. Return to your own account to make changes." }, { status: 403 });
+  }
+
   // The cron/public branches never stamp x-app-path, so drop any value the
   // client sent rather than let it reach a handler that reads the header.
   const withoutPathHeader = () => {

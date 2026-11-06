@@ -38,6 +38,7 @@ export async function PATCH(req: NextRequest) {
   if (error) return error;
   if ((session?.user as any)?.via === "mcp") return bad("AI connections cannot change their own switches.", 403);
   if (!sameOrigin(req)) return bad("Cross-origin request refused", 403);
+  if ((session?.user as any)?.impersonatedBy) return bad("Not available while signed in as another user", 403);
   if (!ADMIN_ROLES.has(role ?? "")) return bad("Only an organisation admin can change these switches.", 403);
 
   const body = await req.json().catch(() => null);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { Eye } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import {
@@ -91,7 +92,7 @@ function PopoverMenu({ trigger, children }: { trigger: React.ReactNode; children
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function TeamSettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const { regions, addRegion, deleteRegion, countries, addCountry, deleteCountry, updateRepManager, refresh } = useData();
 
   const currentUserId = (session?.user as any)?.id;
@@ -151,6 +152,24 @@ export default function TeamSettingsPage() {
       // Refresh DataProvider so new rep/ed immediately appears in project/customer dropdowns
       if (["rep", "ed"].includes(newUser.role)) await refresh();
     } finally { setAddingUser(false); }
+  };
+
+  // ── Sign in as (super admin only; read-only, 60 min — lib/impersonation.ts) ─
+  const [signingInAs, setSigningInAs] = useState<string | null>(null);
+  const signInAs = async (m: TeamUser) => {
+    setSigningInAs(m.id);
+    setRoleError(null);
+    try {
+      // The server signs in as them in the organisation this Team page is showing.
+      const res = await fetch("/api/admin/impersonate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: m.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ticket) { setRoleError({ id: m.id, text: d?.error || "Could not sign in as this user" }); return; }
+      await updateSession({ impersonationTicket: d.ticket });
+      window.location.href = m.role === "employee" ? "/my-time" : m.role === "rep" ? "/rep-portal" : "/dashboard";
+    } finally { setSigningInAs(null); }
   };
 
   // ── User actions ──────────────────────────────────────────────────────────────
@@ -399,6 +418,12 @@ export default function TeamSettingsPage() {
                     {roleError?.id === m.id && <div className="text-[11px] text-rose-400 mt-0.5">{roleError.text}</div>}
                   </div>
 
+                  {isSuper && m.id !== currentUserId && m.role !== "super_admin" && isActive && (
+                    <button onClick={() => signInAs(m)} disabled={signingInAs === m.id} title="See the app exactly as this user does (read-only, 60 minutes)"
+                      className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded ring-1 ring-amber-600/50 text-amber-300 hover:bg-amber-500/10 shrink-0 disabled:opacity-50">
+                      <Eye size={12} /> Sign in as
+                    </button>
+                  )}
                   {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => openPwPanel(m.id)} title="Reset password"
