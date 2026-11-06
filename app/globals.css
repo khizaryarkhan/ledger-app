@@ -55,6 +55,13 @@
   --date-indicator-invert: 40%;
 }
 
+/* Text on a brand-navy fill is ALWAYS real white. In the light theme
+   `text-white` is remapped to dark ink (so it reads on light surfaces), which
+   on navy made the Create button's label vanish. Two classes outrank the
+   single-class text-white rule in either theme. */
+.bg-primary.text-white,
+.bg-primary .text-white { color: rgb(255 255 255); }
+
 [data-theme="light"] {
   color-scheme: light;
   /* Brand action colour (light theme): the logo navy, #092759. */
