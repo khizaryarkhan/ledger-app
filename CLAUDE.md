@@ -5538,6 +5538,9 @@ abilities its routes enforce, so a heading vanishes when empty and no link offer
 - **Labour cost stays admin-only** (cost ÷ hours = pay). If an org ever needs money at a lower tier (EDC opens it
   at Associate Director), make it a role capability in Settings → Roles — never a hard-coded title.
 - No entity tier (EDC's IE/UK) — an org that runs two entities runs two organisations here.
+- **The employee portal uses the SAME menu** (2026-11-06): `portalNavFor` maps each link through `portalHref`
+  and drops any the portal has no page for, so `/my-time` shows the same left sidebar, groups, labels and order
+  as the app — never its own tab list. Icons are shared (`components/resource-nav-icons.ts`).
 - `MODULE_HOME.resources` is `/resources/my-dashboard`. `tests/resource-nav.test.ts` pins each capability profile's
   menu, that every link has a page, that no job title appears in the menu, and that the pages check the same rule
   (proven failing when the board is downgraded to `self`). Links for EDC screens not built here (Notifications,

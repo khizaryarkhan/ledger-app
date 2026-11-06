@@ -16,6 +16,8 @@
  *   also see their own things.
  */
 
+import { portalHref } from "@/lib/notifications/rules";
+
 export type ResourceCapability =
   /** Everyone with Resources: their own dashboard, timesheet, reports, details. */
   | "self"
@@ -129,3 +131,23 @@ export function resourceNavFor(caps: ResourceCaps): ResourceNavSection[] {
 
 /** What a viewer sees before their capabilities have loaded: only their own things. */
 export const SELF_ONLY_CAPS: ResourceCaps = { approve: false, team: false, admin: false, modules: [] };
+
+/**
+ * The same menu for the EMPLOYEE PORTAL (/my-time): identical groups, order
+ * and labels, so a portal login sees the structure everyone else sees. Each
+ * link is mapped to its portal page; a link the portal has no page for is
+ * dropped (an employee login is confined to /my-time, so it would only 403),
+ * and so is a heading left empty. Mapping lives in one place — `portalHref`.
+ */
+export function portalNavFor(caps: ResourceCaps, hasPerson = true): ResourceNavSection[] {
+  const out: ResourceNavSection[] = [];
+  for (const sec of resourceNavFor(caps)) {
+    const items = sec.items.flatMap((i) => {
+      if (i.href === "/resources/my-details" && !hasPerson) return [];
+      const href = portalHref(i.href);
+      return href ? [{ ...i, href }] : [];
+    });
+    if (items.length) out.push({ ...sec, items });
+  }
+  return out;
+}

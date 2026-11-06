@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { RESOURCE_NAV, resourceNavFor, SELF_ONLY_CAPS, type ResourceCaps } from "@/lib/resources/nav";
+import { RESOURCE_NAV, resourceNavFor, portalNavFor, SELF_ONLY_CAPS, type ResourceCaps } from "@/lib/resources/nav";
 
 const root = process.cwd();
 const src = (p: string) => readFileSync(join(root, p), "utf8");
@@ -59,5 +59,35 @@ describe("pages enforce what the menu promises", () => {
   });
   it("the board never returns a login id, nor a pay rate to a non-admin", () => {
     expect(src("app/api/resources/assignments/route.ts")).toMatch(/boardSafeResource\(r, access\.ctx\.actor\.isOrgAdmin\)/);
+  });
+});
+
+describe("the employee portal uses the same menu", () => {
+  const portal = (caps: ResourceCaps, person = true) => portalNavFor(caps, person);
+  it("a plain employee gets the same groups and labels as the app, on portal pages", () => {
+    const p = portal(self);
+    expect(p.map((s) => s.label)).toEqual(["My Pulse", "Timesheets"]);
+    expect(p.flatMap((s) => s.items.map((i) => i.label))).toEqual(["Dashboard", "Notifications", "My Reports", "My Details", "My Timesheet"]);
+    expect(p.flatMap((s) => s.items.map((i) => i.href))).toEqual(["/my-time/dashboard", "/my-time/notifications", "/my-time/reports", "/my-time/details", "/my-time"]);
+  });
+  it("a lead's portal adds approval and team reports, and never a page the portal does not have", () => {
+    const h = portal(lead).flatMap((s) => s.items.map((i) => i.href));
+    expect(h).toContain("/my-time/approvals");
+    expect(h).toContain("/my-time/team");
+    for (const x of h) expect(x.startsWith("/my-time")).toBe(true);
+  });
+  it("every portal link has a portal page", () => {
+    for (const i of portal(admin).flatMap((s) => s.items)) {
+      const page = i.href === "/my-time" ? "app/(portal)/my-time/page.tsx" : `app/(portal)${i.href}/page.tsx`;
+      expect(existsSync(join(root, page)), i.href).toBe(true);
+    }
+  });
+  it("hides My Details for a login with no person record", () => {
+    expect(portal(self, false).flatMap((s) => s.items.map((i) => i.href))).not.toContain("/my-time/details");
+  });
+  it("the portal shell renders from the shared definition, not its own tab list", () => {
+    const shell = src("app/(portal)/my-time/layout.tsx");
+    expect(shell).toMatch(/portalNavFor\(/);
+    expect(shell).not.toMatch(/const tabs = \[/);
   });
 });

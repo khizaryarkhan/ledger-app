@@ -14,7 +14,8 @@ import {
   CalendarClock, Wrench, MapPin, Percent, Repeat, Sparkles
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import { resourceNavFor, SELF_ONLY_CAPS, type ResourceCaps, type ResourceNavIcon } from "@/lib/resources/nav";
+import { resourceNavFor, SELF_ONLY_CAPS, type ResourceCaps } from "@/lib/resources/nav";
+import { RESOURCE_NAV_ICONS } from "@/components/resource-nav-icons";
 import { useData } from "./data-provider";
 import { hasModule, type ModuleKey } from "@/lib/modules";
 
@@ -31,13 +32,6 @@ interface NavItem {
   count?: number;
   urgent?: boolean;
 }
-
-const RESOURCE_NAV_ICONS: Record<ResourceNavIcon, NavItem["icon"]> = {
-  dashboard: LayoutDashboard, notifications: Bell, reports: Gauge, details: Contact, timesheet: Clock, approve: CheckSquare,
-  compliance: ClipboardList, enquiry: Scale, post: ScrollText, planning: CalendarClock, utilisation: Gauge,
-  team: BarChart3, cost: Scale, equipment: Wrench, machine: Gauge, people: Users, designation: ClipboardList,
-  types: ClipboardList, leave: Scale, calendar: MapPin, payroll: ScrollText,
-};
 
 export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarProps) {
   const pathname = usePathname();

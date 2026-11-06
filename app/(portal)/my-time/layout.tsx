@@ -15,11 +15,14 @@ import { Lock, LogOut } from "lucide-react";
 import AuthProvider from "@/components/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
+import { portalNavFor } from "@/lib/resources/nav";
+import { RESOURCE_NAV_ICONS } from "@/components/resource-nav-icons";
 
 interface MeInfo {
   resource: { name: string; designationName: string | null } | null;
   canApprove: boolean;
   canTeamReports: boolean;
+  isOrgAdmin?: boolean;
   orgName: string;
   unreadNotifications?: number;
 }
@@ -41,42 +44,62 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const me = load.state === "ready" ? load.me : null;
-  const tabs = [
-    { href: "/my-time/dashboard", label: "Dashboard", show: true },
-    { href: "/my-time/notifications", label: me?.unreadNotifications ? `Notifications (${me.unreadNotifications})` : "Notifications", show: true },
-    { href: "/my-time", label: "Timesheet", show: true },
-    { href: "/my-time/reports", label: "My Reports", show: true },
-    { href: "/my-time/details", label: "My Details", show: !!me?.resource },
-    { href: "/my-time/approvals", label: "Approvals", show: !!me?.canApprove },
-    { href: "/my-time/team", label: "Team Reports", show: !!me?.canTeamReports },
-  ].filter((t) => t.show);
+  // The SAME menu as the app's Resources sidebar (lib/resources/nav.ts), mapped
+  // to the portal's own pages: same groups, order and labels for everyone,
+  // driven by what this person may do — never a separate, hand-kept tab list.
+  const sections = portalNavFor(
+    { approve: !!me?.canApprove, team: !!me?.canTeamReports, admin: !!me?.isOrgAdmin, modules: [] },
+    !!me?.resource,
+  );
+  const unread = me?.unreadNotifications ?? 0;
   const isActive = (href: string) => (href === "/my-time" ? pathname === "/my-time" : pathname.startsWith(href));
+  const linkClass = (href: string) => `w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium mb-0.5 ${
+    isActive(href) ? "bg-pink-500/15 text-pink-300" : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"}`;
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col">
-      <header className="border-b border-stone-800 bg-stone-950 px-6 py-3 flex items-center gap-4 flex-wrap">
-        <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-white tracking-tight">{me?.orgName || "Timesheet"}</div>
-          {me?.resource && (
-            <div className="text-[12px] text-stone-400">{me.resource.name}{me.resource.designationName ? ` · ${me.resource.designationName}` : ""}</div>
-          )}
+    <div className="h-screen bg-stone-950 text-stone-100 flex flex-col md:flex-row">
+      <aside className="md:w-56 md:h-screen md:border-r border-b md:border-b-0 border-stone-800 bg-stone-950 flex-shrink-0 flex flex-col">
+        <div className="px-4 py-3 border-b border-stone-800 flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[14px] font-semibold text-white tracking-tight truncate">{me?.orgName || "Timesheet"}</div>
+            {me?.resource && (
+              <div className="text-[11px] text-stone-400 truncate">{me.resource.name}{me.resource.designationName ? ` · ${me.resource.designationName}` : ""}</div>
+            )}
+          </div>
+          <button onClick={() => signOut({ callbackUrl: "/login" })} aria-label="Sign out" title="Sign out"
+            className="md:hidden h-8 w-8 flex items-center justify-center rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-stone-100">
+            <LogOut size={13} />
+          </button>
         </div>
-        <nav className="flex items-center gap-1 ml-4" aria-label="Sections">
-          {tabs.map((t) => (
-            <Link key={t.href} href={t.href}
-              className={`px-3 h-8 flex items-center rounded-md text-[13px] ${isActive(t.href) ? "bg-stone-800 text-stone-100" : "text-stone-400 hover:text-stone-200 hover:bg-stone-900"}`}>
-              {t.label}
-            </Link>
+        <nav aria-label="Sections" className="flex-1 overflow-y-auto py-3 px-2 flex md:block gap-4 overflow-x-auto">
+          {sections.map((sec, si) => (
+            <div key={sec.label} className={si > 0 ? "md:mb-3 md:pt-3 md:border-t border-stone-800/80 shrink-0" : "md:mb-3 shrink-0"}>
+              <div className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase text-pink-400 tracking-widest">{sec.label}</div>
+              {sec.items.map((i) => {
+                const Icon = RESOURCE_NAV_ICONS[i.icon];
+                const active = isActive(i.href);
+                return (
+                  <Link key={i.href} href={i.href} className={linkClass(i.href)}>
+                    <Icon size={15} strokeWidth={active ? 2.25 : 2} className={active ? "text-pink-300" : "text-stone-500"} />
+                    <span className="flex-1 whitespace-nowrap">{i.label}</span>
+                    {i.icon === "notifications" && unread > 0 && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300">{unread}</span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
           ))}
         </nav>
-        <div className="flex-1" />
-        <button onClick={() => signOut({ callbackUrl: "/login" })}
-          className="h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-[12px] text-stone-300 hover:text-stone-100 flex items-center gap-1.5">
-          <LogOut size={13} /> Sign out
-        </button>
-      </header>
+        <div className="hidden md:block p-3 border-t border-stone-800">
+          <button onClick={() => signOut({ callbackUrl: "/login" })}
+            className="w-full h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-[12px] text-stone-300 hover:text-stone-100 flex items-center justify-center gap-1.5">
+            <LogOut size={13} /> Sign out
+          </button>
+        </div>
+      </aside>
 
-      <main className="flex-1">
+      <main className="flex-1 min-w-0 overflow-y-auto">
         {load.state === "loading" && <div className="p-6 text-[13px] text-stone-500">Loading...</div>}
         {load.state === "blocked" && (
           <div className="flex items-center justify-center min-h-[60vh] p-6">
