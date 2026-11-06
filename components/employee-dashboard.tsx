@@ -13,7 +13,7 @@ import Link from "next/link";
 import { RefreshCw, CheckCircle2, AlertTriangle, Clock, Inbox } from "lucide-react";
 import { ReportShell, type ReportShellKind } from "@/components/resource-report-shell";
 import { SelectField, tableHead, th } from "@/components/form-kit";
-import { formatDateShort, fmt } from "@/lib/format";
+import { formatDateShort, fmt, localToday } from "@/lib/format";
 
 type Status = "approved" | "submitted" | "returned" | "draft" | "missing";
 interface Dash {
@@ -106,7 +106,8 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
 
   const load = () => {
     setErr(null);
-    fetch(`/api/resources/me/dashboard?weeksBack=${weeksBack}`)
+    // Send the viewer's own date: the server's fallback is UTC, a day off west of Greenwich.
+    fetch(`/api/resources/me/dashboard?weeksBack=${weeksBack}&today=${localToday()}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { setErr(d?.error || "Could not load your dashboard."); return; }

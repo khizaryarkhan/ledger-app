@@ -15,8 +15,8 @@ describe("computeResourceUtilization", () => {
   it("capacity = working days x daily capacity, minus approved leave hours", () => {
     const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: null };
     const entries: UtilizationEntry[] = [
-      { resourceId: "r1", timesheetTypeId: "work", hours: 10 },
-      { resourceId: "r1", timesheetTypeId: "leave", hours: 8 },
+      { resourceId: "r1", timesheetTypeId: "work", hours: 10, date: "2026-10-05" },
+      { resourceId: "r1", timesheetTypeId: "leave", hours: 8, date: "2026-10-06" },
     ];
     const row = computeResourceUtilization(resource, FROM, TO, null, new Map(), [], entries, types);
     // 5 working days x 8h = 40, minus 8h leave = 32
@@ -63,7 +63,7 @@ describe("computeResourceUtilization", () => {
 
   it("non-billable work hours count toward actual utilization but not billable utilization", () => {
     const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: null };
-    const entries: UtilizationEntry[] = [{ resourceId: "r1", timesheetTypeId: "internal", hours: 10 }];
+    const entries: UtilizationEntry[] = [{ resourceId: "r1", timesheetTypeId: "internal", hours: 10, date: "2026-10-05" }];
     const row = computeResourceUtilization(resource, FROM, TO, null, new Map(), [], entries, types);
     expect(row.actualHours).toBe(10);
     expect(row.billableHours).toBe(0);
@@ -73,9 +73,40 @@ describe("computeResourceUtilization", () => {
 
   it("zero capacity (e.g. fully on leave) reports 0% utilization rather than dividing by zero", () => {
     const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: null };
-    const entries: UtilizationEntry[] = [{ resourceId: "r1", timesheetTypeId: "leave", hours: 40 }];
+    const entries: UtilizationEntry[] = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]
+      .map((date) => ({ resourceId: "r1", timesheetTypeId: "leave", hours: 8, date }));
     const row = computeResourceUtilization(resource, FROM, TO, null, new Map(), [], entries, types);
     expect(row.capacity).toBe(0);
     expect(row.utilizationPercent).toBe(0);
+  });
+
+  it("ignores entries outside the chosen window (it used to count every hour ever logged)", () => {
+    const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: null };
+    const entries: UtilizationEntry[] = [
+      { resourceId: "r1", timesheetTypeId: "work", hours: 8, date: "2026-10-05" },
+      { resourceId: "r1", timesheetTypeId: "work", hours: 500, date: "2025-03-01" },
+      { resourceId: "r1", timesheetTypeId: "leave", hours: 200, date: "2026-01-02" },
+    ];
+    const row = computeResourceUtilization(resource, FROM, TO, null, new Map(), [], entries, types);
+    expect(row.actualHours).toBe(8);
+    expect(row.capacity).toBe(40);
+  });
+
+  it("does not take a public holiday off capacity twice (calendar + holiday timesheet line)", () => {
+    const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: "cal" };
+    const holidays = new Map([["cal", new Set(["2026-10-07"])]]);
+    const entries: UtilizationEntry[] = [{ resourceId: "r1", timesheetTypeId: "leave", hours: 8, date: "2026-10-07" }];
+    const row = computeResourceUtilization(resource, FROM, TO, null, holidays, [], entries, types);
+    expect(row.capacity).toBe(32); // 40 - 8 (calendar), NOT 24
+  });
+
+  it("plans a short booking only for the days it covers", () => {
+    const resource = { id: "r1", name: "Alice", type: "person", dailyCapacity: 8, workingDays: [1, 2, 3, 4, 5], holidayCalendarId: null };
+    const assignments: UtilizationAssignment[] = [
+      { resourceId: "r1", startDate: "2026-10-05", endDate: "2026-10-06", status: "active", allocationPercent: 100 },
+    ];
+    const row = computeResourceUtilization(resource, FROM, TO, null, new Map(), assignments, [], types);
+    expect(row.plannedHours).toBe(16);
+    expect(row.plannedPercent).toBe(40);
   });
 });

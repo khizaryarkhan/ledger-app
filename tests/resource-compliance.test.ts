@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildCompliance, weekKey, type ComplianceEntry, type Expected } from "@/lib/resources/compliance";
+import { buildCompliance, weekKey, weeksEndingAt, type ComplianceEntry, type Expected } from "@/lib/resources/compliance";
 import { addDays } from "@/lib/accounting/report-periods";
 
 // 2026-11-02 is a Monday (verified).
@@ -149,5 +149,15 @@ describe("the expected figure", () => {
     // 16h handed in each week: short in week 1, exactly right in week 2.
     const r = run([...fullWeek(W1).slice(0, 2), ...fullWeek(W2).slice(0, 2)], { expected: mixed });
     expect(r.rows.map((x) => [x.weekStart, x.shortBy])).toEqual([[W1, 24]]);
+  });
+});
+
+describe("weeksEndingAt", () => {
+  it("never includes the week still running", () => {
+    // Wednesday 2026-11-04: the week of 2026-11-02 is not finished.
+    expect(weeksEndingAt("2026-11-04", 2)).toEqual(["2026-10-19", "2026-10-26"]);
+  });
+  it("includes a week once its Sunday has come", () => {
+    expect(weeksEndingAt("2026-11-08", 2)).toEqual(["2026-10-26", "2026-11-02"]);
   });
 });

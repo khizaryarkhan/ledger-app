@@ -10,11 +10,10 @@ import { db } from "@/db";
 import { resources, timeEntries, timesheetTypes } from "@/db/schema";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { addDays } from "@/lib/accounting/report-periods";
-import { weekStartOf } from "./time-entry-rules";
 import { loadCalendars } from "./reports-server";
 import { capacityOver, hasDatedHours } from "./working-hours";
 import {
-  buildCompliance, weekKey, ACTIVE_WITHIN_WEEKS,
+  buildCompliance, weekKey, weeksEndingAt, ACTIVE_WITHIN_WEEKS,
   type ComplianceResult, type Expected, type ComplianceEntry,
 } from "./compliance";
 
@@ -24,11 +23,6 @@ export const DEFAULT_WEEKS = 6;
 
 const weekEndOf = (weekStart: string): string => addDays(weekStart, 6);
 
-/** The `n` Mondays ending with the week containing `endDate`, oldest first. */
-export function weeksEndingAt(endDate: string, n: number): string[] {
-  const last = weekStartOf(endDate);
-  return Array.from({ length: n }, (_, i) => addDays(last, -7 * (n - 1 - i)));
-}
 
 export async function loadCompliance(
   orgId: string,

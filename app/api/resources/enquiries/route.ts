@@ -68,7 +68,8 @@ export async function GET(req: Request) {
       ...r,
       plannedHours: Number(r.plannedHours), actualHours: Number(r.actualHours),
       bookingName: names.get(r.assignableId) ?? null,
-      canAnswer: !!actor.resourceId && (r.assignedTo === actor.resourceId || actor.isOrgAdmin),
+      // An org admin may answer without a person record, matching the PATCH route.
+      canAnswer: actor.isOrgAdmin || (!!actor.resourceId && r.assignedTo === actor.resourceId),
     })),
   });
 }

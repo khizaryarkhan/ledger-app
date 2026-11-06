@@ -15,8 +15,10 @@ import { db } from "@/db";
 import { resources, resourceAssignments } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { and, eq, gte, lte, or, isNull, desc } from "drizzle-orm";
-import { ASSIGNABLE_TYPES, type AssignableType, overlaps } from "@/lib/resources/assignable";
+import { and, eq, gte, lte, or, isNull, desc, ne } from "drizzle-orm";
+import { ASSIGNABLE_TYPES, type AssignableType, overlaps, peakDailyAllocation, parseAllocation } from "@/lib/resources/assignable";
+import { assignableExists } from "@/lib/resources/time-entries-server";
+import { isRealDate } from "@/lib/resources/time-entry-rules";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -31,7 +33,7 @@ export async function GET(req: Request) {
   if (assignableType && assignableId) {
     if (!(ASSIGNABLE_TYPES as readonly string[]).includes(assignableType)) return bad("Invalid assignableType");
     const rows = await db.select().from(resourceAssignments)
-      .where(and(eq(resourceAssignments.orgId, orgId!), eq(resourceAssignments.assignableType, assignableType), eq(resourceAssignments.assignableId, assignableId)))
+      .where(and(eq(resourceAssignments.orgId, orgId!), eq(resourceAssignments.assignableType, assignableType), eq(resourceAssignments.assignableId, assignableId), ne(resourceAssignments.status, "cancelled")))
       .orderBy(desc(resourceAssignments.startDate));
     const resourceIds = [...new Set(rows.map(r => r.resourceId))];
     const resRows = resourceIds.length ? await db.select().from(resources).where(eq(resources.orgId, orgId!)) : [];
@@ -65,8 +67,8 @@ export async function GET(req: Request) {
 
   const board = allResources.map(r => {
     const assignments = (byResource.get(r.id) ?? []).filter(a => a.status !== "cancelled");
-    const totalAllocation = assignments.reduce((s, a) => s + Number(a.allocationPercent), 0);
-    return { ...r, assignments, overAllocated: totalAllocation > 100 };
+    // Per day, not summed over the week: bookings on different days never clash.
+    return { ...r, assignments, overAllocated: peakDailyAllocation(assignments, from, to) > 100 };
   });
 
   return ok(board);
@@ -84,8 +86,14 @@ export async function POST(req: Request) {
   if (!resourceId) return bad("resourceId is required");
   if (!(ASSIGNABLE_TYPES as readonly string[]).includes(assignableType)) return bad("assignableType must be one of: " + ASSIGNABLE_TYPES.join(", "));
   if (!assignableId) return bad("assignableId is required");
-  if (!startDate) return bad("startDate is required");
+  if (!startDate || !isRealDate(startDate)) return bad("A valid startDate is required");
+  if (endDate && !isRealDate(endDate)) return bad("endDate is not a valid date");
   if (endDate && endDate < startDate) return bad("endDate cannot be before startDate");
+  const alloc = parseAllocation(allocationPercent);
+  if (alloc.ok === false) return bad(alloc.error);
+  if (!(await assignableExists(orgId!, assignableType as AssignableType, String(assignableId)))) {
+    return bad(`That ${assignableType.replace(/_/g, " ")} was not found in this organisation`, 404);
+  }
 
   const [resource] = await db.select({ id: resources.id }).from(resources).where(and(eq(resources.id, resourceId), eq(resources.orgId, orgId!))).limit(1);
   if (!resource) return bad("Resource not found", 404);
@@ -97,7 +105,7 @@ export async function POST(req: Request) {
     assignableId,
     startDate,
     endDate: endDate || null,
-    allocationPercent: allocationPercent != null ? String(allocationPercent) : "100",
+    allocationPercent: String(alloc.value),
     status: "scheduled",
     notes: notes || null,
     createdBy: (session?.user as any)?.id ?? null,

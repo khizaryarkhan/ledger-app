@@ -17,9 +17,15 @@ export function ResourceUtilizationReport() {
   const [from, setFrom] = useState(startOfMonth(today));
   const [to, setTo] = useState(today);
   const [rows, setRows] = useState<any[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   async function load() {
-    setRows(await fetch(`/api/resources/utilization?from=${from}&to=${to}`).then(r => r.json()).catch(() => []));
+    if (!from || !to) return; // a cleared date input: wait for a full range
+    const r = await fetch(`/api/resources/utilization?from=${from}&to=${to}`).catch(() => null);
+    const d = r ? await r.json().catch(() => null) : null;
+    // An error body is not an array; rendering it used to white-screen the page.
+    if (!r?.ok || !Array.isArray(d)) { setErr(d?.error || "Could not load utilisation"); setRows([]); return; }
+    setErr(null); setRows(d);
   }
   useEffect(() => { load(); }, [from, to]);
 
@@ -52,8 +58,10 @@ export function ResourceUtilizationReport() {
 
       {rows === null ? (
         <p className="text-center text-[13px] text-stone-500 py-8">Loading…</p>
+      ) : err ? (
+        <p className="text-center text-[13px] text-rose-400 py-8">{err}</p>
       ) : rows.length === 0 ? (
-        <p className="text-center text-[13px] text-stone-500 py-8">No active resources.</p>
+        <p className="text-center text-[13px] text-stone-500 py-8">No active people.</p>
       ) : (
         <table className="w-full text-[13px]">
           <thead>

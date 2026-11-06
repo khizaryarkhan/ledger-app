@@ -30,9 +30,9 @@ describe("planned vs logged", () => {
     { key: "type:leave", assignableType: null, assignableId: null, timesheetTypeId: "leave", weeks: [S(8), S(0)], total: S(8) },
   ];
 
-  it("per week sums every booking, logged counting all non-returned lines", () => {
+  it("per week sums every booking's logged lines, leaving leave/internal out like the per-project view", () => {
     expect(behindByWeek(weeks, planned, logged)).toEqual([
-      { week: "2026-10-12", planned: 25, logged: 32 },
+      { week: "2026-10-12", planned: 25, logged: 24 }, // 20 + 4; the 8h leave line is not project work
       { week: "2026-10-19", planned: 10, logged: 9 },
     ]);
   });

@@ -69,6 +69,7 @@ describe("employee boundary", () => {
       expect(s, f).toMatch(/const canSeeCost = actor\.isOrgAdmin;/);
     }
     const cost = src(join(API, "resources", "cost-report", "route.ts"));
-    expect(cost).toMatch(/groupBy === "resource" && !isAdminRole\(role\)/);
+    // Every grouping, not only per-person: cost / hours on a one-person project is a pay rate too.
+    expect(cost).toMatch(/if \(!isAdminRole\(role\)\) return bad\("Only organisation admins can see labour cost", 403\)/);
   });
 });

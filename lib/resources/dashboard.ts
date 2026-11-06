@@ -26,12 +26,19 @@ export interface BehindProject { key: string; planned: number; logged: number }
 
 const ZERO = { actual: 0, pending: 0, draft: 0 };
 
-/** Planned against logged, per past week. Logged counts every line not returned. */
+/**
+ * Planned against logged, per past week. Like behindByProject, only work on a
+ * booking counts: leave and internal time ("type:" keys) were never planned,
+ * so counting them made a week's "logged" bigger than its project bars added
+ * up to. Every status counts, a returned line included — it was worked; the
+ * return is about how it was recorded.
+ */
 export function behindByWeek(weeks: readonly string[], planned: readonly PlannedWeekRow[], logged: readonly WeeklyLoggedRow[]): BehindWeek[] {
+  const project = logged.filter((r) => !r.key.startsWith("type:"));
   return weeks.map((week, i) => ({
     week,
     planned: round2(planned.reduce((s, r) => s + (r.weeks[i] ?? 0), 0)),
-    logged: round2(logged.reduce((s, r) => s + splitTotal(r.weeks[i] ?? ZERO), 0)),
+    logged: round2(project.reduce((s, r) => s + splitTotal(r.weeks[i] ?? ZERO), 0)),
   }));
 }
 

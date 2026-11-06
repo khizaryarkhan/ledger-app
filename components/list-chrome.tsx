@@ -70,8 +70,10 @@ export function usePeriodFilter(initial: PeriodId): PeriodFilterState {
   return { period, setPeriod, customFrom, setCustomFrom, customTo, setCustomTo, range, label: periodLabel(period) };
 }
 
-export function ListPeriodFilter({ state, label, capAtToday = false }: {
+export function ListPeriodFilter({ state, label, capAtToday = false, exclude = [] }: {
   state: PeriodFilterState;
+  /** Periods this screen cannot serve (a report capped at a year has no "All Time"). */
+  exclude?: readonly PeriodId[];
   /** What the date is — "Invoice date", "Order date". */
   label: string;
   /** Stop the custom "to" at today (the Invoices page's rule). */
@@ -81,7 +83,7 @@ export function ListPeriodFilter({ state, label, capAtToday = false }: {
     <>
       <SelectField value={state.period} onChange={(e) => state.setPeriod(e.target.value as PeriodId)}
         aria-label={`${label} period`} className="w-auto h-8 text-[12px]">
-        {PERIODS.map((p) => <option key={p.id} value={p.id}>{label}: {p.label}</option>)}
+        {PERIODS.filter((p) => !exclude.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{label}: {p.label}</option>)}
       </SelectField>
       {state.period === "custom" && (
         <>

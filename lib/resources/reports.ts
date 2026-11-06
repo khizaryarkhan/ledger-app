@@ -8,7 +8,7 @@
  * from their own text ("A date is a date"); weeks start on Monday (ISO).
  */
 
-import { capacityOver, hoursOn, type WorkingHoursRow } from "@/lib/resources/working-hours";
+import { capacityOver, hoursOn, leaveOffCapacity, type WorkingHoursRow } from "@/lib/resources/working-hours";
 import { overlaps } from "@/lib/resources/assignable";
 
 // ── numbers & dates ───────────────────────────────────────────────────────────
@@ -339,15 +339,18 @@ export function employeeRollup(input: {
     const myAssign = assignments.filter((a) => a.resourceId === id);
     const total = emptySplit();
     let leave = 0;
+    const leaveDays: { date: string; hours: number }[] = [];
     const perWeek = new Map<string, Split>(weeks.map((w) => [w, emptySplit()]));
     for (const e of mine) {
-      if (e.isLeave) { if (statusBucket(e.status) === "actual") leave += e.hours; continue; }
+      if (e.isLeave) { if (statusBucket(e.status) === "actual") { leave += e.hours; leaveDays.push(e); } continue; }
       const b = statusBucket(e.status);
       addTo(total, b, e.hours);
       const ws = perWeek.get(weekStart(e.date));
       if (ws) addTo(ws, b, e.hours);
     }
-    const capacity = Math.max(0, round2(capacityHours(cal, window.from, window.to) - leave));
+    // Leave comes off capacity only up to what each day was worth, so a public
+    // holiday (already 0 h on the calendar) is not subtracted a second time.
+    const capacity = Math.max(0, round2(capacityHours(cal, window.from, window.to) - leaveOffCapacity(leaveDays, cal.workingHours ?? [], cal, cal.holidays)));
     const series: EmployeeWeek[] = weeks.map((w) => {
       const from = w < window.from ? window.from : w;
       const to = weekEnd(w) > window.to ? window.to : weekEnd(w);

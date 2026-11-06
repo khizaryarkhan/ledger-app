@@ -31,8 +31,10 @@ export async function GET(req: Request) {
   const assignableId = searchParams.get("assignableId");
   if (!from || !to || !DATE_RE.test(from) || !DATE_RE.test(to)) return bad("from and to (YYYY-MM-DD) are required");
   if (!GROUPS.includes(groupBy)) return bad("groupBy must be assignable, resource or month");
-  // Cost split per person, divided by their hours, is their pay rate.
-  if (groupBy === "resource" && !isAdminRole(role)) return bad("Only organisation admins can see cost per person", 403);
+  // Org admins only, every grouping: on a project or month that one person
+  // worked, cost / hours is that person's pay rate just as surely as the
+  // per-person split is.
+  if (!isAdminRole(role)) return bad("Only organisation admins can see labour cost", 403);
 
   const conds = [
     eq(timeEntries.orgId, orgId!),

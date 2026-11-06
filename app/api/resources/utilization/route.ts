@@ -10,11 +10,14 @@ import { db } from "@/db";
 import { resources, resourceAssignments, timeEntries, timesheetTypes, holidayCalendars, publicHolidays, resourceWorkingHours } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { buildCtx } from "@/lib/resources/time-entries-server";
+import { visibleResourceIds } from "@/lib/resources/access";
+import { isRealDate } from "@/lib/resources/time-entry-rules";
 import { computeResourceUtilization } from "@/lib/resources/utilization";
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "resources");
   if (modErr) return modErr;
@@ -24,16 +27,23 @@ export async function GET(req: Request) {
   const to = searchParams.get("to");
   const resourceId = searchParams.get("resourceId");
   if (!from || !to) return bad("from and to are required");
+  if (!isRealDate(from) || !isRealDate(to) || from > to) return bad("from and to must be valid dates, from on or before to");
 
-  const resConds = [eq(resources.orgId, orgId!), eq(resources.status, "active")];
+  // People only: for equipment daily_capacity is SLOTS/day, not hours (machines
+  // have their own report at /resources/machines). And only the people this
+  // viewer may see — the same scope as the Compliance and Employee reports.
+  const ctx = await buildCtx(orgId!, session, role);
+  const visible = visibleResourceIds(ctx.actor, ctx.people);
+  const resConds = [eq(resources.orgId, orgId!), eq(resources.status, "active"), eq(resources.type, "person")];
   if (resourceId) resConds.push(eq(resources.id, resourceId));
-  const resourceRows = await db.select().from(resources).where(and(...resConds));
+  const resourceRows = (await db.select().from(resources).where(and(...resConds)))
+    .filter(r => visible === "all" || visible.has(r.id));
   if (!resourceRows.length) return ok([]);
   const resourceIds = resourceRows.map(r => r.id);
 
   const [assignments, entries, types, calendars, hours] = await Promise.all([
     db.select().from(resourceAssignments).where(and(eq(resourceAssignments.orgId, orgId!), inArray(resourceAssignments.resourceId, resourceIds))),
-    db.select().from(timeEntries).where(and(eq(timeEntries.orgId, orgId!), inArray(timeEntries.resourceId, resourceIds), inArray(timeEntries.status, ["approved", "posted"]))),
+    db.select().from(timeEntries).where(and(eq(timeEntries.orgId, orgId!), inArray(timeEntries.resourceId, resourceIds), inArray(timeEntries.status, ["approved", "posted"]), gte(timeEntries.date, from), lte(timeEntries.date, to))),
     db.select({ id: timesheetTypes.id, category: timesheetTypes.category, billable: timesheetTypes.billable }).from(timesheetTypes).where(eq(timesheetTypes.orgId, orgId!)),
     db.select().from(holidayCalendars).where(eq(holidayCalendars.orgId, orgId!)),
     // Dated contracted hours (Phase B): one read for everyone in scope.
@@ -65,7 +75,7 @@ export async function GET(req: Request) {
     resourceId: a.resourceId, startDate: a.startDate, endDate: a.endDate,
     status: a.status, allocationPercent: Number(a.allocationPercent) || 0,
   }));
-  const entryRows = entries.map(e => ({ resourceId: e.resourceId, timesheetTypeId: e.timesheetTypeId, hours: Number(e.hours) || 0 }));
+  const entryRows = entries.map(e => ({ resourceId: e.resourceId, timesheetTypeId: e.timesheetTypeId, hours: Number(e.hours) || 0, date: e.date }));
 
   const rows = resourceRows.map(r => computeResourceUtilization(
     {

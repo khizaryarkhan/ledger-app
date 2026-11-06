@@ -110,7 +110,8 @@ export function TeamReports({ shell = "app" }: { shell?: ReportShellKind }) {
     <>
       <button className={pill(tab === "project")} onClick={() => setTab("project")}>Project</button>
       <button className={pill(tab === "employee")} onClick={() => setTab("employee")}>Employee</button>
-      <ListPeriodFilter state={period} label="Period" />
+      {/* The team reports are capped at a year (MAX_SPAN_DAYS), so "All Time" would only ever be refused. */}
+      <ListPeriodFilter state={period} label="Period" exclude={["all"]} />
       <ListExportButton onClick={exportCurrent} disabled={!state || "error" in state || state.rows.length === 0} />
     </>
   );

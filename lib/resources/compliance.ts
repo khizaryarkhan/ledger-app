@@ -22,10 +22,25 @@
  */
 
 /** Hours this far below expected are not worth anyone's attention. */
+import { addDays } from "@/lib/accounting/report-periods";
+import { weekStartOf } from "./time-entry-rules";
+
 export const HOURS_TOLERANCE = 0.01;
 
 /** How far back someone must have logged something to be worth chasing at all. */
 export const ACTIVE_WITHIN_WEEKS = 8;
+
+/**
+ * The `n` FINISHED Mondays-weeks up to `endDate`, oldest first. A week counts
+ * only once its Sunday is on or before `endDate`: assessing the week still
+ * running flagged everyone as short every Monday-to-Saturday for hours they
+ * had not yet been due to hand in.
+ */
+export function weeksEndingAt(endDate: string, n: number): string[] {
+  let last = weekStartOf(endDate);
+  if (addDays(last, 6) > endDate) last = addDays(last, -7);
+  return Array.from({ length: n }, (_, i) => addDays(last, -7 * (n - 1 - i)));
+}
 
 /** Handed in = the person has done their part, whatever the approver has done since. */
 const HANDED_IN = new Set(["submitted", "approved", "posted"]);

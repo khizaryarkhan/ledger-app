@@ -15,7 +15,8 @@ import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from 
 import { localToday, ymd } from "@/lib/format";
 import { ASSIGNABLE_LABEL, ASSIGNABLE_ENDPOINT, assignableOptionLabel, type AssignableType } from "@/lib/resources/assignable";
 
-function startOfWeek(d: Date) { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
+// Monday-start, like the timesheet and every report (getDay() is 0 on Sunday).
+function startOfWeek(d: Date) { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
 const iso = (d: Date) => ymd(d);
 const dowLabel = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
 
@@ -28,7 +29,9 @@ export function ResourceBoard() {
   const from = iso(days[0]), to = iso(days[6]);
 
   async function load() {
-    setRows(await fetch(`/api/resources/assignments?from=${from}&to=${to}`).then(r => r.json()).catch(() => []));
+    const d = await fetch(`/api/resources/assignments?from=${from}&to=${to}`).then(r => r.json()).catch(() => []);
+    // An error body is not an array; rendering it crashed the board.
+    setRows(Array.isArray(d) ? d : []);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [from, to]);
 

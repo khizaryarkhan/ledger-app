@@ -61,7 +61,7 @@ export async function buildCtx(orgId: string, session: any, role: string | null 
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function assignableExists(orgId: string, type: AssignableType, id: string): Promise<boolean> {
+export async function assignableExists(orgId: string, type: AssignableType, id: string): Promise<boolean> {
   if (!UUID_RE.test(id)) return false;
   if (type === "project") {
     const [r] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.orgId, orgId))).limit(1);

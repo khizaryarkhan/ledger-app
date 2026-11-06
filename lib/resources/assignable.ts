@@ -32,6 +32,43 @@ export function overlaps(startA: string, endA: string | null, from: string, to: 
   return true;
 }
 
+/**
+ * The highest total allocation % on any single day of [from, to]. Two bookings
+ * at 100% on Mon-Tue and Wed-Fri never coincide, so the peak is 100, not the
+ * 200 a plain sum over the week reported (which flagged people as
+ * over-allocated with no real overlap). Cancelled bookings count for nothing.
+ */
+export function peakDailyAllocation(
+  bookings: readonly { startDate: string; endDate: string | null; allocationPercent: number | string; status?: string }[],
+  from: string,
+  to: string,
+): number {
+  let peak = 0;
+  for (let d = from; d <= to; d = nextDay(d)) {
+    let day = 0;
+    for (const b of bookings) {
+      if (b.status === "cancelled") continue;
+      if (b.startDate <= d && (!b.endDate || b.endDate >= d)) day += Number(b.allocationPercent) || 0;
+    }
+    if (day > peak) peak = day;
+  }
+  return peak;
+}
+
+function nextDay(d: string): string {
+  const [y, m, day] = d.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, day + 1));
+  return t.toISOString().slice(0, 10);
+}
+
+/** A booking's allocation: a number from 1 to 100 (% of the resource's capacity). */
+export function parseAllocation(v: unknown): { ok: true; value: number } | { ok: false; error: string } {
+  if (v === null || v === undefined || v === "") return { ok: true, value: 100 };
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || n > 100) return { ok: false, error: "Allocation must be a percentage from 1 to 100" };
+  return { ok: true, value: Math.round(n * 100) / 100 };
+}
+
 /** Client-side label for an option row in the assignable picker (list/detail shape varies per endpoint). */
 export function assignableOptionLabel(type: AssignableType, row: any): string {
   if (type === "project") return row.name;

@@ -138,3 +138,23 @@ export function coverageOf(
   for (const p of people) if (hasDatedHours(rowsByResource.get(p.resourceId) ?? [], from, to)) known++;
   return { known, counted: people.length };
 }
+
+/**
+ * How much contracted capacity booked leave actually takes away: per day, the
+ * leave logged that day capped at what the day was worth. A public-holiday
+ * line on a calendar holiday (already 0 h) or leave logged on a weekend takes
+ * nothing, so a bank holiday is not removed from capacity twice — once by the
+ * calendar and again by the "Public holiday" timesheet line.
+ */
+export function leaveOffCapacity(
+  leave: readonly { date: string; hours: number }[],
+  rows: readonly WorkingHoursRow[],
+  fallback: CapacityFallback,
+  holidays: ReadonlySet<string>,
+): number {
+  const byDay = new Map<string, number>();
+  for (const e of leave) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.hours);
+  let total = 0;
+  for (const [date, hours] of byDay) total += Math.min(hours, hoursOn(date, rows, fallback, holidays));
+  return Math.round(total * 100) / 100;
+}
