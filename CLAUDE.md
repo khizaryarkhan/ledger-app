@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0130` at `when` `1793800000000`;
+  this silently dropped a table in prod once). Latest is `0131` at `when` `1793900000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5436,3 +5436,26 @@ back-filled every existing member). Every role can submit a timesheet.
   (`wouldRemoveLastAdmin`). `/api/org/roles` is on the MCP deny-list.
 - **Not built**: per-action rights inside a module (approve, post, void, send) beyond view/edit; Resources →
   People still has its own "Give login" (it creates the same membership, so both lists agree).
+
+## Person drawer: tabs, capacity unit, personal and bank details (2026-11-06)
+
+Reported: "Daily capacity" didn't say per day/week/month, and the drawer had no personal, emergency or bank
+details. Migration `0131` (additive).
+
+- **Capacity unit is an ORGANISATION setting, display only** (`organisations.capacity_unit`, day|week|month,
+  saved via `PATCH /api/resources/payroll-settings {capacityUnit}`, chosen from the dropdown beside the figure).
+  **Storage never changes: `resources.daily_capacity` stays hours/day** and every engine reads it that way.
+  `lib/resources/capacity-unit.ts` converts through the PERSON'S own working days (4 days × 8h = 32h/week, not
+  40); month = week × 52/12. Week/month show at 1dp because daily_capacity is numeric(6,2) (40h over 3 days
+  would come back 39.99). Equipment keeps slots, relabelled "Bookings at once".
+- **Person drawer has tabs**: Details, Work & hours (capacity, working days, calendar, cost rate, dated
+  contracts), Personal (bio data, contact, employment), Emergency contact, Bank. Equipment drawer unchanged.
+- **`person_details`** (one row per person): `details` jsonb = plain values, `secrets` jsonb = national ID,
+  tax number, bank account/IBAN, sort/routing code **encrypted** (lib/crypto) and only ever returned masked
+  (`{ set, last4 }`). Re-typing replaces, "Clear" removes, leaving it alone keeps it. Rules + validation in
+  `lib/resources/personal-details.ts`; route `GET/PUT /api/resources/[id]/personal-details`, **org admins
+  only** (manager scope is about timesheets, not bank accounts). Audit logs field NAMES, never values. The
+  path segment `personal-details` is on the MCP deny-list, so no AI model reads it.
+- **Not built**: self-service (a person editing their own details), document uploads (passport scans,
+  contracts), the People list still shows capacity per day, and nothing was clicked through in a browser.
+  If ENCRYPTION_KEY/AUTH_SECRET is missing, lib/crypto stores plaintext (pre-existing behaviour).

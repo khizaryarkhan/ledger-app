@@ -12,6 +12,8 @@ import { Plus, RefreshCw, Loader, Check, Trash2, KeyRound } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { WorkingHoursPanel } from "@/components/working-hours-panel";
 import { MachineDowntimePanel } from "@/components/machine-downtime-panel";
+import { usePersonDetails, PersonalTab, EmergencyTab, BankTab } from "@/components/person-details-tabs";
+import { CAPACITY_UNITS, CAPACITY_UNIT_LABEL, fromDaily, toDaily, isCapacityUnit, type CapacityUnit } from "@/lib/resources/capacity-unit";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
@@ -201,15 +203,56 @@ function MachineUsagePanel({ resourceId, linkKey }: { resourceId: string; linkKe
 const WEEKDAYS = [{ v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" }, { v: 7, l: "Sun" }];
 const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5];
 
+type PersonTab = "details" | "work" | "personal" | "emergency" | "bank";
+const PERSON_TABS: { key: PersonTab; label: string }[] = [
+  { key: "details", label: "Details" },
+  { key: "work", label: "Work & hours" },
+  { key: "personal", label: "Personal" },
+  { key: "emergency", label: "Emergency contact" },
+  { key: "bank", label: "Bank" },
+];
+
 function ResourceDrawer({ type, employees, calendars, designations, people, id, onClose, onSaved }: { type: "person" | "equipment"; employees: any[]; calendars: any[]; designations: any[]; people: any[]; id?: string; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!id;
+  const isPerson = type === "person";
   const [form, setForm] = useState({
-    employeeId: "", name: "", category: "", dailyCapacity: type === "person" ? "8" : "1", status: "active", notes: "",
+    employeeId: "", name: "", category: "", dailyCapacity: isPerson ? "8" : "1", status: "active", notes: "",
     costRatePerHour: "", holidayCalendarId: "", workingDays: DEFAULT_WORKING_DAYS as number[],
     designationId: "", managerId: "", department: "",
     // Equipment only. "" means not linked; the server refuses a link on a person.
     workCentreId: "", fixedAssetId: "",
   });
+  const [tab, setTab] = useState<PersonTab>("details");
+  const personal = usePersonDetails(isPerson ? id : undefined);
+
+  // Capacity is STORED as hours per day; the organisation decides whether it is
+  // entered and shown per day, week or month (lib/resources/capacity-unit.ts).
+  const [capUnit, setCapUnit] = useState<CapacityUnit>("day");
+  const [capEntry, setCapEntry] = useState(isPerson ? "8" : "1");
+  const [unitMsg, setUnitMsg] = useState("");
+  useEffect(() => {
+    if (!isPerson) return;
+    fetch("/api/resources/payroll-settings").then(r => (r.ok ? r.json() : null)).then(d => {
+      if (d && isCapacityUnit(d.capacityUnit)) setCapUnit(d.capacityUnit);
+    }).catch(() => { /* stays per day */ });
+  }, [isPerson]);
+  // Re-express the stored figure whenever the unit or the record changes.
+  useEffect(() => {
+    if (!isPerson) return;
+    setCapEntry(String(fromDaily(Number(form.dailyCapacity) || 0, capUnit, form.workingDays)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capUnit, form.dailyCapacity]);
+
+  async function changeUnit(next: CapacityUnit) {
+    // Keep the figure already typed, in hours/day, before re-expressing it.
+    const daily = toDaily(Number(capEntry) || 0, capUnit, form.workingDays);
+    setForm(f => ({ ...f, dailyCapacity: String(daily) }));
+    setCapUnit(next);
+    const r = await fetch("/api/resources/payroll-settings", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capacityUnit: next }),
+    }).catch(() => null);
+    setUnitMsg(r && r.ok ? "Saved for your organisation — everyone's capacity now shows this way." : "Shown this way here only; the organisation setting could not be saved.");
+  }
 
   // Each list sits behind a module the org may not have (work centres need
   // Manufacturing, fixed assets need Accounting), so a failed fetch leaves that
@@ -250,14 +293,23 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
   }
 
   async function save() {
-    if (!form.name.trim()) { setErr("Name is required."); return; }
+    if (!form.name.trim()) { setErr("Name is required."); setTab("details"); return; }
     setSaving(true); setErr("");
-    const body = { type, ...form, dailyCapacity: Number(form.dailyCapacity) || 1 };
+    // A weekly or monthly figure is divided over THIS person's working days at save.
+    const daily = isPerson ? toDaily(Number(capEntry) || 0, capUnit, form.workingDays) : Number(form.dailyCapacity) || 1;
+    const body = { type, ...form, dailyCapacity: daily || 1 };
     const r = await fetch(isEdit ? `/api/resources/${id}` : "/api/resources", {
       method: isEdit ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
+    const saved = await r.json().catch(() => ({}));
+    if (!r.ok) { setSaving(false); setErr(saved?.error || "Could not save."); return; }
+    // Personal details hang off the person's id, so a new person saves them second.
+    const personId: string | undefined = id ?? saved?.id;
+    if (isPerson && personId && personal.state.dirty) {
+      const detailsErr = await personal.save(personId);
+      if (detailsErr) { setSaving(false); setErr(`Saved, except personal details: ${detailsErr}`); return; }
+    }
     setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onSaved();
   }
 
@@ -268,71 +320,140 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
     onSaved();
   }
 
+  const statusField = (
+    <Field label="Status" className="col-span-2">
+      <SelectField inset value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </SelectField>
+    </Field>
+  );
+  const notesField = (
+    <Field label="Notes" className="col-span-2">
+      <textarea className={`${controlInset} !h-auto py-2`} rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+    </Field>
+  );
+  const costField = (
+    <Field label="Cost rate per hour" hint="Required before this resource's timesheets can be posted to the GL" className="col-span-2">
+      <input type="number" step="0.01" className={controlInset} value={form.costRatePerHour} onChange={e => setForm(f => ({ ...f, costRatePerHour: e.target.value }))} />
+    </Field>
+  );
+
+  const title = isEdit ? (isPerson ? form.name || "Edit person" : "Edit equipment") : (isPerson ? "New person" : "New equipment");
+
   return (
-    <Drawer title={isEdit ? "Edit " + (type === "person" ? "person" : "equipment") : "New " + (type === "person" ? "person" : "equipment")} onClose={onClose}
+    <Drawer title={title} subtitle={isPerson && isEdit ? "Person" : undefined} size={isPerson ? "lg" : "md"} onClose={onClose}
       footer={loading ? null : (
         <DrawerFooter saving={saving} onClose={onClose} onSave={save} err={err}
           extra={isEdit ? <button onClick={del} className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete"><Trash2 size={14} /></button> : undefined} />
       )}>
-      {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
-        <div className="space-y-6">
-          <Section title="Details">
+      {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : isPerson ? (
+        <div className="space-y-5">
+          <div className="flex gap-1.5 flex-wrap" role="tablist">
+            {PERSON_TABS.map(t => (
+              <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
+                className={tab === t.key
+                  ? "h-8 px-3 text-[12px] font-medium rounded-md ring-1 ring-stone-600 bg-stone-700 text-stone-100"
+                  : "h-8 px-3 text-[12px] font-medium rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "details" && (
             <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-              {type === "person" && (
-                <Field label="Link to existing employee" className="col-span-2" hint="Optional — reuses that employee's contact record rather than duplicating it">
-                  <SelectField inset value={form.employeeId} onChange={e => onEmployee(e.target.value)}>
-                    <option value="">None</option>
-                    {employees.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </SelectField>
-                </Field>
-              )}
               <Field label="Name" required className="col-span-2">
                 <input className={controlInset} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
               </Field>
-              <Field label="Category" hint={type === "person" ? "e.g. Machine Operator" : "e.g. CNC Machine #2"}>
+              <Field label="Link to existing employee" className="col-span-2" hint="Optional — reuses that employee's contact record rather than duplicating it">
+                <SelectField inset value={form.employeeId} onChange={e => onEmployee(e.target.value)}>
+                  <option value="">None</option>
+                  {employees.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </SelectField>
+              </Field>
+              <Field label="Category" hint="e.g. Machine Operator, Site Engineer">
                 <input className={controlInset} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
               </Field>
-              <Field label={type === "person" ? "Daily capacity (hours)" : "Daily capacity (slots)"}>
-                <input type="number" step="0.5" className={controlInset} value={form.dailyCapacity} onChange={e => setForm(f => ({ ...f, dailyCapacity: e.target.value }))} />
+              <Field label="Department">
+                <input className={controlInset} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} />
               </Field>
-              <Field label="Cost rate per hour" hint="Required before this resource's timesheets can be posted to the GL" className="col-span-2">
-                <input type="number" step="0.01" className={controlInset} value={form.costRatePerHour} onChange={e => setForm(f => ({ ...f, costRatePerHour: e.target.value }))} />
+              <Field label="Designation" hint="Decides which reports this person can open">
+                <SelectField inset value={form.designationId} onChange={e => setForm(f => ({ ...f, designationId: e.target.value }))}>
+                  <option value="">None</option>
+                  {designations.filter((d: any) => d.status === "active" || d.id === form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </SelectField>
               </Field>
-              {type === "person" && (
-                <>
-                  <Field label="Designation" hint="Decides which reports this person can open">
-                    <SelectField inset value={form.designationId} onChange={e => setForm(f => ({ ...f, designationId: e.target.value }))}>
-                      <option value="">None</option>
-                      {designations.filter((d: any) => d.status === "active" || d.id === form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </SelectField>
-                  </Field>
-                  <Field label="Department">
-                    <input className={controlInset} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} />
-                  </Field>
-                  <Field label="Manager" className="col-span-2" hint="Their line manager. Approvers come from this chain.">
-                    <SelectField inset value={form.managerId} onChange={e => setForm(f => ({ ...f, managerId: e.target.value }))}>
-                      <option value="">None</option>
-                      {people.filter((p: any) => p.id !== id && (p.status === "active" || p.id === form.managerId)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </SelectField>
-                  </Field>
-                  <Field label="Holiday calendar" hint="Blank = org default" className="col-span-2">
-                    <SelectField inset value={form.holidayCalendarId} onChange={e => setForm(f => ({ ...f, holidayCalendarId: e.target.value }))}>
-                      <option value="">Org default</option>
-                      {calendars.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </SelectField>
-                  </Field>
-                  <Field label="Working days" className="col-span-2">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      {WEEKDAYS.map(w => (
-                        <label key={w.v} className="flex items-center gap-1.5 text-[13px] text-stone-300">
-                          <input type="checkbox" checked={form.workingDays.includes(w.v)} onChange={() => toggleDay(w.v)} /> {w.l}
-                        </label>
-                      ))}
+              <Field label="Manager" hint="Their line manager. Approvers come from this chain.">
+                <SelectField inset value={form.managerId} onChange={e => setForm(f => ({ ...f, managerId: e.target.value }))}>
+                  <option value="">None</option>
+                  {people.filter((p: any) => p.id !== id && (p.status === "active" || p.id === form.managerId)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </SelectField>
+              </Field>
+              {statusField}
+              {notesField}
+            </div>
+          )}
+
+          {tab === "work" && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                <Field label="Standard capacity" className="col-span-2"
+                  hint={unitMsg || "Used on any day not covered by a dated contract below. Week and month figures are spread over this person's working days."}>
+                  <div className="flex gap-2">
+                    <input type="number" step="0.5" min={0} className={controlInset} value={capEntry} onChange={e => setCapEntry(e.target.value)} />
+                    <div className="w-48 shrink-0">
+                      <SelectField inset value={capUnit} onChange={e => { if (isCapacityUnit(e.target.value)) changeUnit(e.target.value); }}>
+                        {CAPACITY_UNITS.map(u => <option key={u} value={u}>{CAPACITY_UNIT_LABEL[u]}</option>)}
+                      </SelectField>
                     </div>
-                  </Field>
-                </>
+                  </div>
+                </Field>
+                <Field label="Working days" className="col-span-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {WEEKDAYS.map(w => (
+                      <label key={w.v} className="flex items-center gap-1.5 text-[13px] text-stone-300">
+                        <input type="checkbox" checked={form.workingDays.includes(w.v)} onChange={() => toggleDay(w.v)} /> {w.l}
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Holiday calendar" hint="Blank = org default" className="col-span-2">
+                  <SelectField inset value={form.holidayCalendarId} onChange={e => setForm(f => ({ ...f, holidayCalendarId: e.target.value }))}>
+                    <option value="">Org default</option>
+                    {calendars.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </SelectField>
+                </Field>
+                {costField}
+              </div>
+              {isEdit && id ? (
+                <Section title="Contracted hours (dated)">
+                  <WorkingHoursPanel resourceId={id} canEdit />
+                </Section>
+              ) : (
+                <p className="text-[12px] text-stone-500">Dated contracts (a change of hours from a given date) can be added once the person is saved.</p>
               )}
-              {type === "equipment" && workCentres && (
+            </div>
+          )}
+
+          {tab === "personal" && <PersonalTab hook={personal} />}
+          {tab === "emergency" && <EmergencyTab hook={personal} />}
+          {tab === "bank" && <BankTab hook={personal} />}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <Section title="Details">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <Field label="Name" required className="col-span-2">
+                <input className={controlInset} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </Field>
+              <Field label="Category" hint="e.g. CNC Machine #2">
+                <input className={controlInset} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+              </Field>
+              <Field label="Bookings at once" hint="How many jobs it can take on the same day (usually 1). Its hours are under Available hours.">
+                <input type="number" step="1" min={1} className={controlInset} value={form.dailyCapacity} onChange={e => setForm(f => ({ ...f, dailyCapacity: e.target.value }))} />
+              </Field>
+              {costField}
+              {workCentres && (
                 <Field label="Work centre" className="col-span-2" hint="Link a machine to the work centre its production hours are charged to, and its usage is read from completed runs — no second place to type hours">
                   <SelectField inset value={form.workCentreId} onChange={e => setForm(f => ({ ...f, workCentreId: e.target.value }))}>
                     <option value="">Not linked</option>
@@ -340,7 +461,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
                   </SelectField>
                 </Field>
               )}
-              {type === "equipment" && assets && (
+              {assets && (
                 <Field label="Fixed asset" className="col-span-2" hint="The asset this machine depreciates as. Shown beside running cost, never added to it">
                   <SelectField inset value={form.fixedAssetId} onChange={e => setForm(f => ({ ...f, fixedAssetId: e.target.value }))}>
                     <option value="">Not linked</option>
@@ -348,34 +469,19 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
                   </SelectField>
                 </Field>
               )}
-              <Field label="Status" className="col-span-2">
-                <SelectField inset value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </SelectField>
-              </Field>
-              <Field label="Notes" className="col-span-2">
-                <textarea className={`${controlInset} !h-auto py-2`} rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-              </Field>
+              {statusField}
+              {notesField}
             </div>
           </Section>
 
-          {/* Only on an existing person: a dated row has to hang off a resource
-              id, and the capacity above is what a brand-new person starts on. */}
-          {type === "equipment" && isEdit && id && <MachineUsagePanel resourceId={id} linkKey={form.workCentreId} />}
-          {type === "equipment" && isEdit && id && <MachineDowntimePanel resourceId={id} linkKey={form.workCentreId} />}
+          {isEdit && id && <MachineUsagePanel resourceId={id} linkKey={form.workCentreId} />}
+          {isEdit && id && <MachineDowntimePanel resourceId={id} linkKey={form.workCentreId} />}
 
           {/* A machine's available hours are what its utilisation is measured
-              against. Its "Daily capacity" above is SLOTS, not hours, so this
-              dated record is the only source the report will use. */}
-          {type === "equipment" && isEdit && id && (
+              against. "Bookings at once" is slots, not hours, so this dated
+              record is the only source the report will use. */}
+          {isEdit && id && (
             <Section title="Available hours">
-              <WorkingHoursPanel resourceId={id} canEdit />
-            </Section>
-          )}
-
-          {type === "person" && isEdit && id && (
-            <Section title="Contracted hours">
               <WorkingHoursPanel resourceId={id} canEdit />
             </Section>
           )}
@@ -384,4 +490,3 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
     </Drawer>
   );
 }
-

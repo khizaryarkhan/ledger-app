@@ -11,6 +11,7 @@ import { db } from "@/db";
 import { organisations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
+import { isCapacityUnit } from "@/lib/resources/capacity-unit";
 
 const FREQUENCIES = ["weekly", "biweekly", "semi_monthly", "monthly"] as const;
 
@@ -24,6 +25,7 @@ export async function GET() {
     payrollBiweeklyAnchor: organisations.payrollBiweeklyAnchor,
     payrollSemimonthlyCutoff: organisations.payrollSemimonthlyCutoff,
     payrollMonthCutoff: organisations.payrollMonthCutoff,
+    capacityUnit: organisations.capacityUnit,
   }).from(organisations).where(eq(organisations.id, orgId!)).limit(1);
 
   return ok(row);
@@ -35,6 +37,15 @@ export async function PATCH(req: Request) {
   if (!["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
 
   const body = await req.json().catch(() => ({}));
+
+  // Capacity unit (how capacity is entered/shown) is saved on its own, so changing
+  // it never resets the payroll cadence below, and vice versa.
+  if (body && "capacityUnit" in body) {
+    if (!isCapacityUnit(body.capacityUnit)) return bad("capacityUnit must be day, week or month");
+    await db.update(organisations).set({ capacityUnit: body.capacityUnit, updatedAt: new Date() }).where(eq(organisations.id, orgId!));
+    if (!("payrollFrequency" in body)) return ok({ capacityUnit: body.capacityUnit });
+  }
+
   const { payrollFrequency, payrollWeekEndDay, payrollBiweeklyAnchor, payrollSemimonthlyCutoff, payrollMonthCutoff } = body ?? {};
   if (payrollFrequency !== null && !FREQUENCIES.includes(payrollFrequency)) return bad("payrollFrequency must be weekly, biweekly, semi_monthly or monthly");
 

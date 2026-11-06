@@ -67,6 +67,7 @@ export const REFUSED_PATHS: readonly { path: string; prefix?: boolean; why: stri
 /** Any path SEGMENT with one of these names is an integration hand-shake or a credential flow. */
 export const BLOCKED_SEGMENTS: ReadonlySet<string> = new Set([
   "callback", "connect", "disconnect", "reset-password", "forgot-password", "mfa", "webhook", "webhooks",
+  "personal-details", // HR + bank data: never offered to a model
 ]);
 
 export type PathCheck = { ok: true; path: string } | { ok: false; reason: string };

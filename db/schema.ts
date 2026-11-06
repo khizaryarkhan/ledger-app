@@ -90,6 +90,8 @@ export const organisations = pgTable("organisations", {
   payrollBiweeklyAnchor:     date("payroll_biweekly_anchor"),                     // one known period-end date; fixes which alternating week is week 1
   payrollSemimonthlyCutoff:  integer("payroll_semimonthly_cutoff"),               // day-of-month ending the first half (commonly 15)
   payrollMonthCutoff:        integer("payroll_month_cutoff"),                     // day-of-month; null = calendar month-end
+  // How capacity is entered/shown (day | week | month). Storage stays hours/day — see lib/resources/capacity-unit.ts.
+  capacityUnit:              varchar("capacity_unit", { length: 8 }).notNull().default("day"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -3934,6 +3936,22 @@ export const resources = pgTable("resources", {
   orgFixedAssetUnique: uniqueIndex("resources_org_fixed_asset_unique").on(t.orgId, t.fixedAssetId).where(sql`${t.fixedAssetId} is not null`),
 }));
 export type Resource = typeof resources.$inferSelect;
+
+// Personal, employment, emergency-contact and bank details for a person
+// (lib/resources/personal-details.ts). `secrets` values are ENCRYPTED
+// (lib/crypto) and only ever returned masked.
+export const personDetails = pgTable("person_details", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId: uuid("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  details:    jsonb("details").$type<Record<string, string>>().notNull().default({}),
+  secrets:    jsonb("secrets").$type<Record<string, string>>().notNull().default({}),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+  updatedBy:  uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+}, (t) => ({
+  resourceUnique: uniqueIndex("person_details_resource_unique").on(t.resourceId),
+  orgIdx: index("person_details_org_idx").on(t.orgId),
+}));
 
 // A designation (Dynamics' bookable-resource "default role") — "Software
 // Engineer", "Team Lead", "Head of Delivery". `accessLevel` is what the
