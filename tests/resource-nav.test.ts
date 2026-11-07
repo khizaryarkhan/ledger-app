@@ -15,8 +15,8 @@ const admin: ResourceCaps = { approve: true, team: true, admin: true, modules: [
 
 describe("Resources menu is capability-driven", () => {
   it("someone with only their own records sees only their own links, and empty headings vanish", () => {
-    expect(hrefs(self)).toEqual(["/resources/my-dashboard", "/resources/notifications", "/resources/my-reports", "/resources/my-details", "/resources/my-time"]);
-    expect(headings(self)).toEqual(["My Pulse", "Timesheets"]);
+    expect(hrefs(self)).toEqual(["/resources/my-dashboard", "/resources/my-time", "/resources/notifications", "/resources/my-details", "/resources/my-reports"]);
+    expect(headings(self)).toEqual(["", "Operations", "My Pulse", "Insights"]);
   });
   it("approving time adds approval and hours-over-plan, nothing team-wide", () => {
     expect(hrefs(approver)).toContain("/resources/approvals");
@@ -66,9 +66,9 @@ describe("the employee portal uses the same menu", () => {
   const portal = (caps: ResourceCaps, person = true) => portalNavFor(caps, person);
   it("a plain employee gets the same groups and labels as the app, on portal pages", () => {
     const p = portal(self);
-    expect(p.map((s) => s.label)).toEqual(["My Pulse", "Timesheets"]);
-    expect(p.flatMap((s) => s.items.map((i) => i.label))).toEqual(["Dashboard", "Notifications", "My Reports", "My Details", "My Timesheet"]);
-    expect(p.flatMap((s) => s.items.map((i) => i.href))).toEqual(["/my-time/dashboard", "/my-time/notifications", "/my-time/reports", "/my-time/details", "/my-time"]);
+    expect(p.map((s) => s.label)).toEqual(["", "Operations", "My Pulse", "Insights"]);
+    expect(p.flatMap((s) => s.items.map((i) => i.label))).toEqual(["Dashboard", "My Timesheet", "Notifications", "My Details", "My Reports"]);
+    expect(p.flatMap((s) => s.items.map((i) => i.href))).toEqual(["/my-time/dashboard", "/my-time", "/my-time/notifications", "/my-time/details", "/my-time/reports"]);
   });
   it("a lead's portal adds approval and team reports, and never a page the portal does not have", () => {
     const h = portal(lead).flatMap((s) => s.items.map((i) => i.href));

@@ -30,11 +30,11 @@ describe("Accounting sidebar", () => {
 
   it("leads with the Dashboard, ahead of every group", () => {
     expect(navBlock.indexOf('"/accounting/dashboard"')).toBeGreaterThan(-1);
-    expect(navBlock.indexOf('"/accounting/dashboard"')).toBeLessThan(navBlock.indexOf('label: "Sales"'));
+    expect(navBlock.indexOf('"/accounting/dashboard"')).toBeLessThan(navBlock.indexOf('label: "Operations"'));
   });
 
-  it("groups are Sales, Purchases, Others, Setup — the old Ledger group is gone", () => {
-    const order = ["Sales", "Purchases", "Others", "Setup"].map((l) => navBlock.indexOf(`label: "${l}"`));
+  it("groups are Operations, Sales, Purchases, Insights, Setup — the old Ledger group is gone", () => {
+    const order = ["Operations", "Sales", "Purchases", "Insights", "Setup"].map((l) => navBlock.indexOf(`label: "${l}"`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(navBlock).not.toContain('label: "Ledger"');

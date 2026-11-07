@@ -59,37 +59,42 @@ export interface ResourceNavSection {
 
 export const RESOURCE_NAV: readonly ResourceNavSection[] = [
   {
-    label: "My Pulse",
+    label: "",
     items: [
       { href: "/resources/my-dashboard", label: "Dashboard", icon: "dashboard", requires: "self" },
-      { href: "/resources/notifications", label: "Notifications", icon: "notifications", requires: "self" },
-      { href: "/resources/my-reports", label: "My Reports", icon: "reports", requires: "self" },
-      { href: "/resources/my-details", label: "My Details", icon: "details", requires: "self" },
     ],
   },
   {
-    label: "Timesheets",
+    label: "Operations",
     items: [
       { href: "/resources/my-time", label: "My Timesheet", icon: "timesheet", requires: "self" },
       { href: "/resources/approvals", label: "Timesheet Approval", icon: "approve", requires: "approve" },
       { href: "/resources/enquiries", label: "Hours Over Plan", icon: "enquiry", requires: "approve" },
-      { href: "/resources/compliance", label: "Timesheet Compliance", icon: "compliance", requires: "team" },
+      { href: "/resources/board", label: "Resource Planning", icon: "planning", requires: "team" },
       { href: "/resources/timesheets", label: "Post Timesheets", icon: "post", requires: "admin" },
     ],
   },
   {
-    label: "Project Planning",
+    label: "My Pulse",
     items: [
-      { href: "/resources/board", label: "Resource Planning", icon: "planning", requires: "team" },
-      { href: "/resources/utilization", label: "Utilization", icon: "utilisation", requires: "team" },
-      { href: "/resources/reports", label: "Team Reports", icon: "team", requires: "team" },
-      { href: "/resources/cost", label: "Resource Cost", icon: "cost", requires: "admin" },
+      { href: "/resources/notifications", label: "Notifications", icon: "notifications", requires: "self" },
+      { href: "/resources/my-details", label: "My Details", icon: "details", requires: "self" },
     ],
   },
   {
     label: "Machinery",
     items: [
       { href: "/resources/equipment", label: "Equipment", icon: "equipment", requires: "team" },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { href: "/resources/my-reports", label: "My Reports", icon: "reports", requires: "self" },
+      { href: "/resources/compliance", label: "Timesheet Compliance", icon: "compliance", requires: "team" },
+      { href: "/resources/utilization", label: "Utilization", icon: "utilisation", requires: "team" },
+      { href: "/resources/reports", label: "Team Reports", icon: "team", requires: "team" },
+      { href: "/resources/cost", label: "Resource Cost", icon: "cost", requires: "admin" },
       { href: "/resources/machines", label: "Machine Utilisation", icon: "machine", requires: "team", module: "manufacturing" },
     ],
   },

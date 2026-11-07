@@ -303,6 +303,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     // switching workspaces. Each link is shown only when the module that owns
     // its screen is on — otherwise it would land on ModuleGate's notice.
     {
+      label: "Operations",
+      items: [
+        { href: "/accounting/journal",   label: "Journal", icon: FileText },
+        { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
+        { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
+        { href: "/accounting/budgets",   label: "Budgets", icon: Scale },
+        { href: "/accounting/fixed-assets", label: "Fixed Assets", icon: Building2 },
+      ],
+    },
+    {
       label: "Sales",
       items: [
         { href: "/customers",  label: "Customers", icon: Users },
@@ -332,13 +342,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     // sidebar. Trial Balance (our ledger) is no longer a top-level link; it is
     // one of the statements in Accounting Reports.
     {
-      label: "Others",
+      label: "Insights",
       items: [
-        { href: "/accounting/journal",   label: "Journal", icon: FileText },
-        { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
-        { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
-        { href: "/accounting/budgets",   label: "Budgets", icon: Scale },
-        { href: "/accounting/fixed-assets", label: "Fixed Assets", icon: Building2 },
         { href: "/accounting/reports",   label: "Accounting Reports", icon: BarChart3 },
       ],
     },

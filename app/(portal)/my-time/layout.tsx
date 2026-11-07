@@ -74,7 +74,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <nav aria-label="Sections" className="flex-1 overflow-y-auto py-3 px-2 flex md:block gap-4 overflow-x-auto">
           {sections.map((sec, si) => (
             <div key={sec.label} className={si > 0 ? "md:mb-3 md:pt-3 md:border-t border-stone-800 shrink-0" : "md:mb-3 shrink-0"}>
-              <div className="px-3 mb-1.5 text-[11px] font-bold uppercase text-brand-orange tracking-wider">{sec.label}</div>
+              {sec.label && <div className="px-3 mb-1.5 text-[11px] font-bold uppercase text-brand-orange tracking-wider">{sec.label}</div>}
               {sec.items.map((i) => {
                 const Icon = RESOURCE_NAV_ICONS[i.icon];
                 const active = isActive(i.href);
