@@ -10,6 +10,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/accounting/budgets/[id]", methods: ["DELETE","GET","PATCH"], body: ["name","status"] },
   { path: "/api/accounting/budgets/[id]/lines", methods: ["PUT"], body: ["accountId","amount","lines","month"] },
   { path: "/api/accounting/cash-flow", methods: ["GET"] },
+  { path: "/api/accounting/dashboard", methods: ["GET"], params: ["today"] },
   { path: "/api/accounting/fixed-assets", methods: ["GET","POST"], params: ["asAt"], body: ["salvageValue"] },
   { path: "/api/accounting/fixed-assets/[id]", methods: ["GET","PATCH"], body: ["dispose","name","notes"] },
   { path: "/api/accounting/fixed-assets/depreciate", methods: ["POST"], params: ["preview"], body: ["through"] },

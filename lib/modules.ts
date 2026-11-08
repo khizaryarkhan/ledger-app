@@ -160,6 +160,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/opening-balances", owner: "accounting" },
   { path: "/api/accounting/reconcile", owner: "accounting" },
   { path: "/api/accounting/aging", owner: "accounting" },
+  { path: "/api/accounting/dashboard", owner: "accounting" },
   { path: "/api/accounting/cash-flow", owner: "accounting" },
   { path: "/api/accounting/fx-exposure", owner: "accounting" },
   { path: "/api/accounting/tax-liability", owner: "accounting" },

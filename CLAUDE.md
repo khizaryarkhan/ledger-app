@@ -5596,3 +5596,17 @@ in ONE status. Rules in `lib/resources/timesheet-lines.ts` (pure, 15 tests); act
   Leave, retired types and returned lines never copy; a day already holding time on that
   booking is skipped, so copying twice never doubles a week.
 - **Not built**: project tasks (no task model), per-line descriptions in the grid.
+
+## Accounting dashboard: exceptions first (2026-11-08)
+
+`/accounting/dashboard` is laid out as questions, not tiles. Row 1 **Needs attention** (approvals,
+bank accounts not reconciled in 30 days, a Suspense balance, goods received but not billed, A/R or A/P
+control ≠ subledger) + **Period** (lock date, last year-end). Row 2 **Cash position** per bank account
+in its OWN currency + **cash in/out next 30 days** per currency (overdue shown apart, never summed
+across currencies). Row 3 **this month to date vs the SAME span of last month** (`monthToDateWindows`,
+clamped — a full last month vs half this one would read as a fall) + **top 5 expense accounts**, each
+linking to the GL. Data: `GET /api/accounting/dashboard?today=` (viewer's local date); rules pure in
+`lib/accounting/dashboard.ts` (`tests/accounting-dashboard.test.ts`). Figures come from `profitAndLoss`,
+`periodStatus` and the GL, so they cannot disagree with the reports. A synced (QBO/Xero) org gets only
+approvals and cash in/out — no GL tiles. Not built: row 4 (DSO/DPO, tax due), budget comparison.
+Not clicked through in a browser.
