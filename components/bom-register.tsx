@@ -13,6 +13,7 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { CREATE_NEW, CreateNewDrawer, createNewLabel } from "@/components/create-new";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
@@ -290,7 +291,10 @@ function OperationDrawer({ bom, onClose, onCreated }: { bom: any; onClose: () =>
   );
 }
 
-function IngredientDrawer({ bom, items, onClose, onCreated }: { bom: any; items: any[]; onClose: () => void; onCreated: () => void }) {
+function IngredientDrawer({ bom, items: baseItems, onClose, onCreated }: { bom: any; items: any[]; onClose: () => void; onCreated: () => void }) {
+  const [addedItems, setAddedItems] = useState<any[]>([]);
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+  const items = [...baseItems, ...addedItems];
   const [f, setF] = useState<Record<string, string>>({ itemId: "", qty: "", uom: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
@@ -308,10 +312,15 @@ function IngredientDrawer({ bom, items, onClose, onCreated }: { bom: any; items:
     <Drawer title="Add ingredient" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} />}>
       <div className="grid grid-cols-2 gap-x-4 gap-y-4">
         <Field label="Ingredient / material" required className="col-span-2">
-          <SelectField inset value={f.itemId} onChange={e => { const it = items.find(x => x.id === e.target.value); set("itemId", e.target.value); if (it) set("uom", it.baseUom || ""); }}>
+          <SelectField inset value={f.itemId} onChange={e => { if (e.target.value === CREATE_NEW) { setIsCreatingItem(true); return; } const it = items.find(x => x.id === e.target.value); set("itemId", e.target.value); if (it) set("uom", it.baseUom || ""); }}>
             <option value="">Select…</option>
             {items.map(i => <option key={i.id} value={i.id}>{i.name}{i.code ? ` [${i.code}]` : ""}</option>)}
+            <option value={CREATE_NEW}>{createNewLabel("material")}</option>
           </SelectField>
+          {isCreatingItem && (
+            <CreateNewDrawer kind="material" onClose={() => setIsCreatingItem(false)}
+              onCreated={(row) => { setAddedItems(x => [...x, row]); set("itemId", row.id); set("uom", row.baseUom || ""); }} />
+          )}
         </Field>
         <Field label="Qty per batch" required>
           <input type="number" className={controlInset} value={f.qty} onChange={e => set("qty", e.target.value)} />
@@ -401,7 +410,10 @@ function PackagingDrawer({ bom, output, items, onClose, onCreated }: { bom: any;
   );
 }
 
-function NewBomDrawer({ items, onClose, onCreated }: { items: any[]; onClose: () => void; onCreated: () => void }) {
+function NewBomDrawer({ items: baseItems, onClose, onCreated }: { items: any[]; onClose: () => void; onCreated: () => void }) {
+  const [addedItems, setAddedItems] = useState<any[]>([]);
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+  const items = [...baseItems, ...addedItems];
   const [f, setF] = useState<Record<string, string>>({ code: "", name: "", outputItemId: "", outputSkuId: "", processingStep: "", batchType: "Output", batchSize: "1", expYield: "", status: "Active" });
   const [skus, setSkus] = useState<any[]>([]);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
@@ -443,10 +455,15 @@ function NewBomDrawer({ items, onClose, onCreated }: { items: any[]; onClose: ()
         <Section title="Output">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label="Primary output item" className="col-span-2">
-              <SelectField inset value={f.outputItemId} onChange={e => { set("outputItemId", e.target.value); set("outputSkuId", ""); }}>
+              <SelectField inset value={f.outputItemId} onChange={e => { if (e.target.value === CREATE_NEW) { setIsCreatingItem(true); return; } set("outputItemId", e.target.value); set("outputSkuId", ""); }}>
                 <option value="">Select item to produce…</option>
                 {producible.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                <option value={CREATE_NEW}>{createNewLabel("item")}</option>
               </SelectField>
+              {isCreatingItem && (
+                <CreateNewDrawer kind="item" onClose={() => setIsCreatingItem(false)}
+                  onCreated={(row) => { setAddedItems(a => [...a, row]); set("outputItemId", row.id); set("outputSkuId", ""); }} />
+              )}
               {producible.length === 0 && <p className="text-[11px] text-amber-400 mt-1">Create a Finished Product or Work-in-Progress item first to set an output.</p>}
             </Field>
             {f.outputItemId && (

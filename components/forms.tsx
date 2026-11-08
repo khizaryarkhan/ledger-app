@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Modal, Button, Input, Select } from "./ui";
 import { useData } from "./data-provider";
+import { CREATE_NEW, CreateNewDrawer, createNewLabel } from "./create-new";
 
 // =====================
 // CREATE / EDIT PROJECT
@@ -12,7 +13,11 @@ import { useData } from "./data-provider";
 const EMPTY_PROJECT = { customerId: "", name: "", code: "", status: "Active", leadResourceId: "" };
 
 export function ProjectModal({ project, preCustomerId, onClose }: { project?: any; preCustomerId?: string; onClose: () => void }) {
-  const { customers, addProject, updateProject } = useData() as any;
+  const { customers: baseCustomers, addProject, updateProject, refresh } = useData() as any;
+  // A customer added from this form is offered at once; refresh() brings it into the app-wide list too.
+  const [addedCustomers, setAddedCustomers] = useState<any[]>([]);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const customers = [...(baseCustomers ?? []), ...addedCustomers.filter(a => !(baseCustomers ?? []).some((c: any) => c.id === a.id))];
   const isEdit = !!project;
   const [form, setForm] = useState(project ? { ...EMPTY_PROJECT, ...project } : { ...EMPTY_PROJECT, customerId: preCustomerId || "" });
   const [submitting, setSubmitting] = useState(false);
@@ -56,8 +61,12 @@ export function ProjectModal({ project, preCustomerId, onClose }: { project?: an
       <div className="p-5 space-y-4">
         {error && <div className="text-[13px] text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-md p-3">{error}</div>}
         <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Customer *</label>
-          <Select value={form.customerId} onChange={(e: any) => set("customerId", e.target.value)} className="w-full" placeholder="Select customer"
-            options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
+          <Select value={form.customerId} onChange={(e: any) => e.target.value === CREATE_NEW ? setIsCreatingCustomer(true) : set("customerId", e.target.value)} className="w-full" placeholder="Select customer"
+            options={[...customers.map((c: any) => ({ value: c.id, label: c.name })), { value: CREATE_NEW, label: createNewLabel("customer") }]} />
+          {isCreatingCustomer && (
+            <CreateNewDrawer kind="customer" onClose={() => setIsCreatingCustomer(false)}
+              onCreated={(row) => { setAddedCustomers(a => [...a, row]); set("customerId", row.id); refresh?.(); }} />
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Project name *</label><Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Cloud Migration Phase II" /></div>

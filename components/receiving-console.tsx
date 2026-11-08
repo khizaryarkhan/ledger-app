@@ -17,6 +17,7 @@ import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
 import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, Drawer, QtyUnitField } from "@/components/form-kit";
 import { ClosePoLineDrawer } from "@/components/po-workflow-drawers";
+import { CREATE_NEW, CreateNewDrawer, createNewLabel, type CreateKind } from "@/components/create-new";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -804,11 +805,16 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
 
 /* ------------------------------- Ad hoc receiving ------------------------- */
 
-function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, onBack, onPosted }: {
+function AdhocReceive({ suppliers: baseSuppliers, items: baseItems, locationId, setLocationId, locations, onBack, onPosted }: {
   suppliers: any[]; items: any[]; locationId: string; setLocationId: (id: string) => void; locations: any[];
   onBack: () => void; onPosted: (msg: string) => void;
 }) {
   const { orgSettings } = useData();
+  // Records added from this panel's own pickers, offered alongside the loaded lists.
+  const [added, setAdded] = useState<{ suppliers: any[]; items: any[] }>({ suppliers: [], items: [] });
+  const [creating, setCreating] = useState<{ kind: CreateKind; lineKey?: string } | null>(null);
+  const suppliers = useMemo(() => [...baseSuppliers, ...added.suppliers], [baseSuppliers, added.suppliers]);
+  const items = useMemo(() => [...baseItems, ...added.items], [baseItems, added.items]);
   const [supplierId, setSupplierId] = useState("");
   const [date, setDate] = useState(localToday());
   const [currency, setCurrency] = useState("");
@@ -826,8 +832,9 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
 
   function newLine(): RLine { return { key: newKey(), itemId: "", itemName: "", baseUom: null, skuId: null, poId: null, poLineId: null, qtyBase: "", unitCost: "", lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" }; }
   function setLine(key: string, patch: Partial<RLine>) { setLines(ls => ls.map(l => l.key === key ? { ...l, ...patch } : l)); }
-  async function onItem(key: string, itemId: string) {
-    const it = items.find(x => x.id === itemId);
+  async function onItem(key: string, itemId: string, created?: any) {
+    if (itemId === CREATE_NEW) { setCreating({ kind: "stock-item", lineKey: key }); return; }
+    const it = created ?? items.find(x => x.id === itemId);
     setLine(key, { itemId, itemName: it?.name ?? "", baseUom: it?.baseUom ?? null, unitCost: it?.unitCost != null ? String(it.unitCost) : "", lotNo: "" });
     if (it && !isFPWIP(it)) {
       const s = await fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).catch(() => null);
@@ -856,6 +863,13 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
 
   return (
     <>
+      {creating && (
+        <CreateNewDrawer kind={creating.kind} onClose={() => setCreating(null)}
+          onCreated={(row) => {
+            if (creating.kind === "supplier") { setAdded(a => ({ ...a, suppliers: [...a.suppliers, row] })); setSupplierId(row.id); }
+            else { setAdded(a => ({ ...a, items: [...a.items, row] })); if (creating.lineKey) onItem(creating.lineKey, row.id, row); }
+          }} />
+      )}
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
         <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1"><ChevronLeft size={16} /> All open purchase orders</button>
         <div className="flex items-center gap-2.5">
@@ -867,9 +881,10 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
         <Section title="Supplier & date">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label="Supplier">
-              <SelectField inset value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+              <SelectField inset value={supplierId} onChange={e => e.target.value === CREATE_NEW ? setCreating({ kind: "supplier" }) : setSupplierId(e.target.value)}>
                 <option value="">— (optional)</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value={CREATE_NEW}>{createNewLabel("supplier")}</option>
               </SelectField>
             </Field>
             <Field label="Receipt date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
@@ -888,7 +903,7 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
             {lines.map(l => (
               <div key={l.key} className="rounded-lg border border-stone-800 p-3">
                 <div className="flex items-center gap-2 mb-3">
-                  <SelectField inset className="!h-8" value={l.itemId} onChange={e => onItem(l.key, e.target.value)}><option value="">Select item…</option>{items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</SelectField>
+                  <SelectField inset className="!h-8" value={l.itemId} onChange={e => onItem(l.key, e.target.value)}><option value="">Select item…</option>{items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}<option value={CREATE_NEW}>{createNewLabel("stock-item")}</option></SelectField>
                   {lines.length > 1 && <button onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} className="ml-auto text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
                 </div>
                 <div className="grid grid-cols-4 gap-x-4 gap-y-4">

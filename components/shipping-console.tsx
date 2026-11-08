@@ -21,6 +21,7 @@ import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON } from "@/lib/inventory/round";
 import { salesOrderOptions } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import { CREATE_NEW, CreateNewDrawer, createNewLabel } from "@/components/create-new";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -489,12 +490,15 @@ type SLine = { key: string; itemId: string; itemName: string; baseUom: string | 
 let keySeq = 0;
 const newKey = () => `s${keySeq++}`;
 
-function AdhocShip({ customers, items, locationId, setLocationId, locations, onBack, onPosted }: {
+function AdhocShip({ customers: baseCustomers, items, locationId, setLocationId, locations, onBack, onPosted }: {
   customers: any[]; items: any[]; locationId: string; setLocationId: (id: string) => void; locations: any[];
   onBack: () => void; onPosted: (msg: string) => void;
 }) {
   const { orgSettings } = useData();
   const [customerId, setCustomerId] = useState("");
+  const [addedCustomers, setAddedCustomers] = useState<any[]>([]);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const customers = useMemo(() => [...baseCustomers, ...addedCustomers], [baseCustomers, addedCustomers]);
   const [date, setDate] = useState(localToday());
   const [currency, setCurrency] = useState("");
   const [rate, setRate] = useState("1");
@@ -550,10 +554,15 @@ function AdhocShip({ customers, items, locationId, setLocationId, locations, onB
         <Section title="Customer & date">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label="Customer">
-              <SelectField inset value={customerId} onChange={e => setCustomerId(e.target.value)}>
+              <SelectField inset value={customerId} onChange={e => e.target.value === CREATE_NEW ? setIsCreatingCustomer(true) : setCustomerId(e.target.value)}>
                 <option value="">— (optional)</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value={CREATE_NEW}>{createNewLabel("customer")}</option>
               </SelectField>
+              {isCreatingCustomer && (
+                <CreateNewDrawer kind="customer" onClose={() => setIsCreatingCustomer(false)}
+                  onCreated={(row) => { setAddedCustomers(a => [...a, row]); setCustomerId(row.id); }} />
+              )}
             </Field>
             <Field label="Shipment date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
             <LocationField label="Ship from" value={locationId} onChange={setLocationId} locations={locations} issueOnly allowAny hint="Leave as Anywhere to let FIFO pick across locations" />

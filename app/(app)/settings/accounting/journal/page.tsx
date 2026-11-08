@@ -58,6 +58,7 @@ export default function JournalPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [addForLine, setAddForLine] = useState<number | null>(null);
+  const [addDim, setAddDim] = useState<{ kind: "class" | "location"; line: number } | null>(null);
   const [dims, setDims] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -250,6 +251,14 @@ export default function JournalPage() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
+      {addDim && (
+        <QuickAdd kind={addDim.kind} onClose={() => setAddDim(null)}
+          onCreated={(row) => {
+            setDims(p => [...p, { ...row, dimensionType: row.dimensionType ?? (addDim.kind === "class" ? "Class" : "Location") }]);
+            setLine(addDim.line, addDim.kind === "class" ? { classId: row.id } : { locationId: row.id });
+            setAddDim(null);
+          }} />
+      )}
       {addForLine != null && (
         <QuickAdd kind="account" accountTypes={ALL_ACCOUNT_TYPES}
           onClose={() => setAddForLine(null)}
@@ -548,15 +557,17 @@ export default function JournalPage() {
                           ) : <span className="text-stone-700 pl-1">—</span>}
                         </td>
                         <td className="px-1.5 py-1.5">
-                          <select value={l.classId} onChange={e => setLine(i, { classId: e.target.value })} className={inputCls}>
+                          <select value={l.classId} onChange={e => e.target.value === ADD_ACCOUNT ? setAddDim({ kind: "class", line: i }) : setLine(i, { classId: e.target.value })} className={inputCls}>
                             <option value="">—</option>
                             {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            <option value={ADD_ACCOUNT}>+ Add new class…</option>
                           </select>
                         </td>
                         <td className="px-1.5 py-1.5">
-                          <select value={l.locationId} onChange={e => setLine(i, { locationId: e.target.value })} className={inputCls}>
+                          <select value={l.locationId} onChange={e => e.target.value === ADD_ACCOUNT ? setAddDim({ kind: "location", line: i }) : setLine(i, { locationId: e.target.value })} className={inputCls}>
                             <option value="">—</option>
                             {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            <option value={ADD_ACCOUNT}>+ Add new location…</option>
                           </select>
                         </td>
                         <td className="px-1.5 py-1.5 text-center">
