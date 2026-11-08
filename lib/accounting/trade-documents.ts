@@ -12,7 +12,7 @@
  */
 
 import { db } from "@/db";
-import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems, itemSupplierSkus, parties } from "@/db/schema";
+import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems, itemSupplierSkus, parties, projects } from "@/db/schema";
 import { isTracked, itemCanBeSold } from "@/lib/inventory/item-kinds";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
@@ -50,6 +50,8 @@ export type TradeDocInput = {
   // `expiryDate` field above (labeled "Delivery date" for POs) rather than a
   // separate expected-date column.
   salesOrderId?: string | null;
+  // Estimate / SalesOrder only — the customer's project (must belong to that customer).
+  projectId?: string | null;
   // The counterparty's own reference (0114): the customer's PO number on an
   // SO, the supplier's order confirmation number on a PO.
   partyRef?: string | null;
@@ -117,6 +119,15 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     if (bad.length) err("Every line needs a product or service — Estimates can no longer use a Chart of Accounts line directly.");
   }
 
+  // A project belongs to exactly one customer; refuse one that is not this customer's.
+  let projectId: string | null = null;
+  if ((kind === "Estimate" || kind === "SalesOrder") && input.projectId) {
+    const [pr] = await db.select({ customerId: projects.customerId }).from(projects)
+      .where(and(eq(projects.id, input.projectId), eq(projects.orgId, orgId))).limit(1);
+    if (!pr) err("That project was not found.");
+    if (input.partyId && pr.customerId !== input.partyId) err("That project belongs to a different customer.");
+    projectId = input.projectId;
+  }
   const priced = await priceLines(orgId, raw);
   const subtotal = round2(priced.reduce((s, l) => s + l.net, 0));
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
@@ -132,6 +143,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     status: "Open", memo: input.memo?.trim() || null,
     subtotal: subtotal.toFixed(2), taxTotal: taxTotal.toFixed(2), total: total.toFixed(2),
     salesOrderId: kind === "PurchaseOrder" ? (input.salesOrderId || null) : null,
+    projectId,
     partyRef: input.partyRef?.trim() || null,
     createdBy: actorId,
   }).returning();
@@ -393,6 +405,7 @@ export async function convertTradeDoc(orgId: string, id: string, actorId: string
     date: new Date().toISOString().slice(0, 10),
     memo: `From ${doc.kind === "Estimate" ? "estimate" : "purchase order"} ${doc.docNumber ?? ""}`.trim(),
     partyType: doc.partyType as any, partyId: doc.partyId, partyLabel: doc.partyLabel,
+    projectId: doc.kind === "Estimate" ? doc.projectId ?? undefined : undefined,
     currency: doc.currency, exchangeRate: doc.exchangeRate != null ? Number(doc.exchangeRate) : null,
     // itemId travels along even when the trade line's own accountId is empty —
     // postDocument resolves an item's account fresh (buildSalesPurchaseLines'

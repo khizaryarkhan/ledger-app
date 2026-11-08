@@ -2874,6 +2874,8 @@ export const tradeDocuments = pgTable("trade_documents", {
   // above — the PO form already labels it "Delivery date" (new-document-form
   // .tsx's `dateLabel2`), so a separate column would just duplicate it.
   salesOrderId:     uuid("sales_order_id"),
+  // Estimate / SalesOrder only (0133): the customer's project, carried to the invoice on conversion.
+  projectId:        uuid("project_id"),
   // Confirmation (0114). partyRef = the supplier's order confirmation no. on a
   // PO, the customer's own PO no. on an SO. promisedDate = the date the
   // counterparty committed to (expiryDate stays what WE asked for).

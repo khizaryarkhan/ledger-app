@@ -235,7 +235,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   // Customer:Job shape) — one fewer field and one fewer click than a
   // separate Customer + Project pair, and there is never any ambiguity about
   // which customer a selected project belongs to.
-  const supportsProject = cfg.party === "Customer" && !cfg.trade && cfg.mode === "lineItems";
+  // Estimates and Sales Orders carry a project too (0133); Purchase Orders are supplier-side.
+  const supportsProject = cfg.party === "Customer" && cfg.mode === "lineItems" && (!cfg.trade || cfg.trade === "estimates" || cfg.trade === "sales-orders");
   const [projectId, setProjectId] = useState("");
   const [allProjects, setAllProjects] = useState<any[]>([]);
   const projectsByCustomer = useMemo(() => {
