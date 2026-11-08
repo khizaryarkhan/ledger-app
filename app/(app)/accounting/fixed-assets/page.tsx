@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Play } from "lucide-react";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset, tableHead } from "@/components/form-kit";
+import { AccountSelect } from "@/components/account-select";
 import { fmt, formatDate, localToday } from "@/lib/format";
 
 type Asset = {
@@ -113,12 +114,13 @@ export default function FixedAssetsPage() {
   );
 }
 
-function acctLabel(a: Acct) { return `${a.code ? a.code + " " : ""}${a.name}`; }
+const FIXED_TYPES = ["Fixed Asset"] as const;
+const EXPENSE_TYPES = ["Expense", "Other Expense"] as const;
 
 function NewAssetDrawer({ accts, onClose, onDone }: { accts: Acct[]; onClose: () => void; onDone: () => void }) {
-  const usable = (a: Acct) => !a.isHeader && (a.status ?? "Active") === "Active";
-  const fixed = accts.filter(a => usable(a) && a.type === "Fixed Asset");
-  const expense = accts.filter(a => usable(a) && a.type === "Expense");
+  // One list for all three pickers, so an account added from one is offered by the others.
+  const [list, setList] = useState<Acct[]>(accts);
+  const addAcct = (a: any) => setList(p => [...p, a]);
   const [f, setF] = useState({
     name: "", code: "", purchaseDate: localToday(), cost: "", salvageValue: "", usefulLifeMonths: "60",
     assetAccountId: "", accumDepAccountId: "", depreciationExpenseAccountId: "", notes: "",
@@ -148,19 +150,16 @@ function NewAssetDrawer({ accts, onClose, onDone }: { accts: Acct[]; onClose: ()
           <input inputMode="numeric" className={controlInset} value={f.usefulLifeMonths} onChange={set("usefulLifeMonths")} />
         </Field>
         <Field label="Asset account" required>
-          <SelectField inset value={f.assetAccountId} onChange={set("assetAccountId")}>
-            <option value="">Choose...</option>{fixed.map(a => <option key={a.id} value={a.id}>{acctLabel(a)}</option>)}
-          </SelectField>
+          <AccountSelect accounts={list} types={FIXED_TYPES} value={f.assetAccountId} onCreated={addAcct}
+            onChange={(id) => setF(p => ({ ...p, assetAccountId: id }))} />
         </Field>
         <Field label="Accumulated depreciation account" required>
-          <SelectField inset value={f.accumDepAccountId} onChange={set("accumDepAccountId")}>
-            <option value="">Choose...</option>{fixed.map(a => <option key={a.id} value={a.id}>{acctLabel(a)}</option>)}
-          </SelectField>
+          <AccountSelect accounts={list} types={FIXED_TYPES} value={f.accumDepAccountId} onCreated={addAcct}
+            onChange={(id) => setF(p => ({ ...p, accumDepAccountId: id }))} />
         </Field>
         <Field label="Depreciation expense account" required>
-          <SelectField inset value={f.depreciationExpenseAccountId} onChange={set("depreciationExpenseAccountId")}>
-            <option value="">Choose...</option>{expense.map(a => <option key={a.id} value={a.id}>{acctLabel(a)}</option>)}
-          </SelectField>
+          <AccountSelect accounts={list} types={EXPENSE_TYPES} value={f.depreciationExpenseAccountId} onCreated={addAcct}
+            onChange={(id) => setF(p => ({ ...p, depreciationExpenseAccountId: id }))} />
         </Field>
         <Field label="Notes"><textarea className={controlInset} rows={3} value={f.notes} onChange={set("notes")} /></Field>
       </div>

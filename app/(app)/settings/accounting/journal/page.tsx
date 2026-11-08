@@ -14,6 +14,7 @@ import { CURRENCIES } from "@/lib/accounting/currencies";
 import { JOURNAL_REASONS } from "@/lib/accounting/entry-reasons";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
+import { QuickAdd } from "@/components/quick-add";
 import { fmt } from "@/lib/format";
 import {
   useListView, ListToolbar, ListChips, ListScroll, ListHead, type ListColumn,
@@ -49,10 +50,14 @@ const TYPE_GROUPS: [string, string[]][] = [
   ["Expenses", ["Cost of Goods Sold", "Expense", "Other Expense"]],
 ];
 
+const ADD_ACCOUNT = "__add_account__";
+const ALL_ACCOUNT_TYPES = TYPE_GROUPS.flatMap(([, types]) => types);
+
 export default function JournalPage() {
   const [view, setView] = useState<"journal" | "tb">("journal");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [addForLine, setAddForLine] = useState<number | null>(null);
   const [dims, setDims] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -245,6 +250,15 @@ export default function JournalPage() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
+      {addForLine != null && (
+        <QuickAdd kind="account" accountTypes={ALL_ACCOUNT_TYPES}
+          onClose={() => setAddForLine(null)}
+          onCreated={(row) => {
+            setAccounts(p => [...p, row]);
+            setLine(addForLine, { accountId: row.id, nameType: "", nameId: "", nameLabel: "" });
+            setAddForLine(null);
+          }} />
+      )}
       <div className="max-w-5xl mx-auto px-4 py-6">
         <Link href="/accounting" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2">
           <ChevronLeft size={13} /> Accounting
@@ -493,7 +507,9 @@ export default function JournalPage() {
                         <td className="px-2 py-1.5 text-stone-600 tabular-nums text-center">{i + 1}</td>
                         <td className="px-1.5 py-1.5">
                           <select value={l.accountId}
-                            onChange={e => setLine(i, { accountId: e.target.value, nameType: "", nameId: "", nameLabel: "" })}
+                            onChange={e => e.target.value === ADD_ACCOUNT
+                              ? setAddForLine(i)
+                              : setLine(i, { accountId: e.target.value, nameType: "", nameId: "", nameLabel: "" })}
                             className={inputCls}>
                             <option value="">Pick account…</option>
                             {TYPE_GROUPS.map(([group, types]) => {
@@ -505,6 +521,7 @@ export default function JournalPage() {
                                 </optgroup>
                               );
                             })}
+                            <option value={ADD_ACCOUNT}>+ Add new account…</option>
                           </select>
                         </td>
                         <td className="px-1.5 py-1.5"><input type="number" step="0.01" min="0" value={l.debit}

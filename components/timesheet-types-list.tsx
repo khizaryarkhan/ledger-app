@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
+import { AccountSelect } from "@/components/account-select";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, type ListColumn,
@@ -104,7 +105,6 @@ function TimesheetTypeDrawer({ accounts, id, onClose, onSaved }: { accounts: any
     }).catch(() => setLoading(false));
   }, [id]);
 
-  const expenseAccounts = accounts.filter(a => a.classification === "Expense" && !a.isHeader);
 
   async function save() {
     if (!form.name.trim()) { setErr("Name is required."); return; }
@@ -156,10 +156,9 @@ function TimesheetTypeDrawer({ accounts, id, onClose, onSaved }: { accounts: any
                 </Field>
               )}
               <Field label="Expense account" required className="col-span-2">
-                <SelectField inset value={form.expenseAccountId} onChange={e => setForm(f => ({ ...f, expenseAccountId: e.target.value }))}>
-                  <option value="">Choose an account…</option>
-                  {expenseAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </SelectField>
+                <AccountSelect accounts={accounts} types={["Expense", "Other Expense", "Cost of Goods Sold"]}
+                  placeholder="Choose an account…" value={form.expenseAccountId}
+                  onChange={id => setForm(f => ({ ...f, expenseAccountId: id }))} />
               </Field>
               <Field label="Status" className="col-span-2">
                 <SelectField inset value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
