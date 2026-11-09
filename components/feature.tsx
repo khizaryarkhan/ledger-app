@@ -23,11 +23,11 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
   const [noteDraft, setNoteDraft] = useState("");
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-4xl">
       {onAddNote && (
-        <div className="bg-white ring-1 ring-stone-200 rounded-lg p-3 mb-4">
+        <div className="bg-card border border-stone-800 shadow-sm shadow-stone-950/5 rounded-lg p-3 mb-4">
           <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add an internal note..."
-            className="w-full text-[13px] resize-none focus:outline-none placeholder-stone-400" rows={2} />
+            className="w-full text-[13px] bg-transparent text-stone-200 resize-none focus:outline-none placeholder-stone-500" rows={2} />
           {noteDraft && (
             <div className="flex justify-end pt-2 border-t border-stone-800">
               <Button size="sm" onClick={() => { onAddNote(noteDraft); setNoteDraft(""); }}>Save note</Button>
@@ -49,14 +49,14 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
               <div key={c.id} className="flex gap-3">
                 <div className="flex flex-col items-center">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    isNote ? "bg-amber-50 text-amber-700" : isInbound ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
+                    isNote ? "bg-amber-500/15 text-amber-400" : isInbound ? "bg-emerald-500/15 text-emerald-400" : "bg-blue-500/15 text-blue-400"
                   }`}>
                     {isNote ? <FileEdit size={14} /> : isInbound ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                   </div>
-                  <div className="w-px flex-1 bg-stone-200 mt-1" />
+                  <div className="w-px flex-1 bg-stone-800 mt-1" />
                 </div>
                 <div className="flex-1 pb-3">
-                  <div className="bg-white ring-1 ring-stone-200 rounded-lg p-4">
+                  <div className="bg-card border border-stone-800 shadow-sm shadow-stone-950/5 rounded-lg p-4">
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <div className="text-[13px] font-medium text-stone-100">
@@ -67,7 +67,7 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                       <div className="text-[11px] text-stone-500">{fmt.relative(c.sentAt)}</div>
                     </div>
                     {!isNote && c.subject && <div className="text-[13px] font-semibold text-stone-100 mb-2">{c.subject}</div>}
-                    <div className="text-[13px] text-stone-400 whitespace-pre-wrap leading-relaxed">{c.body}</div>
+                    <div className="text-[13px] text-stone-300 whitespace-pre-wrap leading-relaxed">{c.body}</div>
                     <div className={`mt-3 pt-3 border-t border-stone-800 flex items-center ${invoice ? "justify-between" : "justify-end"}`}>
                       {invoice && (
                         <div className="flex items-center gap-2">
@@ -486,7 +486,7 @@ export function PaymentModal({ invoice, onClose }: any) {
         <Button onClick={handle} disabled={!amount || amount <= 0 || submitting}>{submitting ? "Saving…" : "Record"}</Button>
       </>}>
       <div className="p-5 space-y-3">
-        <div className="bg-stone-50 rounded-md p-3 text-[13px]">
+        <div className="bg-stone-900 rounded-md p-3 text-[13px]">
           <div className="text-[12px] text-stone-500 mb-1">Outstanding</div>
           <div className="text-[18px] font-semibold text-stone-100 tabular-nums">{fmt.money(out, invoice.currency)}</div>
         </div>
@@ -498,7 +498,7 @@ export function PaymentModal({ invoice, onClose }: any) {
           <label className="text-[12px] font-medium text-stone-400 block mb-1">Payment date</label>
           <input type="date" value={paidDate} max={localToday()}
             onChange={e => setPaidDate(e.target.value)}
-            className="w-full h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+            className="w-full h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none" />
         </div>
       </div>
     </Modal>
@@ -531,7 +531,7 @@ export function DisputeModal({ invoice, onClose }: any) {
         <div className="mb-3 text-[13px] text-stone-600">Marking this invoice as disputed will pause automated reminders.</div>
         <label className="text-[12px] font-medium text-stone-400 block mb-1">Dispute reason *</label>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
-          className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5"
+          className="w-full text-[13px] rounded-md ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none p-2.5"
           placeholder="Describe the dispute..." />
       </div>
     </Modal>
@@ -595,7 +595,7 @@ export function TaskModal({ invoiceId, customerId, onClose }: any) {
         <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Title *</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
         <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Description</label>
           <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" />
+            className="w-full text-[13px] rounded-md ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none p-2.5" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => setForm({ ...form, dueDate: e.target.value })} /></div>
@@ -659,7 +659,7 @@ export function TasksList({ tasks, showAssignee = true }: any) {
   return (
     <Card padding="none">
       {tasks.map((t: any) => (
-        <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-stone-800 last:border-0 hover:bg-stone-50">
+        <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-stone-800 last:border-0 hover:bg-stone-800">
           <button onClick={() => toggleTask(t.id, !t.completed)} className="flex-shrink-0">
             {t.completed ? <Check size={16} className="text-emerald-600" /> : <Circle size={16} className="text-stone-300 hover:text-stone-500" />}
           </button>
@@ -669,7 +669,7 @@ export function TasksList({ tasks, showAssignee = true }: any) {
           </div>
           {t.priority === "Urgent" && <span className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-rose-50 text-rose-700 ring-rose-200 font-medium">Urgent</span>}
           {t.priority === "High" && <span className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-orange-50 text-orange-700 ring-orange-200 font-medium">High</span>}
-          {(t.labels || []).map((l: string) => <span key={l} className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-stone-100 text-stone-700 ring-stone-200 font-medium">{l}</span>)}
+          {(t.labels || []).map((l: string) => <span key={l} className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-stone-800 text-stone-300 ring-stone-700 font-medium">{l}</span>)}
           <div className="text-[11px] text-stone-500 whitespace-nowrap">{fmt.relative(t.dueDate)}</div>
         </div>
       ))}
@@ -706,7 +706,7 @@ const COLOR_CLASSES: Record<string, string> = {
   amber:   "bg-amber-50 text-amber-700 ring-amber-200",
   rose:    "bg-rose-50 text-rose-700 ring-rose-200",
   orange:  "bg-orange-50 text-orange-700 ring-orange-200",
-  stone:   "bg-stone-100 text-stone-600 ring-stone-200",
+  stone:   "bg-stone-800 text-stone-600 ring-stone-800",
 };
 
 function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
@@ -716,7 +716,7 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
   if (eventType === "stage_changed" && meta.fromStage) {
     parts.push(
       <span key="stage" className="flex items-center gap-1.5">
-        <span className="font-mono text-[11px] px-1.5 py-0.5 bg-stone-100 rounded">{meta.fromStage}</span>
+        <span className="font-mono text-[11px] px-1.5 py-0.5 bg-stone-800 rounded">{meta.fromStage}</span>
         <ArrowRightLeft size={11} className="text-stone-400 flex-shrink-0" />
         <span className="font-mono text-[11px] px-1.5 py-0.5 bg-stone-900 text-white rounded">{meta.toStage}</span>
         {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
@@ -836,7 +836,7 @@ export function AuditTimeline({ customerId, projectId, label }: {
           href={exportUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-stone-50 ring-1 ring-stone-200 text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-stone-900 ring-1 ring-stone-800 text-stone-600 hover:bg-stone-800 hover:text-stone-900 transition-colors"
         >
           <FileDown size={13} />
           Export PDF
@@ -853,7 +853,7 @@ export function AuditTimeline({ customerId, projectId, label }: {
         <div className="text-center py-12 text-rose-500 text-[13px]">Failed to load audit events.</div>
       ) : events.length === 0 ? (
         <div className="text-center py-16">
-          <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-3">
+          <div className="w-10 h-10 rounded-full bg-stone-800 flex items-center justify-center mx-auto mb-3">
             <Clock size={18} className="text-stone-400" />
           </div>
           <div className="text-[13px] font-medium text-stone-600">No events recorded yet</div>
@@ -1214,7 +1214,7 @@ ${senderName}`;
                       if (t) { setSubject(t.subject); setBody(t.body); }
                       e.target.value = "";
                     }}
-                    className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                    className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none bg-card"
                   >
                     <option value="">— Pick a template to pre-fill —</option>
                     {orgTemplates.map((t: any) => (
@@ -1235,7 +1235,7 @@ ${senderName}`;
                   value={subject}
                   onChange={e => setSubject(e.target.value)}
                   placeholder="e.g. Invoice {invoiceNumber} — {ref}"
-                  className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none bg-card"
                 />
               </div>
 
@@ -1251,17 +1251,17 @@ ${senderName}`;
                   value={body}
                   onChange={e => setBody(e.target.value)}
                   rows={12}
-                  className="w-full flex-1 px-3 py-2.5 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white font-mono leading-relaxed resize-none"
+                  className="w-full flex-1 px-3 py-2.5 text-[13px] rounded-lg ring-1 ring-stone-800 focus:ring-2 focus:ring-primary focus:outline-none bg-card font-mono leading-relaxed resize-none"
                   placeholder="Write your message here…"
                 />
               </div>
 
               {/* Placeholder reference */}
-              <div className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+              <div className="rounded-lg ring-1 ring-stone-800 overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setShowPlaceholders(v => !v)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-medium text-stone-500 hover:bg-stone-50 transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-medium text-stone-500 hover:bg-stone-800 transition-colors"
                 >
                   <span>Placeholder reference</span>
                   <span className={`transition-transform ${showPlaceholders ? "rotate-180" : ""}`}>▾</span>
@@ -1270,7 +1270,7 @@ ${senderName}`;
                   <div className="px-3 pb-3 border-t border-stone-800 space-y-1.5 pt-2">
                     {BATCH_PLACEHOLDERS.map(({ key, desc }) => (
                       <div key={key} className="flex items-start gap-2">
-                        <code className="text-[11px] font-mono bg-stone-100 px-1.5 py-0.5 rounded text-stone-700 shrink-0">{key}</code>
+                        <code className="text-[11px] font-mono bg-stone-800 px-1.5 py-0.5 rounded text-stone-700 shrink-0">{key}</code>
                         <span className="text-[11px] text-stone-500">{desc}</span>
                       </div>
                     ))}
@@ -1294,14 +1294,14 @@ ${senderName}`;
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-between gap-3 shrink-0 bg-white">
+            <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-between gap-3 shrink-0 bg-card">
               <Button variant="ghost" onClick={onClose}>Cancel</Button>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowPreview(v => !v)}
                   className={`h-9 px-3 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
-                    showPreview ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-200 text-stone-600 hover:ring-stone-400"
+                    showPreview ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-800 text-stone-600 hover:ring-stone-400"
                   }`}
                 >
                   {showPreview ? "Hide preview" : "Preview"}
@@ -1320,7 +1320,7 @@ ${senderName}`;
           </div>
 
           {/* Right pane — recipients + preview */}
-          <div className="w-72 shrink-0 flex flex-col overflow-hidden bg-stone-50/60">
+          <div className="w-72 shrink-0 flex flex-col overflow-hidden bg-stone-900/60">
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
               {/* Recipient list */}
@@ -1336,7 +1336,7 @@ ${senderName}`;
                   {rows.map(({ inv, email, customerName }) => {
                     const emailCount = countEmails(email);
                     return (
-                      <div key={inv.id} className={`rounded-lg px-2.5 py-2 text-[12px] ${email ? "bg-white ring-1 ring-stone-200" : "bg-rose-50 ring-1 ring-rose-100"}`}>
+                      <div key={inv.id} className={`rounded-lg px-2.5 py-2 text-[12px] ${email ? "bg-card ring-1 ring-stone-800" : "bg-rose-50 ring-1 ring-rose-100"}`}>
                         <div className="flex items-center gap-1.5">
                           {email
                             ? <CheckCircle size={11} className="text-emerald-500 shrink-0" />
@@ -1373,7 +1373,7 @@ ${senderName}`;
                   <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
                     Preview — {previewRow.inv.invoiceNumber}
                   </div>
-                  <div className="bg-white ring-1 ring-stone-200 rounded-lg p-3 space-y-2">
+                  <div className="bg-card ring-1 ring-stone-800 rounded-lg p-3 space-y-2">
                     <div>
                       <div className="text-[10px] text-stone-400 font-medium">Subject</div>
                       <div className="text-[12px] font-semibold text-stone-300 break-words">{previewSubject}</div>

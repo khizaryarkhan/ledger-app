@@ -4,12 +4,12 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
-import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
+import { Card, Badge, Button, Modal, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
 import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink } from "lucide-react";
+import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink, MoreHorizontal } from "lucide-react";
 import { isPaidOrClosed as isInvoicePaidOrClosed } from "@/lib/receivable-composition";
 
 // Each of these maps to one of QBO's three preconditions for issuing a payment
@@ -44,6 +44,8 @@ export default function InvoiceDetailPage() {
   const [showStageMenu, setShowStageMenu] = useState(false);
   const [stageSaving, setStageSaving] = useState(false);
   const stageMenuRef = useRef<HTMLDivElement>(null);
+  const [showMore, setShowMore] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const inv = invoices.find(i => i.id === id);
   const [linkedTxns, setLinkedTxns] = useState<any[]>([]);
@@ -170,6 +172,16 @@ export default function InvoiceDetailPage() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showStageMenu]);
 
+  // Close the More menu when clicking outside
+  useEffect(() => {
+    if (!showMore) return;
+    const handler = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setShowMore(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMore]);
+
   /** Billing email priority: invoice → primary contact → customer email */
   const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary && c.email);
   const resolvedEmail = inv.billingEmail || primaryContact?.email || customer?.email || null;
@@ -185,120 +197,124 @@ export default function InvoiceDetailPage() {
     }
   };
 
-  return (
-    <div className="p-6 max-w-[1400px] mx-auto">
-      <Link href="/invoices" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-200 mb-4">
-        <ArrowLeft size={14} /> Back to invoices
-      </Link>
+  const overdueDays = daysOverdue(inv.dueDate);
+  const iconBtn = "h-9 w-9 inline-flex items-center justify-center rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-stone-100 disabled:opacity-50 transition-colors";
 
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-semibold text-white tracking-tight font-mono">{inv.invoiceNumber}</h1>
-            <Badge variant={sourceBadgeVariant(inv.source)}>{sourceLabel(inv.source)}</Badge>
-            <Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge>
-            {/* Clickable stage badge with dropdown */}
-            <div ref={stageMenuRef} className="relative">
-              <button
-                onClick={() => setShowStageMenu((v) => !v)}
-                disabled={stageSaving}
-                className="inline-flex items-center gap-1 focus:outline-none"
-                title="Change stage"
-              >
-                <Badge variant={stageBadge(inv.collectionStage)}>
-                  {stageSaving ? "Saving…" : inv.collectionStage}
-                </Badge>
-                <ChevronDown size={12} className="text-stone-400 -ml-0.5" />
+  return (
+    <div className="flex flex-col h-[calc(100vh-44px)]">
+      <div className="px-6 py-4 border-b border-stone-800 bg-stone-950 flex-shrink-0">
+        <Link href="/invoices" className="inline-flex items-center gap-1.5 text-[12px] text-stone-500 hover:text-stone-200 mb-2">
+          <ArrowLeft size={13} /> Invoices
+        </Link>
+        <div className="flex items-start justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-xl font-semibold text-white tracking-tight">Invoice {inv.invoiceNumber}</h1>
+              <Badge variant={sourceBadgeVariant(inv.source)}>{sourceLabel(inv.source)}</Badge>
+              <Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge>
+              {/* Clickable stage badge with dropdown */}
+              <div ref={stageMenuRef} className="relative">
+                <button
+                  onClick={() => setShowStageMenu((v) => !v)}
+                  disabled={stageSaving}
+                  className="inline-flex items-center gap-1 focus:outline-none"
+                  title="Change stage"
+                >
+                  <Badge variant={stageBadge(inv.collectionStage)}>
+                    {stageSaving ? "Saving…" : inv.collectionStage}
+                  </Badge>
+                  <ChevronDown size={12} className="text-stone-400 -ml-0.5" />
+                </button>
+                {showStageMenu && (
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-card rounded-lg shadow-lg ring-1 ring-stone-700 py-1 min-w-[190px]">
+                    {orgStages.map((stage) => (
+                      <button
+                        key={stage}
+                        onClick={() => handleStageChange(stage)}
+                        className={`w-full text-left px-3 py-1.5 text-[13px] hover:bg-stone-800 flex items-center gap-2 ${stage === inv.collectionStage ? "font-semibold text-white" : "text-stone-300"}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${stage === inv.collectionStage ? "bg-emerald-500" : ""}`} />
+                        {stage}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-stone-400 mt-1 flex-wrap">
+              <Link href={customer ? `/customers/${customer.id}` : "#"} className="font-medium text-stone-200 hover:underline">{customer?.name}</Link>
+              {project && <><span className="text-stone-600">·</span><span>{project.name}</span></>}
+              {inv.poNumber && <><span className="text-stone-600">·</span><span className="text-[12px]">PO {inv.poNumber}</span></>}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" icon={CalendarClock} onClick={() => setShowPromise(true)}
+              disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — no commitment needed" : undefined}>Commit to pay</Button>
+            <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}
+              disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — cannot dispute" : undefined}>Dispute</Button>
+            <Button variant="secondary" icon={CreditCard} onClick={() => setShowPay(true)}>Record payment</Button>
+            <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
+            <span className="w-px h-6 bg-stone-800 mx-0.5" />
+            {canDownloadPdf && (
+              <button onClick={handleDownloadPdf} disabled={downloadingPdf} className={iconBtn} title="Download PDF" aria-label="Download PDF">
+                {downloadingPdf ? <Loader size={15} className="animate-spin" /> : <Download size={15} />}
               </button>
-              {showStageMenu && (
-                <div className="absolute left-0 top-full mt-1 z-50 bg-stone-800 rounded-lg shadow-lg ring-1 ring-stone-700 py-1 min-w-[180px]">
-                  {orgStages.map((stage) => (
-                    <button
-                      key={stage}
-                      onClick={() => handleStageChange(stage)}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-stone-700 flex items-center gap-2 ${stage === inv.collectionStage ? "font-semibold text-white" : "text-stone-300"}`}
-                    >
-                      {stage === inv.collectionStage && <span className="w-1.5 h-1.5 rounded-full bg-stone-900 flex-shrink-0" />}
-                      {stage !== inv.collectionStage && <span className="w-1.5 h-1.5 flex-shrink-0" />}
-                      {stage}
-                    </button>
-                  ))}
+            )}
+            {canPayOnline && (
+              <button onClick={handlePayOnline} disabled={loadingPayLink} className={iconBtn} aria-label="Pay online"
+                title="Open the hosted QuickBooks payment page">
+                {loadingPayLink ? <Loader size={15} className="animate-spin" /> : <ExternalLink size={15} />}
+              </button>
+            )}
+            <button onClick={() => setShowTask(true)} className={iconBtn} title="Add task" aria-label="Add task"><CheckSquare size={15} /></button>
+            <div ref={moreMenuRef} className="relative">
+              <button onClick={() => setShowMore((v) => !v)} className={iconBtn} title="More" aria-label="More actions"><MoreHorizontal size={16} /></button>
+              {showMore && (
+                <div className="absolute right-0 top-full mt-1 z-50 bg-card rounded-lg shadow-lg ring-1 ring-stone-700 py-1 min-w-[170px]">
+                  <button onClick={() => { setShowMore(false); setConfirmDelete(true); }}
+                    className="w-full text-left px-3 py-1.5 text-[13px] text-rose-500 hover:bg-stone-800 flex items-center gap-2">
+                    <Trash2 size={14} /> Delete invoice
+                  </button>
                 </div>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-stone-400">
-            <Link href={customer ? `/customers/${customer.id}` : "#"} className="hover:text-white hover:underline">{customer?.name}</Link>
-            {project && <><span className="text-stone-300">·</span><span>{project.name}</span></>}
-            {inv.poNumber && <><span className="text-stone-300">·</span><span className="font-mono text-xs">PO {inv.poNumber}</span></>}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {canDownloadPdf && (
-            <Button variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
-              {downloadingPdf
-                ? <span className="flex items-center gap-1.5"><Loader size={14} className="animate-spin" />Downloading…</span>
-                : <span className="flex items-center gap-1.5"><Download size={14} />Download PDF</span>}
-            </Button>
-          )}
-          {canPayOnline && (
-            <Button variant="secondary" onClick={handlePayOnline} disabled={loadingPayLink} title="Opens QuickBooks' own hosted payment page — this link can't be embedded in the downloaded PDF itself">
-              {loadingPayLink
-                ? <span className="flex items-center gap-1.5"><Loader size={14} className="animate-spin" />Loading…</span>
-                : <span className="flex items-center gap-1.5"><ExternalLink size={14} />Pay online</span>}
-            </Button>
-          )}
-          <Button variant="secondary" icon={CheckSquare} onClick={() => setShowTask(true)}>Task</Button>
-          <Button variant="secondary" icon={CalendarClock} onClick={() => setShowPromise(true)}
-            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — no commitment needed" : undefined}>Commit to Pay</Button>
-          <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}
-            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — cannot dispute" : undefined}>Dispute</Button>
-          <Button variant="secondary" icon={CreditCard} onClick={() => setShowPay(true)}>Record payment</Button>
-          <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
-          {!confirmDelete ? (
-            <Button variant="danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>Delete</Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-rose-600 font-medium">Sure?</span>
-              <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-              <Button variant="danger" size="sm" icon={Trash2} onClick={handleDelete} disabled={deleting}>
-                {deleting ? "Deleting…" : "Yes, delete"}
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Total</div>
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="max-w-[1400px] mx-auto">
+      <div className="grid grid-cols-2 lg:grid-cols-4 bg-card rounded-lg border border-stone-800 shadow-sm shadow-stone-950/5 divide-x divide-stone-800 mb-6">
+        <div className="px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1.5">Total</div>
           <div className="text-xl font-semibold text-white tabular-nums">{fmt.money(inv.total, inv.currency)}</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Paid</div>
-          <div className="text-xl font-semibold text-emerald-400 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Outstanding</div>
+        </div>
+        <div className="px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1.5">Paid</div>
+          <div className="text-xl font-semibold text-emerald-500 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
+        </div>
+        <div className="px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1.5">Outstanding</div>
           <div className="text-xl font-semibold text-white tabular-nums">{fmt.money(out, inv.currency)}</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Due</div>
+        </div>
+        <div className="px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1.5">Due</div>
           <div className="text-xl font-semibold text-white tabular-nums">{formatDate(inv.dueDate, df)}</div>
-          {daysOverdue(inv.dueDate) > 0 && <div className="text-[11px] text-rose-600 font-medium mt-1">{daysOverdue(inv.dueDate)} days overdue</div>}
-        </Card>
+          {overdueDays > 0 && !isPaidOrClosed && <div className="text-[12px] text-rose-500 font-medium mt-0.5">{overdueDays} days overdue</div>}
+        </div>
       </div>
 
       <div className="border-b border-stone-800 mb-5">
         <div className="flex items-center gap-1">
           {[
             { id: "overview", label: "Overview" },
-            { id: "lines", label: `Line Items (${(inv.lineItems || []).length})` },
+            { id: "lines", label: `Line items (${(inv.lineItems || []).length})` },
             { id: "comms", label: `Communications (${invComms.length})` },
             { id: "tasks", label: `Tasks (${invTasks.length})` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? "border-emerald-400 text-white" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
+              className={`px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-primary text-white" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
               {t.label}
             </button>
           ))}
@@ -438,6 +454,19 @@ export default function InvoiceDetailPage() {
           <TasksList tasks={invTasks} />
         </div>
       )}
+
+      </div>
+      </div>
+
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} center size="sm" title="Delete this invoice?"
+        footer={<>
+          <Button variant="secondary" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          <Button variant="danger" icon={Trash2} onClick={handleDelete} disabled={deleting}>{deleting ? "Deleting…" : "Delete invoice"}</Button>
+        </>}>
+        <div className="px-5 py-4 text-[13px] text-stone-300">
+          Invoice {inv.invoiceNumber} will be removed from the app. This cannot be undone.
+        </div>
+      </Modal>
 
       {showCompose && (
         <SendInvoicesModal
