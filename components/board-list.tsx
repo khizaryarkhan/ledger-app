@@ -84,7 +84,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [savingChase, setSavingChase] = useState(false);
 
   // Toolbar dropdown menus (View / Export) — one open at a time
-  const [toolbarMenu, setToolbarMenu] = useState<"view" | "export" | null>(null);
+  const [toolbarMenu, setToolbarMenu] = useState<"arrange" | "views" | "reports" | "documents" | "comments" | null>(null);
+  const [newViewName, setNewViewName] = useState("");
   const [compositionOpen, setCompositionOpen] = useState(true);
 
   // Batch operations state
@@ -847,11 +848,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     setSavedViews(views);
     try { localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(views)); } catch {}
   };
-  function saveCurrentView() {
-    const name = prompt("Name this view (e.g. 'Morning chase list'):")?.trim();
-    if (!name) return;
-    persistViews([...savedViews.filter(v => v.name !== name), { name, cf, overdueOnly, groupByCustomer }]);
-  }
   function applyView(v: SavedView) {
     setCf(migrateCf(v.cf));
     setOverdueOnly(v.overdueOnly);
@@ -1282,41 +1278,284 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     URL.revokeObjectURL(url);
   }
 
+  // ── Action bar pieces (shared by the idle and the selection states) ──────
+  const barBtn = "flex items-center gap-1.5 h-8 text-[12px] font-medium rounded-md px-2.5 border border-stone-700 text-stone-300 hover:bg-stone-800 hover:text-stone-100 transition-colors";
+  const barBtnOn = "!border-stone-500 bg-stone-800 !text-stone-100";
+  const menuPanel = "absolute right-0 top-full mt-1 z-30 w-72 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5";
+  const menuItem = "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent";
+  const menuHint = "text-[11px] text-stone-500";
+  const menuHeading = "px-2.5 pt-1.5 pb-1 text-[11px] font-semibold text-stone-500 uppercase tracking-wider";
+  const moneyByCurrency = (rs: BoardRow[]) => {
+    const m: Record<string, number> = {};
+    rs.forEach(r => { const c = r.inv.currency ?? "EUR"; m[c] = (m[c] || 0) + r.bal; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || "—";
+  };
+  // Reports and Documents act on the ticked invoices, or on everything shown.
+  const scopeRows = selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows;
+  const scopeLabel = selected.size ? `the ${selected.size} ticked` : `all ${sortedRows.length} shown`;
+  const menuToggle = (key: NonNullable<typeof toolbarMenu>, label: string, Icon: any, extra?: React.ReactNode) => (
+    <button onClick={() => setToolbarMenu(m => m === key ? null : key)} className={`${barBtn} ${toolbarMenu === key ? barBtnOn : ""}`}>
+      <Icon size={13} /> {label}{extra}
+      <ChevronDown size={12} className={`transition-transform ${toolbarMenu === key ? "rotate-180" : ""}`} />
+    </button>
+  );
+
+  // Reports — for us, never sent to a customer.
+  const reportsMenu = (
+    <div className="relative">
+      {menuToggle("reports", "Reports", FileText)}
+      {toolbarMenu === "reports" && (
+        <div className={menuPanel}>
+          <div className={menuHeading}>For {scopeLabel}</div>
+          <button onClick={() => { exportExcel(); setToolbarMenu(null); }} className={menuItem}>
+            <Download size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">Board as Excel<div className={menuHint}>The rows and columns as you see them</div></div>
+          </button>
+          <button onClick={() => { exportChaseReport({ orgName: orgName ?? "Organisation", rows: scopeRows, comments: comments ?? [] }); setToolbarMenu(null); }} className={menuItem}>
+            <FileText size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">Chase report<div className={menuHint}>Detail plus a summary by owner</div></div>
+          </button>
+          <button
+            onClick={async () => {
+              setToolbarMenu(null);
+              // Ticked if any; otherwise the whole open book, not just the
+              // filtered view — an ageing report covers the ledger.
+              const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : rows;
+              if (!src.length) { toast?.("No open invoices to include in the report", "error"); return; }
+              try { await exportAgeingChaseReport({ orgName: orgName ?? "Organisation", rows: src, comments: comments ?? [] }); }
+              catch (e: any) { toast?.(e?.message || "Couldn't generate the report", "error"); }
+            }}
+            className={menuItem}>
+            <FileText size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">A/R ageing &amp; chase<div className={menuHint}>{selected.size ? "The ticked invoices" : "The whole open book"}, customer then project</div></div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Documents — things you send a customer.
+  const documentsMenu = (
+    <div className="relative">
+      {menuToggle("documents", "Documents", Mail)}
+      {toolbarMenu === "documents" && (
+        <div className={menuPanel}>
+          <div className={menuHeading}>For the customer · {scopeLabel}</div>
+          <button onClick={() => { exportStatementPdf({ orgName: orgName ?? "Organisation", rows: scopeRows, logoUrl: orgLogoUrl ?? null }); setToolbarMenu(null); }} className={menuItem}>
+            <FileText size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">Statement of open invoices (PDF)<div className={menuHint}>Grouped by customer, then project</div></div>
+          </button>
+          <button onClick={() => { exportStatement({ orgName: orgName ?? "Organisation", rows: scopeRows }); setToolbarMenu(null); }} className={menuItem}>
+            <Download size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">Statement of open invoices (Excel)<div className={menuHint}>The same statement as a spreadsheet</div></div>
+          </button>
+          <button onClick={() => { downloadPdfs(); setToolbarMenu(null); }} disabled={selected.size === 0 || downloadingPdf} className={menuItem}>
+            <FileText size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">
+              {downloadingPdf ? "Downloading PDFs…" : "Invoice PDFs (ZIP)"}
+              <div className={menuHint}>{selected.size === 0 ? "Tick the invoices first" : `${selected.size} invoice${selected.size !== 1 ? "s" : ""}`}</div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Comments — download the template, fill it in, upload it. One round trip.
+  const commentsMenu = (
+    <div className="relative">
+      {menuToggle("comments", "Comments", MessageSquare)}
+      {toolbarMenu === "comments" && (
+        <div className={menuPanel}>
+          <div className={menuHeading}>Update comments in bulk</div>
+          <button
+            onClick={async () => {
+              setToolbarMenu(null);
+              try { await exportCommentTemplate({ orgName: orgName ?? "Organisation", rows, comments: comments ?? [] }); }
+              catch (e: any) { toast?.(e?.message || "Couldn't build the template", "error"); }
+            }}
+            className={menuItem}>
+            <Download size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">1. Download template<div className={menuHint}>Pre-filled with open customers and projects</div></div>
+          </button>
+          <button onClick={() => { setToolbarMenu(null); commentFileRef.current?.click(); }} disabled={importingComments} className={menuItem}>
+            <ArrowDownRight size={13} className="text-stone-500" />
+            <div className="flex-1 text-left">{importingComments ? "Uploading…" : "2. Upload filled template"}<div className={menuHint}>Logged against each customer and project</div></div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Views — saved filter sets. They used to appear only as pills, mixed in
+  // with the active-filter chips, and only once one had been saved.
+  const canSaveView = anyFilter || overdueOnly;
+  const saveViewNamed = () => {
+    const name = newViewName.trim();
+    if (!name) return;
+    persistViews([...savedViews.filter(v => v.name !== name), { name, cf, overdueOnly, groupByCustomer }]);
+    setNewViewName("");
+    setToolbarMenu(null);
+  };
+  const viewsMenu = (
+    <div className="relative">
+      {menuToggle("views", "Views", Filter, savedViews.length ? <span className="text-stone-500">({savedViews.length})</span> : null)}
+      {toolbarMenu === "views" && (
+        <div className={menuPanel}>
+          <div className={menuHeading}>Saved views</div>
+          {savedViews.length === 0 && <div className="px-2.5 py-2 text-[12px] text-stone-500">None yet. Filter the columns, then save the filters here.</div>}
+          {savedViews.map(v => (
+            <div key={v.name} className="group flex items-center">
+              <button onClick={() => { applyView(v); setToolbarMenu(null); }} className={`${menuItem} flex-1`}>
+                <Filter size={13} className="text-stone-500" /><span className="flex-1 text-left">{v.name}</span>
+              </button>
+              <button onClick={() => deleteView(v.name)} aria-label={`Delete view ${v.name}`} title="Delete view"
+                className="p-1.5 mr-1 rounded-md text-stone-500 hover:text-rose-500 opacity-0 group-hover:opacity-100 focus:opacity-100"><X size={12} /></button>
+            </div>
+          ))}
+          <div className="my-1 border-t border-stone-800" />
+          <div className={menuHeading}>Save the current filters</div>
+          <div className="flex items-center gap-1.5 px-2.5 pb-1.5">
+            <input value={newViewName} onChange={e => setNewViewName(e.target.value)} disabled={!canSaveView}
+              onKeyDown={e => { if (e.key === "Enter") saveViewNamed(); }}
+              placeholder={canSaveView ? "e.g. Morning chase list" : "Set a filter first"} aria-label="Name for the saved view"
+              className={`${controlInset} h-8 flex-1 min-w-0 text-[12px]`} />
+            <button onClick={saveViewNamed} disabled={!canSaveView || !newViewName.trim()}
+              className="h-8 px-2.5 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold disabled:opacity-40">Save</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Notify owners — an ordinary action, so it looks like the other buttons.
+  // Colour on the Board means an exception, and this is not one.
+  const notifyButton = ownerGroups.length > 0 ? (
+    <button
+      onClick={() => { setNotifyInvChecked(new Set(ownerGroups.flatMap(g => g.items.map(r => r.inv.id)))); setNotifyExpanded(new Set()); setNotifyOpen(true); }}
+      title="Email each owner their escalated invoices with PDFs attached"
+      className={barBtn}>
+      <UserCheck size={13} /> Notify owners ({ownerGroups.length})
+    </button>
+  ) : null;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Selection action bar */}
-      {selected.size > 0 && (
-        <div className="flex flex-col bg-stone-900 text-white border-b border-stone-800">
-          {/* Action bar row */}
-          <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap">
-            <span className="text-[13px] font-medium">{selected.size} selected · {(() => {
-              const m: Record<string,number> = {};
-              selectedRows.forEach(r => { const c = r.inv.currency ?? "USD"; m[c] = (m[c]||0) + r.bal; });
-              return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,v]) => fmt.money(v,c)).join(" · ");
-            })()}</span>
+      {/* ONE action bar. It used to be up to three stacked rows: a selection
+          bar that appeared ON TOP when invoices were ticked, a toolbar that
+          repeated the totals, and a row of saved-view pills. Now the same bar
+          swaps its contents: filtered summary + board tools when nothing is
+          ticked, the ticked set + what you can do to it when something is.
+          Menus are grouped by JOB, not lumped under "Export": Reports (for us),
+          Documents (for the customer), Comments (a download-then-upload round
+          trip — the upload used to live under "Export"), Views (saved filters),
+          Arrange (how rows are shown). */}
+      <div className={`relative z-30 flex items-center gap-2 px-4 py-2 border-b shrink-0 flex-wrap gap-y-1.5 ${selected.size > 0 ? "bg-primary/10 border-primary/30" : "bg-stone-900 border-stone-800"}`}>
+        {selected.size > 0 ? (
+          <>
+            <button onClick={() => { setSelected(new Set()); setBatchPanel(null); }} aria-label="Clear selection" title="Clear selection"
+              className="p-1 rounded-md text-stone-400 hover:text-stone-100 hover:bg-stone-800"><X size={15} /></button>
+            <span className="text-[13px] font-medium text-stone-100 tabular-nums">{selected.size} selected · {moneyByCurrency(selectedRows)}</span>
             {selectedCustomers.size > 1 && (
-              <span className="flex items-center gap-1.5 text-[12px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded">
+              <span className="flex items-center gap-1.5 text-[12px] text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded">
                 <AlertTriangle size={13} /> {selectedCustomers.size} different customers
               </span>
             )}
             <div className="flex-1" />
             <button
               onClick={() => { setBatchPanel(p => p === "stage" ? null : "stage"); if (!escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-primary text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
-              <Pencil size={13} /> Change Stage
+              className={`${barBtn} ${batchPanel === "stage" ? barBtnOn : ""}`}>
+              <Pencil size={13} /> Change stage
             </button>
             <button
               onClick={() => { setBatchPanel(p => p === "chase" ? null : "chase"); setBatchChaseDate(todayStr()); }}
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "chase" ? "bg-amber-600 text-white border-amber-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
-              <ArrowUpRight size={13} /> Log Chase
+              className={`${barBtn} ${batchPanel === "chase" ? barBtnOn : ""}`}>
+              <ArrowUpRight size={13} /> Log chase
             </button>
-            <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1"><X size={15} /></button>
+            {documentsMenu}
+            {reportsMenu}
+            {notifyButton}
             <button onClick={() => setShowSend(true)}
-              className="flex items-center gap-1.5 bg-white text-stone-900 text-[13px] font-semibold px-3 py-1.5 rounded-md hover:bg-stone-100">
-              <Send size={14} /> Send
+              className="flex items-center gap-1.5 h-8 bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold px-3 rounded-md">
+              <Send size={13} /> Send
             </button>
-          </div>
+          </>
+        ) : (
+          <>
+            <span className="text-[12px] text-stone-400 tabular-nums">
+              {(anyFilter || overdueOnly)
+                ? <>Showing <span className="font-semibold text-stone-200">{sortedRows.length}</span> of {rows.length} · <span className="font-semibold text-stone-200">{moneyByCurrency(sortedRows)}</span></>
+                : <>All <span className="font-semibold text-stone-200">{rows.length}</span> open invoice{rows.length !== 1 ? "s" : ""}</>}
+            </span>
+            <div className="flex-1" />
+            {viewsMenu}
+            <div className="relative">
+              <button onClick={() => setToolbarMenu(m => m === "arrange" ? null : "arrange")}
+                className={`${barBtn} ${toolbarMenu === "arrange" ? barBtnOn : ""}`}>
+                <SlidersHorizontal size={13} /> Arrange
+                {(groupByCustomer || hiddenCols.size > 0) && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "arrange" ? "rotate-180" : ""}`} />
+              </button>
+            {toolbarMenu === "arrange" && (
+              <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
+                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Grouping</div>
+                <button onClick={() => setGroupByCustomer(v => !v)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <Users size={13} className="text-stone-500" />
+                  <span className="flex-1 text-left">Group by customer</span>
+                  {groupByCustomer && <Check size={13} className="text-emerald-400" />}
+                </button>
+                {groupByCustomer && (
+                  <>
+                    <div className="my-1 border-t border-stone-800" />
+                    <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Rows</div>
+                    <button onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                      {collapsedCust.size > 0 ? <ChevronDown size={13} className="text-stone-500" /> : <ChevronUp size={13} className="text-stone-500" />}
+                      <span className="flex-1 text-left">{collapsedCust.size > 0 ? "Expand all customers" : "Collapse all customers"}</span>
+                    </button>
+                    <button onClick={() => setExpandedProj(p => p.size > 0 ? new Set() : new Set(allProjKeys))}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                      {expandedProj.size > 0 ? <ChevronUp size={13} className="text-stone-500" /> : <ChevronDown size={13} className="text-stone-500" />}
+                      <span className="flex-1 text-left">{expandedProj.size > 0 ? "Collapse all projects" : "Expand all projects"}</span>
+                    </button>
+                  </>
+                )}
+                <div className="my-1 border-t border-stone-800" />
+                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Columns</div>
+                {([
+                  { key: "region", label: "Region" },
+                  { key: "rep",    label: "Rep" },
+                  { key: "email",  label: "Email" },
+                ] as { key: string; label: string }[]).map(({ key, label }) => {
+                  const visible = !hiddenCols.has(key);
+                  return (
+                    <button key={key} onClick={() => toggleCol(key)}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                      {visible
+                        ? <Eye size={13} className="text-stone-500" />
+                        : <EyeOff size={13} className="text-stone-600" />}
+                      <span className={`flex-1 text-left ${visible ? "" : "text-stone-500"}`}>{label}</span>
+                      {visible && <Check size={13} className="text-emerald-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            </div>
+            {reportsMenu}
+            {documentsMenu}
+            {commentsMenu}
+            {notifyButton}
+          </>
+        )}
+      </div>
+      <input ref={commentFileRef} type="file" accept=".xlsx,.xls" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleCommentImport(f); }} />
 
+      {/* Stage / chase sub-panels for the ticked set — open under the bar. */}
+      {selected.size > 0 && batchPanel && (
+        <div className="flex flex-col bg-stone-900 text-stone-100 border-b border-stone-800">
           {/* Batch Stage panel */}
           {batchPanel === "stage" && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-800/60 border-t border-stone-700 flex-wrap">
@@ -1405,236 +1644,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-800 bg-stone-900 shrink-0 flex-wrap gap-y-1.5">
-        <span className="text-[12px] text-stone-400">
-          <span className="font-semibold text-stone-200">{sortedRows.length}</span> invoice{sortedRows.length !== 1 ? "s" : ""}
-          {" · "}
-          <span className="font-semibold text-stone-200 tabular-nums">
-            {(() => {
-              const m: Record<string, number> = {};
-              sortedRows.forEach(r => { const c = r.inv.currency ?? "EUR"; m[c] = (m[c] || 0) + r.bal; });
-              return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || "—";
-            })()}
-          </span>
-          {(anyFilter || overdueOnly) && <span className="text-stone-600"> (filtered)</span>}
-          {selected.size ? ` · ${selected.size} selected` : ""}
-        </span>
-        <div className="flex items-center gap-2">
-          {/* Arrange menu — how the rows are SHOWN. Named "View" before, while
-              holding four unrelated jobs: a grouping setting, two one-shot bulk
-              actions, a filter, and column visibility. "Overdue only" moved to
-              the Due column's filter popover where every other column filter
-              lives (a filter hidden inside a menu is a filter nobody can see);
-              the expand/collapse actions moved to the table header, next to the
-              carets they operate. What's left really is arrangement. */}
-          <div className="relative">
-            <button onClick={() => setToolbarMenu(m => m === "view" ? null : "view")}
-              className={`flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
-                toolbarMenu === "view" || groupByCustomer || hiddenCols.size > 0
-                  ? "text-white border-stone-500 bg-stone-800"
-                  : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
-              <SlidersHorizontal size={13} /> Arrange
-              {(groupByCustomer || hiddenCols.size > 0) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
-              <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "view" ? "rotate-180" : ""}`} />
-            </button>
-            {toolbarMenu === "view" && (
-              <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
-                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Grouping</div>
-                <button onClick={() => setGroupByCustomer(v => !v)}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <Users size={13} className="text-stone-500" />
-                  <span className="flex-1 text-left">Group by customer</span>
-                  {groupByCustomer && <Check size={13} className="text-emerald-400" />}
-                </button>
-                {groupByCustomer && (
-                  <>
-                    <div className="my-1 border-t border-stone-800" />
-                    <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Rows</div>
-                    <button onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                      {collapsedCust.size > 0 ? <ChevronDown size={13} className="text-stone-500" /> : <ChevronUp size={13} className="text-stone-500" />}
-                      <span className="flex-1 text-left">{collapsedCust.size > 0 ? "Expand all customers" : "Collapse all customers"}</span>
-                    </button>
-                    <button onClick={() => setExpandedProj(p => p.size > 0 ? new Set() : new Set(allProjKeys))}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                      {expandedProj.size > 0 ? <ChevronUp size={13} className="text-stone-500" /> : <ChevronDown size={13} className="text-stone-500" />}
-                      <span className="flex-1 text-left">{expandedProj.size > 0 ? "Collapse all projects" : "Expand all projects"}</span>
-                    </button>
-                  </>
-                )}
-                <div className="my-1 border-t border-stone-800" />
-                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Columns</div>
-                {([
-                  { key: "region", label: "Region" },
-                  { key: "rep",    label: "Rep" },
-                  { key: "email",  label: "Email" },
-                ] as { key: string; label: string }[]).map(({ key, label }) => {
-                  const visible = !hiddenCols.has(key);
-                  return (
-                    <button key={key} onClick={() => toggleCol(key)}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                      {visible
-                        ? <Eye size={13} className="text-stone-500" />
-                        : <EyeOff size={13} className="text-stone-600" />}
-                      <span className={`flex-1 text-left ${visible ? "" : "text-stone-500"}`}>{label}</span>
-                      {visible && <Check size={13} className="text-emerald-400" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Export menu — Excel, Chase Report, PDFs */}
-          <div className="relative">
-            <button onClick={() => setToolbarMenu(m => m === "export" ? null : "export")}
-              className={`flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
-                toolbarMenu === "export" ? "text-white border-stone-500 bg-stone-800" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
-              <Download size={13} /> Export
-              <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "export" ? "rotate-180" : ""}`} />
-            </button>
-            {toolbarMenu === "export" && (
-              // Named sections, not one flat list of eight. Four different
-              // kinds of artefact were stacked together — the board's own data,
-              // internal management reports, documents you send a customer, and
-              // a download/upload round-trip — so the menu gave no clue which
-              // one you were about to produce. (CLAUDE.md: if something has no
-              // obvious named group, the group is missing; don't dump it in a
-              // bin called Other.)
-              <div className="absolute right-0 top-full mt-1 z-30 w-64 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
-                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">This board</div>
-                <button onClick={() => { exportExcel(); setToolbarMenu(null); }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <Download size={13} className="text-stone-500" />
-                  <span className="flex-1 text-left">Excel — board view{selected.size ? ` (${selected.size} selected)` : ""}</span>
-                </button>
-                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Management reports</div>
-                <button
-                  onClick={() => {
-                    exportChaseReport({
-                      orgName: orgName ?? "Organisation",
-                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
-                      comments: comments ?? [],
-                    });
-                    setToolbarMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <FileText size={13} className="text-stone-500" />
-                  <div className="flex-1 text-left">
-                    Chase Report{selected.size ? ` (${selected.size} selected)` : ""}
-                    <div className="text-[11px] text-stone-600">Management report — detail + summary by owner</div>
-                  </div>
-                </button>
-                <button
-                  onClick={async () => {
-                    setToolbarMenu(null);
-                    // Selection if any; otherwise the whole open-invoice set
-                    // (an ageing report covers the book, not just the on-screen
-                    // filtered view — and this avoids a blank file when a
-                    // stale selection or an empty filter would leave 0 rows).
-                    const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : rows;
-                    if (!src.length) { toast?.("No open invoices to include in the report", "error"); return; }
-                    try {
-                      await exportAgeingChaseReport({ orgName: orgName ?? "Organisation", rows: src, comments: comments ?? [] });
-                    } catch (e: any) {
-                      toast?.(e?.message || "Couldn't generate the report", "error");
-                    }
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <FileText size={13} className="text-stone-500" />
-                  <div className="flex-1 text-left">
-                    A/R Ageing &amp; Chase{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[11px] text-stone-600">Customer → project ageing, status, last ref &amp; chase count</div>
-                  </div>
-                </button>
-                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Send to a customer</div>
-                <button
-                  onClick={() => {
-                    exportStatementPdf({
-                      orgName: orgName ?? "Organisation",
-                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
-                      logoUrl: orgLogoUrl ?? null,
-                    });
-                    setToolbarMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <FileText size={13} className="text-stone-500" />
-                  <div className="flex-1 text-left">
-                    Statement of Open Invoices — PDF{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[11px] text-stone-600">Printable, grouped by customer then project</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    exportStatement({
-                      orgName: orgName ?? "Organisation",
-                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
-                    });
-                    setToolbarMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <Download size={13} className="text-stone-500" />
-                  <div className="flex-1 text-left">
-                    Statement of Open Invoices — Excel{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[11px] text-stone-600">Same statement as a spreadsheet</div>
-                  </div>
-                </button>
-                <button onClick={() => { downloadPdfs(); setToolbarMenu(null); }} disabled={selected.size === 0 || downloadingPdf}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent">
-                  <FileText size={13} className="text-stone-500" />
-                  <div className="flex-1 text-left">
-                    {downloadingPdf ? "Downloading PDFs…" : `Invoice PDFs (ZIP)${selected.size ? ` (${selected.size})` : ""}`}
-                    {selected.size === 0 && <div className="text-[11px] text-stone-600">Select invoices first</div>}
-                  </div>
-                </button>
-
-                {/* Bulk comments — download the pre-filled template, mark it up,
-                    re-import. "Import" is an INGEST sitting in a menu called
-                    Export; under this heading it reads as the return leg of a
-                    round-trip rather than a stray item. */}
-                <div className="my-1 border-t border-stone-800" />
-                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Comments — download, fill in, upload</div>
-                <button
-                  onClick={async () => {
-                    setToolbarMenu(null);
-                    try { await exportCommentTemplate({ orgName: orgName ?? "Organisation", rows, comments: comments ?? [] }); }
-                    catch (e: any) { toast?.(e?.message || "Couldn't build the template", "error"); }
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <Download size={13} className="text-violet-400" />
-                  <div className="flex-1 text-left">
-                    Download template
-                    <div className="text-[11px] text-stone-600">Pre-filled with open customers &amp; projects</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => { setToolbarMenu(null); commentFileRef.current?.click(); }}
-                  disabled={importingComments}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors disabled:opacity-40">
-                  <ArrowDownRight size={13} className="text-violet-400" />
-                  <div className="flex-1 text-left">
-                    {importingComments ? "Importing comments…" : "Upload filled template"}
-                    <div className="text-[11px] text-stone-600">Logs at customer / project level</div>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-          <input ref={commentFileRef} type="file" accept=".xlsx,.xls" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleCommentImport(f); }} />
-
-          {/* Notify Owners — the one real action stays visible */}
-          {ownerGroups.length > 0 && (
-            <button
-              onClick={() => { setNotifyInvChecked(new Set(ownerGroups.flatMap(g => g.items.map(r => r.inv.id)))); setNotifyExpanded(new Set()); setNotifyOpen(true); }}
-              title="Email each owner their escalated invoices with PDFs attached"
-              className="flex items-center gap-1.5 text-[12px] font-medium text-rose-400 hover:text-white border border-rose-800 bg-rose-500/10 hover:bg-rose-500/20 rounded-md px-2.5 py-1.5 transition-colors">
-              <UserCheck size={13} /> Notify Owners ({ownerGroups.length})
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* Click-away for toolbar menus — below the sticky thead (z-20) */}
       {toolbarMenu && <div className="fixed inset-0 z-10" onClick={() => setToolbarMenu(null)} />}
@@ -1683,17 +1692,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         </div>
       )}
 
-      {/* Saved views + active filter chips */}
-      {(savedViews.length > 0 || filterChips.length > 0 || anyFilter || overdueOnly) && (
+      {/* Active filter chips — only while a filter is on. Saved views live in
+          the Views menu on the action bar. */}
+      {(filterChips.length > 0 || overdueOnly) && (
         <div className="flex items-center gap-2 px-4 py-1.5 border-b border-stone-800 bg-stone-950 shrink-0 flex-wrap">
-          {savedViews.map(v => (
-            <span key={v.name} className="group inline-flex items-center gap-1 text-[11px] font-medium text-stone-300 bg-stone-800 border border-stone-700 rounded-full pl-2.5 pr-1.5 py-1 hover:bg-stone-700 cursor-pointer"
-              onClick={() => applyView(v)} title={`Apply view "${v.name}"`}>
-              {v.name}
-              <button onClick={e => { e.stopPropagation(); deleteView(v.name); }} className="text-stone-600 hover:text-rose-400 opacity-0 group-hover:opacity-100"><X size={11} /></button>
-            </span>
-          ))}
-          {savedViews.length > 0 && filterChips.length > 0 && <span className="w-px h-4 bg-stone-800" />}
           {overdueOnly && (
             <span className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-900 rounded-full pl-2.5 pr-1.5 py-1">
               Overdue only
@@ -1709,7 +1711,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           {(filterChips.length > 0 || overdueOnly) && (
             <>
               <button onClick={() => { setCf({}); setOverdueOnly(false); }} className="text-[11px] text-stone-500 hover:text-rose-400 font-medium">Clear all</button>
-              <button onClick={saveCurrentView} className="text-[11px] text-stone-500 hover:text-emerald-400 font-medium">Save as view…</button>
+              <button onClick={() => setToolbarMenu("views")} className="text-[11px] text-stone-500 hover:text-primary-ink font-medium">Save as view…</button>
             </>
           )}
         </div>

@@ -410,7 +410,7 @@ export default function BoardPage() {
         <div>
           <h1 className="text-xl font-semibold text-white tracking-tight">Collections Board</h1>
           <p className="text-sm text-stone-400 mt-0.5">
-            <CurrencyPills breakdown={totalByCurrency} /> · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
+            <CurrencyPills breakdown={totalByCurrency} /> · {openInvoiceRows.length} invoice{openInvoiceRows.length !== 1 ? "s" : ""} · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -424,35 +424,41 @@ export default function BoardPage() {
               className={`${control} h-8 w-48 pl-7 pr-2 text-xs`}
             />
           </div>
-          {/* Status filter — first, ahead of rep/region/stage. Paid and Written
+          {/* Due-date filter — named "Due", not "Status", so it can't be read as
+              the collection stage beside it. Paid and Written
               Off are deliberately absent: the board only ever lists open AR, so
               they would always come back empty. */}
           <SelectField value={dueFilter} onChange={(e) => setDueFilter(e.target.value)}
-            aria-label="Filter by status" className="w-auto h-8 text-xs">
-            <option value="">All statuses</option>
-            {DUE_FILTERS_OPEN.map(s => <option key={s} value={s}>{s}</option>)}
+            aria-label="Filter by due date" className="w-auto h-8 text-xs">
+            <option value="">Due: any</option>
+            {DUE_FILTERS_OPEN.map(s => <option key={s} value={s}>Due: {s}</option>)}
           </SelectField>
 
-          {/* Rep filter */}
-          {(reps ?? []).length > 0 && (
+          {/* Rep / region / stage — Cards view only. The List view filters these
+              from its own column headers (multi-select, is / is not), and two
+              filters for one field applied together was a trap. One that is
+              still SET stays visible in List view, so nothing filters unseen. */}
+          {(reps ?? []).length > 0 && (viewMode === "cards" || !!repFilter) && (
             <SelectField value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
               aria-label="Filter by rep" className="w-auto h-8 text-xs">
               <option value="">All reps</option>
               {(reps ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </SelectField>
           )}
-          {/* Region filter */}
+          {(viewMode === "cards" || !!regionFilter) && (
           <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             aria-label="Filter by region" className="w-auto h-8 text-xs">
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </SelectField>
-          {/* Stage filter */}
+          )}
+          {(viewMode === "cards" || !!stageFilter) && (
           <SelectField value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}
             aria-label="Filter by stage" className="w-auto h-8 text-xs">
             <option value="">All stages</option>
             {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
           </SelectField>
+          )}
 
           {/* Future-dated invoices — only offered when the org actually has
               some, so the control doesn't take up space it can't earn. */}
@@ -491,11 +497,11 @@ export default function BoardPage() {
           <span className="w-px h-6 bg-stone-800 mx-1" />
           <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
             <button onClick={() => setViewMode("cards")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-primary text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               <LayoutGrid size={12} /> Cards
             </button>
             <button onClick={() => setViewMode("list")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               <ListIcon size={12} /> List
             </button>
           </div>

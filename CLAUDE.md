@@ -5610,3 +5610,23 @@ linking to the GL. Data: `GET /api/accounting/dashboard?today=` (viewer's local 
 `periodStatus` and the GL, so they cannot disagree with the reports. A synced (QBO/Xero) org gets only
 approvals and cash in/out — no GL tiles. Not built: row 4 (DSO/DPO, tax due), budget comparison.
 Not clicked through in a browser.
+
+## Collections Board: one action bar, menus grouped by job (2026-11-09)
+
+The Board's List view used to stack up to three rows of buttons (a selection bar that appeared
+on top, a toolbar repeating the totals, saved-view pills). Now there is ONE bar
+(`components/board-list.tsx`) that swaps its contents:
+- **Nothing ticked**: "All N open invoices" (or "Showing X of N · totals" when filtered), then
+  Views · Arrange · Reports · Documents · Comments · Notify owners.
+- **Invoices ticked**: ✕ (far left) · "N selected · totals" · Change stage · Log chase ·
+  Documents · Reports · Notify owners · **Send** (brand navy). Stage/chase sub-panels open under it.
+- Menus by job, not one "Export": **Reports** (board Excel, chase report, A/R ageing — for us),
+  **Documents** (statements PDF/Excel, invoice PDFs ZIP — for the customer), **Comments**
+  (download template → upload; the upload used to sit under "Export"), **Views** (saved filters,
+  named inline — no `prompt()`), **Arrange** (grouping, expand/collapse, columns). Reports and
+  Documents act on the ticked rows, else on everything shown (the ageing report: the whole book).
+- Notify owners is a plain button: colour on the Board means an exception.
+- Header (`app/(app)/board/page.tsx`): "Due: any" (was "All statuses", which read as the stage);
+  rep/region/stage dropdowns show in **Cards view only** — List view filters those from its
+  column headers — unless one is still set, so nothing filters unseen. Totals + invoice + customer
+  counts live under the title once. Not clicked through in a browser.
