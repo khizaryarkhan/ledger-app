@@ -836,7 +836,7 @@ export function AuditTimeline({ customerId, projectId, label }: {
           href={exportUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-stone-900 ring-1 ring-stone-800 text-stone-600 hover:bg-stone-800 hover:text-stone-900 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-stone-900 ring-1 ring-stone-800 text-stone-400 hover:bg-stone-800 hover:text-stone-100 transition-colors"
         >
           <FileDown size={13} />
           Export PDF
@@ -1270,7 +1270,7 @@ ${senderName}`;
                   <div className="px-3 pb-3 border-t border-stone-800 space-y-1.5 pt-2">
                     {BATCH_PLACEHOLDERS.map(({ key, desc }) => (
                       <div key={key} className="flex items-start gap-2">
-                        <code className="text-[11px] font-mono bg-stone-800 px-1.5 py-0.5 rounded text-stone-700 shrink-0">{key}</code>
+                        <code className="text-[11px] font-mono bg-stone-800 px-1.5 py-0.5 rounded text-stone-300 shrink-0">{key}</code>
                         <span className="text-[11px] text-stone-500">{desc}</span>
                       </div>
                     ))}
