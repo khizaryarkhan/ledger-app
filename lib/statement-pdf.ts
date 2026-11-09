@@ -98,7 +98,10 @@ function css(): string {
       text-align:left;padding:5px 8px;border-bottom:1px solid #e3e3e0}
     table.lines td{padding:4.5px 8px;border-bottom:1px solid #eceeec}
     table.lines tr{break-inside:avoid;page-break-inside:avoid}
-    th.r,td.r{text-align:right}
+    /* Qualified to beat "table.lines th{text-align:left}" above — a bare
+       th.r loses on specificity, which is how the Amount / Status /
+       Outstanding headings sat left of their right-aligned figures. */
+    table.lines th.r,table.lines td.r{text-align:right}
     .cm-row td{color:#15803d}
     .sub-row td{font-weight:700;border-top:1px solid #d7d7d2;border-bottom:none;background:#fafaf9}
     .cust-total{display:flex;justify-content:space-between;border-top:1px solid #141414;
@@ -112,12 +115,23 @@ function css(): string {
 }
 
 /**
- * Build one customer's/org's Statement of Open Invoices PDF through the
- * shared headless-Chromium engine. SERVER-ONLY (see this file's header
- * comment) — the caller is always an API route, never a client component.
+ * The logo as something safe to put in an <img src>, or null for the
+ * monogram. Two stored forms are real: an https:// URL (Vercel Blob / CDN)
+ * and an inline `data:image/...;base64,` URL, which Settings saves when no
+ * Blob store is configured. Only https was accepted here, so every org whose
+ * logo was uploaded inline got the monogram instead (reported 2026-11-09).
+ * Anything else — javascript:, http:, markup — is refused.
  */
-export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }): Promise<Buffer> {
-  const now = new Date();
+export function safeLogoSrc(logoUrl: string | null | undefined): string | null {
+  const u = (logoUrl ?? "").trim();
+  if (!u) return null;
+  if (/^https:\/\//i.test(u) && u.length <= 2048) return esc(u);
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+/]+=*$/i.test(u) && u.length <= 700_000) return u;
+  return null;
+}
+
+/** The statement as HTML — pure, so it can be tested without a browser. */
+export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date() }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null; now?: Date }): { html: string; footerTemplate: string } {
   const stamp =
     now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) +
     " · " +
@@ -143,10 +157,10 @@ export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: s
   const grand: Record<string, number> = {};
   rows.forEach(r => { const c = r.inv.currency || "EUR"; grand[c] = (grand[c] ?? 0) + r.bal; });
 
-  // Logo must be a real URL (http/https) — never attacker-controlled markup;
-  // a missing/invalid one falls back to the monogram, same as the old
-  // pdf-lib version's "never fail to generate because of a bad logo" rule.
-  const safeLogo = logoUrl && /^https?:\/\//i.test(logoUrl) ? esc(logoUrl) : null;
+  // An https or inline-image logo (safeLogoSrc) — never attacker-controlled
+  // markup; a missing/invalid one falls back to the monogram, so a bad logo
+  // never stops the statement from generating.
+  const safeLogo = safeLogoSrc(logoUrl);
   const mark = monogram(orgName);
 
   const groupsHtml = customers.map(([custName, cg]) => {
@@ -213,5 +227,15 @@ export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: s
       <span>Generated ${esc(stamp)}</span>
     </div>`;
 
+  return { html, footerTemplate };
+}
+
+/**
+ * Build one customer's/org's Statement of Open Invoices PDF through the
+ * shared headless-Chromium engine. SERVER-ONLY (see this file's header
+ * comment) — the caller is always an API route, never a client component.
+ */
+export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }): Promise<Buffer> {
+  const { html, footerTemplate } = buildStatementHtml({ orgName, rows, logoUrl });
   return renderHtmlToPdf(html, { footerTemplate });
 }

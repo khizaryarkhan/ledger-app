@@ -8,6 +8,9 @@
  * board already holds client-side is posted here and rendered server-side.
  */
 import { requireOrg } from "@/lib/api";
+import { db } from "@/db";
+import { organisations } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { buildStatementPdf, type StatementRow } from "@/lib/statement-pdf";
 import { z } from "zod";
 
@@ -32,18 +35,26 @@ const StatementRowSchema = z.object({
 const BodySchema = z.object({
   orgName: z.string().min(1).max(200),
   rows: z.array(StatementRowSchema).min(1).max(2000),
-  logoUrl: z.string().url().nullable().optional(),
+  logoUrl: z.string().nullable().optional(), // ignored — read from the org record
 });
 
 export async function POST(req: Request) {
-  const { error } = await requireOrg();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: "Invalid statement data" }, { status: 400 });
   }
-  const { orgName, logoUrl } = parsed.data;
+  const { orgName } = parsed.data;
+  // The logo comes from the organisation's own record, not the browser. The
+  // Board passed whatever its settings context held, which is empty until
+  // that loads and is a ~600 KB inline image when the logo was uploaded
+  // without a Blob store — the same record the customer-statement and portal
+  // routes already read. A logoUrl in the body is accepted and ignored.
+  const [org] = await db.select({ logoUrl: organisations.logoUrl })
+    .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
+  const logoUrl = org?.logoUrl ?? null;
   // Rebuilt explicitly, field by field — this project's tsconfig runs with
   // `strict: false` (no strictNullChecks), under which zod's own inferred
   // output type marks every field optional regardless of schema (its
@@ -66,7 +77,7 @@ export async function POST(req: Request) {
   }));
 
   try {
-    const pdf = await buildStatementPdf({ orgName, rows, logoUrl: logoUrl ?? null });
+    const pdf = await buildStatementPdf({ orgName, rows, logoUrl });
     return new Response(pdf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",

@@ -5645,3 +5645,11 @@ on top, a toolbar repeating the totals, saved-view pills). Now there is ONE bar
   `latestBandContact` takes the newest of each invoice's last email/chase, an
   invoice-level logged chase and a chase logged on the band, and shows that
   email's reference. `tests/board-contact.test.ts` fails on the old rule.
+- **Statement of open invoices PDF (2026-11-09)**: the logo was never drawn for an
+  org whose logo was UPLOADED — Settings stores that inline as `data:image/...;base64`
+  (no Blob store), and `lib/statement-pdf.ts` only accepted `https://`. `safeLogoSrc`
+  now accepts https or an inline image and refuses anything else. The Board's export
+  route reads the logo from the org record, never the request body. Column headings:
+  `table.lines th{text-align:left}` outranked `th.r`, so Amount/Status/Outstanding
+  headings sat left of their figures — the right-align rule is now qualified.
+  `tests/statement-pdf.test.ts` (HTML built by the pure `buildStatementHtml`).

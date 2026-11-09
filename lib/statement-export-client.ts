@@ -12,12 +12,15 @@
 import type { StatementRow } from "@/lib/statement-pdf";
 
 export async function exportStatementPdf({
-  orgName, rows, logoUrl,
+  orgName, rows,
 }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }) {
   const res = await fetch("/api/statements/export-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ orgName, rows, logoUrl }),
+    // No logo in the body: the server reads it from the org record (an
+    // uploaded logo is an inline image of up to ~600 KB, and the settings
+    // context the Board passes can still be empty when this is clicked).
+    body: JSON.stringify({ orgName, rows }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
