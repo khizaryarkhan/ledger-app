@@ -5639,3 +5639,9 @@ on top, a toolbar repeating the totals, saved-view pills). Now there is ONE bar
   for text. Recency reads "108 days ago" (`agoText`) and is no longer red — the
   overdue age and the next action carry the alarm; overdue reads "104 days over"
   (`overText`).
+- **A band's "Last Email Ref" agrees with its invoices (2026-11-09).** It read
+  only chases logged by hand, so an email sent today left a customer band at
+  "108 days ago" above an invoice reading "today". `lib/board-contact.ts`'s
+  `latestBandContact` takes the newest of each invoice's last email/chase, an
+  invoice-level logged chase and a chase logged on the band, and shows that
+  email's reference. `tests/board-contact.test.ts` fails on the old rule.

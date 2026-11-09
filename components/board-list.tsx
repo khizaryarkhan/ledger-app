@@ -15,6 +15,7 @@ import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types"
 import { classifyCompositionByCurrency, compositionKeyOf, COMPOSITION_CATEGORIES } from "@/lib/receivable-composition";
 import { useData } from "@/components/data-provider";
 import { ContactsPanel } from "@/components/contacts-panel";
+import { latestBandContact } from "@/lib/board-contact";
 import { CellSelect, SelectField, Drawer, DrawerFooter, control, controlInset, controlMultiline } from "@/components/form-kit";
 
 export type BoardRow = {
@@ -962,8 +963,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   type DisplayItem =
     | { type: "row"; r: BoardRow }
-    | { type: "band"; custId: string; custName: string; orgId: string | null; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string } | null }
-    | { type: "projBand"; key: string; custId: string; projectId: string | null; projName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string } | null };
+    | { type: "band"; custId: string; custName: string; orgId: string | null; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string; ref: string | null } | null }
+    | { type: "projBand"; key: string; custId: string; projectId: string | null; projName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string; ref: string | null } | null };
 
   const displayRows = useMemo((): DisplayItem[] => {
     if (!groupByCustomer) return sortedRows.map(r => ({ type: "row" as const, r }));
@@ -1013,18 +1014,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       return best ? { label: (best as any).label, detail: (best as any).detail, rank: (best as any).rank } : null;
     };
     const computeLastChaseInfo = (bandRows: BoardRow[], custId: string, projId?: string | null) => {
-      // Entity-level activity hub entries (Notes + Chase logs on the band itself).
-      // Only logged CHASES count toward "Last Email Ref" — internal notes
-      // (channel "Note"/"ProjectNote"/CustomerNote) must NOT bump it, matching
-      // the invoice-level rule (lastChaseByInv is Chase-only).
+      // The band must agree with the invoice rows inside it: newest of each
+      // invoice's last email/chase (lastSent), an invoice-level logged chase,
+      // and a chase logged on the band itself. Internal notes never count.
+      // It used to read hand-logged chases only, so an email sent today left
+      // the band at "108 days ago" above an invoice reading "today".
       const entityNotes = projId ? (projectNotesById[projId] ?? []) : (customerNotesById[custId] ?? []);
-      const latestEntity = entityNotes.find((n: any) => n.channel === "Chase");
-      const entityMs = latestEntity ? new Date(latestEntity.sentAt ?? latestEntity.createdAt).getTime() : 0;
-      const entityType = latestEntity?.subject ?? "Chase";
-      // Invoice-level chase-only timestamps (only channel "Chase", not plain email sends)
-      const invChaseMs = Math.max(0, ...bandRows.map(r => lastChaseByInv[r.inv.id] ?? 0));
-      const latestMs = Math.max(entityMs, invChaseMs);
-      return latestMs > 0 ? { days: Math.floor((Date.now() - latestMs) / 86400000), activityType: entityMs >= invChaseMs ? entityType : "Chase" } : null;
+      const latestEntity: any = entityNotes.find((n: any) => n.channel === "Chase");
+      return latestBandContact({
+        invoices: bandRows.map(r => ({ lastSent: r.lastSent, lastRef: r.lastRef, chaseMs: lastChaseByInv[r.inv.id] ?? 0 })),
+        entityChase: latestEntity ? { at: latestEntity.sentAt ?? latestEntity.createdAt, label: latestEntity.subject ?? "Chase" } : null,
+      });
     };
 
     // Band ordering. Sorting by "Next action" has to reorder the BANDS, not
@@ -2207,12 +2207,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
                           <span className={`inline-flex items-center gap-1 text-[13px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
-                            title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
+                            title={`Last contact ${agoText(item.lastChaseInfo.days).toLowerCase()} via ${item.lastChaseInfo.activityType}`}>
                             <span className="text-stone-500">{activityIcon(item.lastChaseInfo.activityType)}</span>
                             {agoText(item.lastChaseInfo.days)}
                           </span>
                         ) : (
                           <span className="text-[13px] text-stone-500" title="No contact logged">Never</span>
+                        )}
+                        {item.lastChaseInfo?.ref && (
+                          <span className="block font-mono text-[12px] text-stone-400">{item.lastChaseInfo.ref}</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
@@ -2341,12 +2344,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
                           <span className={`inline-flex items-center gap-1 text-[13px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
-                            title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
+                            title={`Last contact ${agoText(item.lastChaseInfo.days).toLowerCase()} via ${item.lastChaseInfo.activityType}`}>
                             <span className="text-stone-500">{activityIcon(item.lastChaseInfo.activityType)}</span>
                             {agoText(item.lastChaseInfo.days)}
                           </span>
                         ) : (
                           <span className="text-[13px] text-stone-500" title="No contact logged">Never</span>
+                        )}
+                        {item.lastChaseInfo?.ref && (
+                          <span className="block font-mono text-[12px] text-stone-400">{item.lastChaseInfo.ref}</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
