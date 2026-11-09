@@ -5630,3 +5630,12 @@ on top, a toolbar repeating the totals, saved-view pills). Now there is ONE bar
   rep/region/stage dropdowns show in **Cards view only** — List view filters those from its
   column headers — unless one is still set, so nothing filters unseen. Totals + invoice + customer
   counts live under the title once. Not clicked through in a browser.
+
+- **Readability pass (2026-11-09)**: the List and Cards views use the sidebar's
+  scale — customer names and band totals 15px, rows 13px, secondary 12px, headers
+  12px semibold `text-stone-300`; nothing on the Board is below 11px. Secondary
+  text is `text-stone-400` and "empty / never" values `text-stone-500`:
+  **`text-stone-600` is near-white in Light** (`--st-600` = 168), so don't use it
+  for text. Recency reads "108 days ago" (`agoText`) and is no longer red — the
+  overdue age and the next action carry the alarm; overdue reads "104 days over"
+  (`overText`).

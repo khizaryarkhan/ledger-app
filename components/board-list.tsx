@@ -1132,7 +1132,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const fmtSent = (d: string | null) => d ? formatDateShort(d).replace(/ (\d{2})(\d{2})$/, " $2") : null;
   // Relative "Nd ago" — the actionable number for chasing; exact date on hover.
   const daysAgo = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
-  const agoCls = (n: number) => n >= 14 ? "text-rose-400" : n >= 7 ? "text-amber-400" : "text-stone-400";
+  // Recency is information, not an exception: the overdue age and the next
+  // action already carry the alarm. Red on every "108 days ago" diluted it.
+  const agoCls = (_n: number) => "text-stone-200";
+  // Words, not shorthand: "108 days ago" reads at a glance, "108d ago" is decoded.
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const agoText = (n: number) => n === 0 ? "Today" : `${plural(n, "day")} ago`;
+  const overText = (n: number) => `${plural(n, "day")} over`;
 
   const allSelected = sortedRows.length > 0 && sortedRows.every(r => selected.has(r.inv.id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(sortedRows.map(r => r.inv.id)));
@@ -1195,7 +1201,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     } finally { setNotifySending(false); }
   }
 
-  const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap";
+  const thCls = "px-2 py-2 text-[12px] font-semibold text-stone-300 whitespace-nowrap";
   const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-primary";
 
   const showRegion   = !hiddenCols.has("region");
@@ -1652,17 +1658,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       {compositions.length > 0 && compositions[0].total > 0 && (
         <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 shrink-0">
           <button onClick={() => setCompositionOpen(v => !v)} className="w-full flex items-center gap-2 mb-1.5">
-            <ChevronDown size={11} className={`text-stone-600 transition-transform ${compositionOpen ? "" : "-rotate-90"}`} />
-            <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Composition</span>
-            <span className="text-[11px] text-stone-600">click a segment to filter</span>
+            <ChevronDown size={11} className={`text-stone-500 transition-transform ${compositionOpen ? "" : "-rotate-90"}`} />
+            <span className="text-[12px] uppercase tracking-wider text-stone-400 font-semibold">Composition</span>
+            <span className="text-[12px] text-stone-500">click a segment to filter</span>
             <div className="flex-1" />
-            <span className="text-[11px] text-stone-400 tabular-nums">{compositions.map(c => fmt.money(c.total, c.currency)).join(" · ")}</span>
+            <span className="text-[12px] text-stone-400 tabular-nums">{compositions.map(c => fmt.money(c.total, c.currency)).join(" · ")}</span>
           </button>
           {compositionOpen && compositions.filter(c => c.total > 0).map(composition => {
             const ccy = composition.currency;
             return (
               <div key={ccy} className="mb-1.5 last:mb-0">
-                {compositions.length > 1 && <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-500 mb-1">{ccy} · {fmt.money(composition.total, ccy)}</div>}
+                {compositions.length > 1 && <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-1">{ccy} · {fmt.money(composition.total, ccy)}</div>}
                 <div className="h-2.5 rounded-full overflow-hidden flex mb-1.5">
                   {composition.groups.map((g, i) => (
                     <button key={g.key} onClick={() => applyCompositionFilter(g.key, ccy)}
@@ -1678,11 +1684,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   {composition.groups.map(g => (
                     <button key={g.key} onClick={() => applyCompositionFilter(g.key, ccy)} title={g.description}
-                      className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
+                      className="flex items-center gap-1.5 text-[12px] text-stone-400 hover:text-white transition-colors">
                       <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
                       {g.label}
                       <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, ccy)}</span>
-                      <span className="text-stone-600">{((g.amount / composition.total) * 100).toFixed(0)}%</span>
+                      <span className="text-stone-500">{((g.amount / composition.total) * 100).toFixed(0)}%</span>
                     </button>
                   ))}
                 </div>
@@ -2121,19 +2127,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Checkbox */}
                       <td className="px-2 py-2.5 border-l-[3px] border-l-emerald-500" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
                       {/* Identity — Invoice column */}
-                      <td className="px-2 py-2.5 font-semibold text-white text-[13px] relative">
+                      <td className="px-2 py-2.5 font-semibold text-white text-[15px] relative">
                         <span className="inline-block w-4 text-stone-400">{item.collapsed ? "▸" : "▾"}</span>
                         {item.custName}
                         {isGroup && item.orgId && orgNames[item.orgId] && (
-                          <span className="ml-2 align-middle text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-300 border border-emerald-800/50" title="Branch this customer belongs to">
+                          <span className="ml-2 align-middle text-[12px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-300 border border-emerald-800/50" title="Branch this customer belongs to">
                             {orgNames[item.orgId]}
                           </span>
                         )}
-                        <span className="text-[11px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
+                        <span className="text-[12px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
                         <button
                           onClick={e => { e.stopPropagation(); setContactsOpenId(contactsOpenId === custContactKey ? null : custContactKey); }}
                           title="View contacts for this customer"
-                          className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-700 text-stone-600 hover:text-blue-400 transition-colors align-middle">
+                          className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-700 text-stone-500 hover:text-blue-400 transition-colors align-middle">
                           <Phone size={12} />
                           {custContactCount > 0 && (
                             <span className="absolute -top-1 -right-1 text-white text-[11px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-600">
@@ -2142,7 +2148,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           )}
                         </button>
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
-                          <span className="text-[11px] text-emerald-400 font-medium ml-2">{selCount(item.ids)} selected</span>
+                          <span className="text-[12px] text-emerald-400 font-medium ml-2">{selCount(item.ids)} selected</span>
                         )}
                         {(() => {
                           const notes = customerNotesById[item.custId] ?? [];
@@ -2154,8 +2160,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             // nothing in this column lines up row to row. Its own
                             // line keeps the identity row scannable and gives the
                             // note real width instead of a 340px stub.
-                            <div className="pl-4 mt-0.5 text-[11px] text-stone-500 font-normal truncate max-w-[560px]" title={note.body}>
-                              {note.channel === "Chase" && <span className="text-stone-600">[{note.subject}] </span>}
+                            <div className="pl-4 mt-0.5 text-[12px] text-stone-400 font-normal truncate max-w-[560px]" title={note.body}>
+                              {note.channel === "Chase" && <span className="text-stone-500">[{note.subject}] </span>}
                               {note.body}
                             </div>
                           ) : null;
@@ -2165,9 +2171,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
                               <div className="flex items-center gap-2">
                                 <Phone size={13} className="text-stone-400" />
-                                <span className="text-[12px] font-semibold text-stone-200">Contacts · {item.custName}</span>
+                                <span className="text-[13px] font-semibold text-stone-200">Contacts · {item.custName}</span>
                               </div>
-                              <button onClick={() => setContactsOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
+                              <button onClick={() => setContactsOpenId(null)} className="text-stone-400 hover:text-stone-200"><X size={14} /></button>
                             </div>
                             <div className="overflow-auto p-3" style={{maxHeight:"420px"}}>
                               <ContactsPanel customerId={item.custId} />
@@ -2180,7 +2186,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Stage — batch-change dropdown */}
                       <td className="px-2 py-2.5" onClick={e => e.stopPropagation()}>
                         {item.dominantStage && (
-                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[12px] font-medium transition-colors cursor-pointer ${
                             isException(item.dominantStage)
                               ? `rounded-full px-2 py-0.5 ${stageChip(item.dominantStage)}`
                               : "rounded px-1.5 py-0.5 text-stone-400 border border-transparent hover:border-stone-700 hover:bg-stone-800/60"}`}
@@ -2200,19 +2206,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Last Email Ref → last contact */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
-                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
+                          <span className={`inline-flex items-center gap-1 text-[13px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
                             title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
-                            <span className="text-stone-600">{activityIcon(item.lastChaseInfo.activityType)}</span>
-                            {item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d ago`}
+                            <span className="text-stone-500">{activityIcon(item.lastChaseInfo.activityType)}</span>
+                            {agoText(item.lastChaseInfo.days)}
                           </span>
                         ) : (
-                          <span className="text-[12px] text-stone-600" title="No contact logged">never</span>
+                          <span className="text-[13px] text-stone-500" title="No contact logged">Never</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
+                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
                             title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={10} className="shrink-0 opacity-70" />
                             {item.bandNBA.label}
@@ -2223,14 +2229,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Due → oldest overdue */}
                       <td className="px-2 py-2.5 whitespace-nowrap text-right tabular-nums">
                         {item.maxDays > 0
-                          ? <span className={`text-[12px] font-medium ${overdueCls(item.maxDays)}`}>{item.maxDays}d over</span>
-                          : <span className="text-[12px] text-stone-600">—</span>}
+                          ? <span className={`text-[13px] font-medium ${overdueCls(item.maxDays)}`}>{overText(item.maxDays)}</span>
+                          : <span className="text-[13px] text-stone-500">—</span>}
                       </td>
                       {/* Outstanding — the ledger column: its own rule, the
                           strongest ink on the row, one currency per line so
                           decimals align (they were joined with " · " before,
                           which destroyed alignment the moment an org had two). */}
-                      <td className="px-2 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap border-l border-stone-800 text-[13px]">
+                      <td className="px-2 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap border-l border-stone-800 text-[15px]">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
                           <div key={c}>{fmt.money(v, c)}</div>
                         ))}
@@ -2257,10 +2263,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Checkbox */}
                       <td className="px-2 py-2 pl-6 border-l-[3px] border-l-stone-500" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
                       {/* Identity — Invoice column */}
-                      <td className="px-2 py-2 pl-6 text-[12px] font-medium text-stone-300 relative">
-                        <span className="inline-block w-4 text-stone-600">{item.collapsed ? "▸" : "▾"}</span>
+                      <td className="px-2 py-2 pl-6 text-[13px] font-semibold text-stone-200 relative">
+                        <span className="inline-block w-4 text-stone-500">{item.collapsed ? "▸" : "▾"}</span>
                         {item.projName}
-                        <span className="text-[11px] text-stone-600 ml-2">{item.count} inv</span>
+                        <span className="text-[12px] text-stone-500 ml-2">{item.count} inv</span>
                         {projContactKey && (
                           <button
                             onClick={e => { e.stopPropagation(); setContactsOpenId(contactsOpenId === projContactKey ? null : projContactKey); }}
@@ -2275,7 +2281,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           </button>
                         )}
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
-                          <span className="text-[11px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
+                          <span className="text-[12px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
                         )}
                         {(() => {
                           if (!pid) return null;
@@ -2288,8 +2294,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             // nothing in this column lines up row to row. Its own
                             // line keeps the identity row scannable and gives the
                             // note real width instead of a 340px stub.
-                            <div className="pl-4 mt-0.5 text-[11px] text-stone-500 font-normal truncate max-w-[560px]" title={note.body}>
-                              {note.channel === "Chase" && <span className="text-stone-600">[{note.subject}] </span>}
+                            <div className="pl-4 mt-0.5 text-[12px] text-stone-400 font-normal truncate max-w-[560px]" title={note.body}>
+                              {note.channel === "Chase" && <span className="text-stone-500">[{note.subject}] </span>}
                               {note.body}
                             </div>
                           ) : null;
@@ -2299,9 +2305,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
                               <div className="flex items-center gap-2">
                                 <Phone size={13} className="text-stone-400" />
-                                <span className="text-[12px] font-semibold text-stone-200">Contacts · {item.projName}</span>
+                                <span className="text-[13px] font-semibold text-stone-200">Contacts · {item.projName}</span>
                               </div>
-                              <button onClick={() => setContactsOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
+                              <button onClick={() => setContactsOpenId(null)} className="text-stone-400 hover:text-stone-200"><X size={14} /></button>
                             </div>
                             <div className="overflow-auto p-3" style={{maxHeight:"420px"}}>
                               <ContactsPanel customerId={item.custId} projectId={pid} />
@@ -2314,7 +2320,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Stage — batch-change dropdown */}
                       <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                         {item.dominantStage && (
-                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[12px] font-medium transition-colors cursor-pointer ${
                             isException(item.dominantStage)
                               ? `rounded-full px-2 py-0.5 ${stageChip(item.dominantStage)}`
                               : "rounded px-1.5 py-0.5 text-stone-400 border border-transparent hover:border-stone-700 hover:bg-stone-800/60"}`}
@@ -2334,19 +2340,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Last Email Ref → last contact */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
-                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
+                          <span className={`inline-flex items-center gap-1 text-[13px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
                             title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
-                            <span className="text-stone-600">{activityIcon(item.lastChaseInfo.activityType)}</span>
-                            {item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d ago`}
+                            <span className="text-stone-500">{activityIcon(item.lastChaseInfo.activityType)}</span>
+                            {agoText(item.lastChaseInfo.days)}
                           </span>
                         ) : (
-                          <span className="text-[12px] text-stone-600" title="No contact logged">never</span>
+                          <span className="text-[13px] text-stone-500" title="No contact logged">Never</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
+                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
                             title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={10} className="shrink-0 opacity-70" />
                             {item.bandNBA.label}
@@ -2357,11 +2363,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Due → oldest overdue in this project */}
                       <td className="px-2 py-2 whitespace-nowrap text-right tabular-nums">
                         {item.maxDays > 0
-                          ? <span className={`text-[12px] font-medium ${overdueCls(item.maxDays)}`}>{item.maxDays}d over</span>
-                          : <span className="text-[12px] text-stone-600">—</span>}
+                          ? <span className={`text-[13px] font-medium ${overdueCls(item.maxDays)}`}>{overText(item.maxDays)}</span>
+                          : <span className="text-[13px] text-stone-500">—</span>}
                       </td>
                       {/* Outstanding */}
-                      <td className="px-2 py-1.5 text-right text-[13px] font-medium text-stone-300 tabular-nums whitespace-nowrap border-l border-stone-800">
+                      <td className="px-2 py-1.5 text-right text-[13px] font-semibold text-stone-200 tabular-nums whitespace-nowrap border-l border-stone-800">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
                           <div key={c}>{fmt.money(v, c)}</div>
                         ))}
@@ -2379,11 +2385,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 return (
                   <tr key={inv.id} className={`h-[40px] border-b border-stone-800 transition-colors ${isSel ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "hover:bg-stone-800/50"}`}>
                     <td className="px-2 py-2.5 pl-4"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" /></td>
-                    <td className="px-2 py-2.5"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-400 hover:text-white hover:underline">#{inv.invoiceNumber}</Link></td>
+                    <td className="px-2 py-2.5"><Link href={`/invoices/${inv.id}`} className="font-mono text-[13px] text-stone-400 hover:text-white hover:underline">#{inv.invoiceNumber}</Link></td>
                     {showCustomer && <td className="px-2 py-2.5 text-stone-200 text-[13px] max-w-[160px] truncate" title={custName}>{custName}</td>}
-                    {showProject  && <td className="px-2 py-2.5 text-stone-500 text-[12px] max-w-[140px] truncate" title={projName ?? ""}>{projName ?? "—"}</td>}
-                    {showRegion && <td className="px-2 py-2.5 text-stone-500 text-[12px]">{regionName ?? "—"}</td>}
-                    {showRep    && <td className="px-2 py-2.5 text-stone-500 text-[12px]">{repName ?? "—"}</td>}
+                    {showProject  && <td className="px-2 py-2.5 text-stone-400 text-[13px] max-w-[140px] truncate" title={projName ?? ""}>{projName ?? "—"}</td>}
+                    {showRegion && <td className="px-2 py-2.5 text-stone-400 text-[13px]">{regionName ?? "—"}</td>}
+                    {showRep    && <td className="px-2 py-2.5 text-stone-400 text-[13px]">{repName ?? "—"}</td>}
 
                     {/* Stage dropdown */}
                     <td className="px-2 py-2">
@@ -2438,7 +2444,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             if (picking) return (
                               <CellSelect value={displayStage} disabled={busyId === inv.id}
                                 onChange={e => changeStage(e.target.value)}
-                                aria-label="Stage" className="text-[11px] py-0.5">
+                                aria-label="Stage" className="text-[12px] py-0.5">
                                 {options}
                               </CellSelect>
                             );
@@ -2449,7 +2455,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             // can never accidentally gain or lose colour by being
                             // rendered through a different branch.
                             const control = (cls: string, title: string, content: any) => (
-                              <div className={`group/stage relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${cls}`} title={title}>
+                              <div className={`group/stage relative inline-flex items-center gap-1.5 text-[12px] font-medium transition-colors cursor-pointer ${cls}`} title={title}>
                                 {content}
                                 <ChevronDown size={10} className="shrink-0 opacity-30 group-hover/stage:opacity-80 transition-opacity" />
                                 <select value={displayStage} disabled={busyId === inv.id}
@@ -2485,8 +2491,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                       {inv.escalationType && <span className="text-rose-300/70 truncate max-w-[130px]">· {inv.escalationType}</span>}
                                     </>
                                   )}
-                                  <span className="basis-full flex items-center gap-1 text-[11px] text-stone-400 pl-0.5 min-w-0" title={escTitle}>
-                                    <UserCheck size={10} className="shrink-0 text-stone-600" />
+                                  <span className="basis-full flex items-center gap-1 text-[12px] text-stone-400 pl-0.5 min-w-0" title={escTitle}>
+                                    <UserCheck size={10} className="shrink-0 text-stone-500" />
                                     <span className="truncate">{inv.escalatedToName}</span>
                                   </span>
                                 </>
@@ -2515,7 +2521,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               return control(
                                 stageShell("Committed"),
                                 `Committed to pay ${effPromise}\nClick to change stage`,
-                                <><CalendarClock size={10} className="shrink-0 text-stone-500" /> Committed <span className="text-stone-500 tabular-nums">· {fmt.shortDate(effPromise)}</span></>
+                                <><CalendarClock size={10} className="shrink-0 text-stone-400" /> Committed <span className="text-stone-400 tabular-nums">· {fmt.shortDate(effPromise)}</span></>
                               );
                             }
                             return control(
@@ -2531,7 +2537,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               value={selectedTarget}
                               aria-label="Assign the escalation to"
                               onChange={e => setSelectedTarget(e.target.value)}
-                              className="h-8 text-[12px]"
+                              className="h-8 text-[13px]"
                             >
                               <option value="">Assign to…</option>
                               {escalateTargets.map(t => (
@@ -2543,7 +2549,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               aria-label="Escalation type"
                               onChange={e => setSelectedEscType(e.target.value)}
                               title={escalationTypeByLabel(selectedEscType)?.description}
-                              className="h-8 text-[12px]"
+                              className="h-8 text-[13px]"
                             >
                               <option value="">Escalation type…</option>
                               {ESCALATION_TYPES.map(t => (
@@ -2551,7 +2557,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               ))}
                             </SelectField>
                             {selectedEscType && (
-                              <p className="text-[11px] text-stone-500 leading-snug px-0.5">
+                              <p className="text-[12px] text-stone-400 leading-snug px-0.5">
                                 {escalationTypeByLabel(selectedEscType)?.description}
                               </p>
                             )}
@@ -2560,12 +2566,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               onChange={e => setEscNoteVal(e.target.value)}
                               placeholder="Note for the assignee (optional)…"
                               maxLength={2000}
-                              className={`${controlInset} h-8 text-[12px]`}
+                              className={`${controlInset} h-8 text-[13px]`}
                             />
                             <div className="flex items-center gap-1.5 justify-end">
                               <button
                                 onClick={() => { setPendingEscalation(null); setSelectedTarget(""); setSelectedEscType(""); setEscNoteVal(""); }}
-                                className="text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                                className="text-[12px] text-stone-400 hover:text-stone-300 px-1"
                               >
                                 Cancel
                               </button>
@@ -2588,7 +2594,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   setSelectedEscType("");
                                   setEscNoteVal("");
                                 }}
-                                className="text-[11px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
+                                className="text-[12px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
                               >
                                 Confirm
                               </button>
@@ -2602,7 +2608,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               autoFocus
                               value={commitDateVal}
                               onChange={e => setCommitDateVal(e.target.value)}
-                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-primary"
+                              className="text-[12px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-primary"
                             />
                             <button
                               disabled={!commitDateVal || busyId === inv.id}
@@ -2614,13 +2620,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                 setPendingCommit(null);
                                 setCommitDateVal("");
                               }}
-                              className="shrink-0 text-[11px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
+                              className="shrink-0 text-[12px] font-semibold bg-primary text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-primary-hover"
                             >
                               Confirm
                             </button>
                             <button
                               onClick={() => { setPendingCommit(null); setCommitDateVal(""); }}
-                              className="shrink-0 text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                              className="shrink-0 text-[12px] text-stone-400 hover:text-stone-300 px-1"
                             >
                               Cancel
                             </button>
@@ -2632,7 +2638,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               value={disputeCat}
                               aria-label="Dispute category"
                               onChange={e => setDisputeCat(e.target.value)}
-                              className="h-8 text-[12px]"
+                              className="h-8 text-[13px]"
                             >
                               {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </SelectField>
@@ -2641,12 +2647,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               onChange={e => setDisputeReasonVal(e.target.value)}
                               placeholder="Reason / detail (optional)…"
                               maxLength={500}
-                              className={`${controlInset} h-8 text-[12px]`}
+                              className={`${controlInset} h-8 text-[13px]`}
                             />
                             <div className="flex items-center gap-1.5 justify-end">
                               <button
                                 onClick={() => { setPendingDispute(null); setDisputeReasonVal(""); }}
-                                className="text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                                className="text-[12px] text-stone-400 hover:text-stone-300 px-1"
                               >
                                 Cancel
                               </button>
@@ -2657,7 +2663,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   setPendingDispute(null);
                                   setDisputeReasonVal("");
                                 }}
-                                className="text-[11px] font-semibold bg-rose-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-rose-700"
+                                className="text-[12px] font-semibold bg-rose-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-rose-700"
                               >
                                 Mark disputed
                               </button>
@@ -2674,12 +2680,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           autoFocus value={emailVal} onChange={e => setEmailVal(e.target.value)}
                           onBlur={() => { if (emailVal !== (email ?? "")) save(inv.id, { billingEmail: emailVal }); setEmailEdit(null); }}
                           onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEmailEdit(null); }}
-                          className="w-full text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300"
+                          className="w-full text-[13px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300"
                         />
                       ) : (
                         <button onClick={() => { setEmailEdit(inv.id); setEmailVal(email ?? ""); }}
                           className="group inline-flex items-center gap-1 text-left max-w-full">
-                          <span className={`text-[12px] truncate ${email ? "text-stone-300" : "text-stone-600 italic"}`}>{email || "no email"}</span>
+                          <span className={`text-[13px] truncate ${email ? "text-stone-300" : "text-stone-500 italic"}`}>{email || "no email"}</span>
                           <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100 shrink-0" />
                         </button>
                       )}
@@ -2691,18 +2697,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     <td className="px-2 py-2 whitespace-nowrap">
                       {lastSent ? (() => {
                         const n = daysAgo(lastSent);
-                        return <span className={`block text-[12px] font-medium tabular-nums ${agoCls(n)}`} title={fmtSent(lastSent) ?? undefined}>
-                          {n === 0 ? "today" : `${n}d ago`}
+                        return <span className={`block text-[13px] font-medium tabular-nums ${agoCls(n)}`} title={fmtSent(lastSent) ?? undefined}>
+                          {agoText(n)}
                         </span>;
-                      })() : <span className="block text-[12px] text-stone-600">never</span>}
-                      {lastRef && <span className="block font-mono text-[11px] text-stone-500">{lastRef}</span>}
+                      })() : <span className="block text-[13px] text-stone-500" title="Never emailed">Never</span>}
+                      {lastRef && <span className="block font-mono text-[12px] text-stone-400">{lastRef}</span>}
                     </td>
                     {/* Next action — the forward-looking queue date, editable inline */}
                     {/* Next best action — computed, one-click, filterable by type */}
-                    <td className="px-2 py-2 whitespace-nowrap text-[12px]">
+                    <td className="px-2 py-2 whitespace-nowrap text-[13px]">
                       {(() => {
                         const na = nextActionByInv[inv.id];
-                        if (!na) return <span className="text-stone-600">—</span>;
+                        if (!na) return <span className="text-stone-500">—</span>;
                         const Icon =
                           na.type === "reply" ? CornerUpLeft :
                           na.type === "call" ? Phone :
@@ -2711,7 +2717,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           na.type === "await" ? Clock :
                           (na.type === "email" || na.type === "add_email") ? Mail : null;
                         const body = <>{Icon && <Icon size={11} className="shrink-0 opacity-70" />}<span>{na.label}</span>{na.detail && <span className="opacity-60">· {na.detail}</span>}</>;
-                        if (!na.act) return <span className={`inline-flex items-center gap-1 text-[11px] ${naShell(na.type, na.rank)}`}>{body}</span>;
+                        if (!na.act) return <span className={`inline-flex items-center gap-1 text-[12px] ${naShell(na.type, na.rank)}`}>{body}</span>;
                         const onClick = () => {
                           if (na.act === "send") { setPreQuickSendSelection(selected); setSelected(new Set([inv.id])); setShowSend(true); }
                           else if (na.act === "email") { setEmailEdit(inv.id); setEmailVal(email ?? ""); }
@@ -2722,7 +2728,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         return (
                           <button onClick={onClick}
                             title={na.detail ? `${na.label} · ${na.detail} — click to act on this` : `${na.label} — click to act on this`}
-                            className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${naShell(na.type, na.rank)}`}>
+                            className={`inline-flex items-center gap-1 text-[12px] font-medium transition-colors ${naShell(na.type, na.rank)}`}>
                             {body}
                           </button>
                         );
@@ -2734,20 +2740,20 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         printed "30 Jun 26". Days-overdue drops to a second
                         line so the date reads first, matching the bands. */}
                     <td className="px-2 py-2 whitespace-nowrap text-right tabular-nums">
-                      <span className="text-stone-400 text-[12px]">{fmtSent(inv.dueDate) ?? inv.dueDate}</span>
-                      <span className={`block text-[11px] font-medium ${days > 0 ? "text-rose-400" : "text-stone-600"}`}>
-                        {days > 0 ? `${days}d over` : "not due"}
+                      <span className="text-stone-400 text-[13px]">{fmtSent(inv.dueDate) ?? inv.dueDate}</span>
+                      <span className={`block text-[12px] font-medium ${days > 0 ? "text-rose-400" : "text-stone-500"}`}>
+                        {days > 0 ? overText(days) : "Not due"}
                       </span>
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums border-l border-stone-800">
-                      <span className="font-medium text-stone-300 text-[13px]">{fmt.money(bal, inv.currency)}</span>
+                      <span className="font-semibold text-stone-200 text-[13px]">{fmt.money(bal, inv.currency)}</span>
                       {(() => {
                         const total = Number(inv.total || 0);
                         if (total <= 0 || bal <= 0) return null;
                         const pct = Math.round((bal / total) * 100);
                         if (pct >= 100) return null;
                         const cls = pct >= 75 ? "text-rose-400" : pct >= 40 ? "text-amber-400" : "text-emerald-400";
-                        return <span className={`ml-1.5 text-[11px] font-medium ${cls}`}>{pct}%</span>;
+                        return <span className={`ml-1.5 text-[12px] font-medium ${cls}`}>{pct}%</span>;
                       })()}
                     </td>
 
@@ -2757,11 +2763,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         onClick={() => { setPreQuickSendSelection(selected); setSelected(new Set([inv.id])); setShowSend(true); }}
                         disabled={!email}
                         title={email ? "Send reminder for this invoice" : "No email on file"}
-                        className="inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-emerald-400 disabled:opacity-30 disabled:hover:text-stone-500 mr-0.5">
+                        className="inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-400 hover:text-emerald-400 disabled:opacity-30 disabled:hover:text-stone-500 mr-0.5">
                         <Send size={14} />
                       </button>
                       <button onClick={() => { const opening = notesOpenId !== inv.id; setNotesOpenId(opening ? inv.id : null); setNoteText(""); if (opening) { markNotesSeen(inv.id); } }}
-                        className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200" title="Activity">
+                        className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-400 hover:text-stone-200" title="Activity">
                         <MessageSquare size={15} />
                         {feedForInv(inv).length > 0 && (
                           <span className={`absolute -top-1 -right-1 text-white text-[11px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{feedForInv(inv).length}</span>
@@ -2773,18 +2779,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800 flex-shrink-0">
                             <div className="flex items-center gap-2">
                               <MessageSquare size={13} className="text-stone-400" />
-                              <span className="text-[12px] font-semibold text-stone-200">Activity · #{inv.invoiceNumber}</span>
+                              <span className="text-[13px] font-semibold text-stone-200">Activity · #{inv.invoiceNumber}</span>
                               {feedForInv(inv).length > 0 && (
-                                <span className="text-[11px] text-stone-500">{feedForInv(inv).length} event{feedForInv(inv).length !== 1 ? "s" : ""}</span>
+                                <span className="text-[12px] text-stone-400">{feedForInv(inv).length} event{feedForInv(inv).length !== 1 ? "s" : ""}</span>
                               )}
                             </div>
-                            <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
+                            <button onClick={() => setNotesOpenId(null)} className="text-stone-400 hover:text-stone-200"><X size={14} /></button>
                           </div>
 
                           {/* Feed */}
                           <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
                             {feedForInv(inv).length === 0 ? (
-                              <div className="text-[12px] text-stone-600 text-center py-6">No activity yet</div>
+                              <div className="text-[13px] text-stone-500 text-center py-6">No activity yet</div>
                             ) : [...feedForInv(inv)].sort((a: any, b: any) => new Date(a.sentAt ?? a.createdAt).getTime() - new Date(b.sentAt ?? b.createdAt).getTime()).map((n: any) => {
                               const ts = new Date(n.sentAt ?? n.createdAt);
 
@@ -2837,11 +2843,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               return (
                                 <div key={n.id} className={`rounded-lg px-3 py-2 ${cfg.border} ${cfg.bg}`}>
                                   <div className="flex items-center justify-between gap-2 mb-1">
-                                    <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${cfg.labelCls}`}>
+                                    <div className={`flex items-center gap-1.5 text-[12px] font-semibold ${cfg.labelCls}`}>
                                       {cfg.icon}
                                       <span>{cfg.label}</span>
                                     </div>
-                                    <span className="text-[11px] text-stone-600 tabular-nums flex-shrink-0">{fmt.dateTime(ts)}</span>
+                                    <span className="text-[12px] text-stone-500 tabular-nums flex-shrink-0">{fmt.dateTime(ts)}</span>
                                   </div>
                                   {n.channel === "StageChange" ? (() => {
                                     const [fromStage, toRaw] = (n.subject ?? "").split(" → ");
@@ -2861,41 +2867,41 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     return (
                                       <div className="mt-1 space-y-1.5">
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="text-[11px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
-                                          <span className="text-[11px] text-stone-500 font-bold">→</span>
-                                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>
+                                          <span className="text-[12px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
+                                          <span className="text-[12px] text-stone-400 font-bold">→</span>
+                                          <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>
                                             {!toExc && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDot(toStage ?? "")}`} />}
                                             {toStage}
                                           </span>
                                           {escType && (
                                             <span
                                               title={escalationTypeByLabel(escType)?.description}
-                                              className="text-[11px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5">
+                                              className="text-[12px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5">
                                               {escType}
                                             </span>
                                           )}
                                         </div>
                                         {assigneeLine && (
-                                          <div className="flex items-center gap-1.5 text-[11px] text-rose-300">
+                                          <div className="flex items-center gap-1.5 text-[12px] text-rose-300">
                                             <UserCheck size={11} className="text-rose-400 shrink-0" />
                                             <span className="font-medium">Assigned to</span>
                                             <span>{assigneeLine.split(" · ")[0]}</span>
                                             {assigneeLine.includes(" · ") && (
-                                              <span className="text-stone-500 text-[11px]">· {assigneeLine.split(" · ")[1]}</span>
+                                              <span className="text-stone-400 text-[12px]">· {assigneeLine.split(" · ")[1]}</span>
                                             )}
                                           </div>
                                         )}
                                         {noteText && (
-                                          <div className="text-[11px] text-stone-400 italic pl-4">{noteText}</div>
+                                          <div className="text-[12px] text-stone-400 italic pl-4">{noteText}</div>
                                         )}
                                       </div>
                                     );
                                   })() : (
                                     <>
                                       {n.subject && n.channel !== "Note" && n.channel !== "Portal" && (
-                                        <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
+                                        <div className="text-[12px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
                                       )}
-                                      <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
+                                      <div className="text-[13px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
                                     </>
                                   )}
                                   {n.channel === "Email" && (
@@ -2909,7 +2915,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                         customerId: n.customerId,
                                         projectId:  n.projectId,
                                       })}
-                                      className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-500 hover:text-blue-400 transition-colors"
+                                      className="mt-1.5 flex items-center gap-1 text-[12px] text-stone-400 hover:text-blue-400 transition-colors"
                                     >
                                       <CornerUpLeft size={10} />
                                       Reply
@@ -2922,13 +2928,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                           {/* Add note input */}
                           <div className="p-2.5 border-t border-stone-800 flex-shrink-0 space-y-2">
-                            <div className="text-[11px] text-stone-600 font-medium px-1">Internal note</div>
+                            <div className="text-[12px] text-stone-500 font-medium px-1">Internal note</div>
                             <div className="flex items-center gap-1.5">
                               <input value={noteText} onChange={e => setNoteText(e.target.value)}
                                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
-                                placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary" />
+                                placeholder="Write a note…" className="flex-1 text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-primary" />
                               <button onClick={() => addNote(sortedRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
-                                className="text-[11px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
+                                className="text-[12px] font-semibold text-white bg-primary hover:bg-primary-hover rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
                             </div>
 
                             {/* Log Chase — record a touchpoint made outside the app */}
@@ -2936,7 +2942,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               {chaseOpenId !== inv.id ? (
                                 <button
                                   onClick={() => { setChaseOpenId(inv.id); setChaseDate(todayStr()); setChaseRef(lastRef ?? ""); setChaseMemo(""); }}
-                                  className="w-full flex items-center gap-1.5 text-[11px] text-amber-500 hover:text-amber-400 font-medium px-1 py-0.5 transition-colors"
+                                  className="w-full flex items-center gap-1.5 text-[12px] text-amber-500 hover:text-amber-400 font-medium px-1 py-0.5 transition-colors"
                                 >
                                   <ArrowUpRight size={12} />
                                   Log chase outside app
@@ -2944,23 +2950,23 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               ) : (
                                 <div className="space-y-1.5">
                                   <div className="flex items-center justify-between px-1">
-                                    <span className="text-[11px] font-semibold text-amber-500 flex items-center gap-1"><ArrowUpRight size={11} />Log chase</span>
-                                    <button onClick={() => setChaseOpenId(null)} className="text-stone-600 hover:text-stone-400"><X size={12} /></button>
+                                    <span className="text-[12px] font-semibold text-amber-500 flex items-center gap-1"><ArrowUpRight size={11} />Log chase</span>
+                                    <button onClick={() => setChaseOpenId(null)} className="text-stone-500 hover:text-stone-400"><X size={12} /></button>
                                   </div>
                                   <div className="flex gap-1.5">
                                     <input type="date" value={chaseDate} onChange={e => setChaseDate(e.target.value)}
-                                      className="w-36 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-amber-500" />
+                                      className="w-36 text-[12px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-amber-500" />
                                     <input value={chaseRef} onChange={e => setChaseRef(e.target.value)}
                                       placeholder={lastRef ?? "Ref (optional)"}
-                                      className="flex-1 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
+                                      className="flex-1 text-[12px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
                                   </div>
                                   <div className="flex gap-1.5">
                                     <input value={chaseMemo} onChange={e => setChaseMemo(e.target.value)}
                                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addChase(r); } }}
                                       placeholder="Memo e.g. Left voicemail, promised to pay Friday"
-                                      className="flex-1 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
+                                      className="flex-1 text-[12px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
                                     <button onClick={() => { const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addChase(r); }} disabled={savingChase}
-                                      className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-3 py-1 disabled:opacity-40 transition-colors whitespace-nowrap">Log</button>
+                                      className="text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-3 py-1 disabled:opacity-40 transition-colors whitespace-nowrap">Log</button>
                                   </div>
                                 </div>
                               )}
@@ -2975,7 +2981,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
-                <td colSpan={leadingCols} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
+                <td colSpan={leadingCols} className="px-3 py-2.5 text-[13px] text-stone-400 text-right">
                   {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums border-l border-stone-800">

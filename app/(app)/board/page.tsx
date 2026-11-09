@@ -17,7 +17,7 @@ function CurrencyPills({ breakdown, className }: { breakdown: Record<string, num
     <span className={className}>
       {entries.map(([c, v], i) => (
         <span key={c}>
-          {i > 0 && <span className="text-stone-600 mx-1.5">·</span>}
+          {i > 0 && <span className="text-stone-500 mx-1.5">·</span>}
           {fmt.money(v, c)}
         </span>
       ))}
@@ -76,7 +76,7 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
           return (
             <div key={key} className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full ${color}`} />
-              <span className="text-[10px] text-stone-500">{label} <span className="font-medium text-stone-300">{pct.toFixed(0)}%</span></span>
+              <span className="text-[11px] text-stone-400">{label} <span className="font-medium text-stone-300">{pct.toFixed(0)}%</span></span>
             </div>
           );
         })}
@@ -126,7 +126,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
           {entity.code && !entity.code.startsWith("QBO-") && (
-            <div className="text-[10px] text-stone-500 font-mono mb-0.5">{entity.code}</div>
+            <div className="text-[11px] text-stone-400 font-mono mb-0.5">{entity.code}</div>
           )}
           <div className="text-sm font-semibold text-white leading-tight truncate">{entity.name}</div>
         </div>
@@ -135,7 +135,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 
       <div className="flex items-center justify-between mt-2">
         <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, invoiceCurrency)}</div>
-        <div className={`inline-flex items-center gap-1.5 text-[10px] font-medium ${
+        <div className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
           dominantIsException ? `rounded-full px-2 py-0.5 ${stageChipClass(dominantLabel, stages)}` : "px-1 py-0.5 text-stone-300"
         }`}>
           {!dominantIsException && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDotClass(dominantLabel, stages)}`} />}
@@ -143,12 +143,12 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-2 text-[11px] text-stone-400">
+      <div className="flex items-center gap-2 mt-2 text-[12px] text-stone-400">
         <span>{open.length} open invoice{open.length !== 1 ? "s" : ""}</span>
         {invoices.length > open.length && <span>· {invoices.length - open.length} closed</span>}
       </div>
       {repName && (
-        <div className="flex items-center gap-1 mt-1.5 text-[11px] text-stone-500">
+        <div className="flex items-center gap-1 mt-1.5 text-[12px] text-stone-400">
           <Users size={11} /> {repName}
         </div>
       )}
@@ -156,10 +156,10 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       {(disputedCount > 0 || promisedCount > 0) && (
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
           {disputedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-semibold">⚠ {disputedCount} disputed</span>
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-semibold">⚠ {disputedCount} disputed</span>
           )}
           {promisedCount > 0 && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${stageChipClass(promisedLabel, stages)}`}>📅 {promisedCount} committed</span>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${stageChipClass(promisedLabel, stages)}`}>📅 {promisedCount} committed</span>
           )}
         </div>
       )}
@@ -528,17 +528,17 @@ export default function BoardPage() {
                 {/* Column header */}
                 <div className="p-3 border-b border-stone-800 flex-shrink-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${
+                    <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${
                       isExceptionStage(stage, stages) ? `rounded-full px-2 py-0.5 ${stageChipClass(stage, stages)}` : "px-1 py-0.5 text-stone-300"
                     }`}>
                       {!isExceptionStage(stage, stages) && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDotClass(stage, stages)}`} />}
                       {stage}
                     </span>
-                    <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
+                    <span className="text-[12px] text-stone-400 font-mono">{items.length}</span>
                   </div>
                   <CurrencyPills breakdown={stageCurrencyTotals[stage] || {}} className="text-sm font-semibold text-white tabular-nums" />
                   {totalAR > 0 && stageTotal > 0 && (
-                    <div className="text-[10px] text-stone-500 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
                   )}
                 </div>
 
@@ -558,7 +558,7 @@ export default function BoardPage() {
                     />
                   ))}
                   {items.length === 0 && (
-                    <div className={`text-xs text-stone-600 text-center py-6 rounded-lg border-2 border-dashed transition-colors ${isDragOver ? "border-stone-500 text-stone-400" : "border-stone-800"}`}>
+                    <div className={`text-xs text-stone-500 text-center py-6 rounded-lg border-2 border-dashed transition-colors ${isDragOver ? "border-stone-500 text-stone-400" : "border-stone-800"}`}>
                       {isDragOver ? "Drop here" : "No items"}
                     </div>
                   )}
@@ -590,14 +590,14 @@ export default function BoardPage() {
 
       {/* Legend */}
       <div className="px-6 py-2 border-t border-stone-800 bg-stone-950 flex-shrink-0 flex items-center gap-6">
-        <span className="text-[11px] text-stone-500 font-medium uppercase tracking-wider">Aging</span>
+        <span className="text-[12px] text-stone-400 font-medium uppercase tracking-wider">Aging</span>
         {AGING_COLORS.map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5">
             <div className={`w-2.5 h-2.5 rounded ${color}`} />
-            <span className="text-[11px] text-stone-400">{label}</span>
+            <span className="text-[12px] text-stone-400">{label}</span>
           </div>
         ))}
-        <span className="text-[11px] text-stone-600 ml-4">Drag a card to move all its open invoices to a new stage</span>
+        <span className="text-[12px] text-stone-500 ml-4">Drag a card to move all its open invoices to a new stage</span>
       </div>
     </div>
   );
