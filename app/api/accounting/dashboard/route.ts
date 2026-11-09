@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
       from accounts a
       left join (journal_lines l join journal_entries e on e.id = l.entry_id and e.status = 'Posted')
              on l.account_id = a.id
-     where a.org_id = ${org} and a.type = 'Bank' and a.is_header = false and a.active = true
+     where a.org_id = ${org} and a.type = 'Bank' and coalesce(a.is_header, false) = false and coalesce(a.status, 'Active') = 'Active'
      group by a.id, a.name, a.code, a.currency
      order by a.code nulls last, a.name`);
   const banks = bankRows.map((b) => {
