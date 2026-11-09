@@ -22,8 +22,8 @@ function Toggle({ on, disabled, onChange, label }: ToggleProps) {
         : "h-5 w-9 rounded-full bg-stone-700 relative transition-colors disabled:opacity-50"}
     >
       <span className={on
-        ? "absolute top-0.5 left-[18px] h-4 w-4 rounded-full bg-white transition-all"
-        : "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-all"} />
+        ? "absolute top-0.5 left-[18px] h-4 w-4 rounded-full bg-[#fff] shadow-sm transition-all"
+        : "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-[#fff] shadow-sm transition-all"} />
     </button>
   );
 }

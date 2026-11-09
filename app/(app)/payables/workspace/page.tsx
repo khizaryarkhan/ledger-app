@@ -319,7 +319,7 @@ function SendApprovalModal({
               onClick={() => setIncludePortal((v) => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-violet-600" : "bg-stone-600"}`}
             >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
 

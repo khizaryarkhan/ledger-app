@@ -1811,7 +1811,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               </div>
               <button role="switch" aria-checked={notifyPortal} onClick={() => setNotifyPortal(v => !v)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${notifyPortal ? "bg-primary" : "bg-stone-600"}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifyPortal ? "translate-x-6" : "translate-x-1"}`} />
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${notifyPortal ? "translate-x-6" : "translate-x-1"}`} />
               </button>
             </div>
 

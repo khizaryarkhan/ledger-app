@@ -323,7 +323,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
             </div>
             <button type="button" role="switch" aria-checked={attachStatement} onClick={() => setAttachStatement(v => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachStatement ? "bg-primary" : "bg-stone-600"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachStatement ? "translate-x-6" : "translate-x-1"}`} />
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${attachStatement ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
           <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
@@ -333,7 +333,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
             </div>
             <button type="button" role="switch" aria-checked={attachPdf} onClick={() => setAttachPdf(v => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachPdf ? "bg-primary" : "bg-stone-600"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachPdf ? "translate-x-6" : "translate-x-1"}`} />
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${attachPdf ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
           <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
@@ -343,7 +343,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
             </div>
             <button type="button" role="switch" aria-checked={includePortal} onClick={() => setIncludePortal(v => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-primary" : "bg-stone-600"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
           <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table. The text above is the intro message.</p>

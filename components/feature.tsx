@@ -1284,7 +1284,7 @@ ${senderName}`;
                   onClick={() => setAttachPdf(p => !p)}
                   className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${attachPdf ? "bg-stone-900" : "bg-stone-200"}`}
                 >
-                  <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
+                  <div className={`w-4 h-4 rounded-full bg-[#fff] shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
                 </div>
                 <div>
                   <div className="text-[13px] font-medium text-stone-300">Attach invoice PDF</div>

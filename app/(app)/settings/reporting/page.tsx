@@ -98,7 +98,7 @@ export default function ReportingSettingsPage() {
               orgSettings.reportingEnabled ? "bg-blue-500" : "bg-stone-700"
             } ${saving || (!isConnected && !orgSettings.reportingEnabled) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
           >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-[#fff] shadow-sm transition-transform ${
               orgSettings.reportingEnabled ? "translate-x-6" : "translate-x-1"
             }`} />
           </button>

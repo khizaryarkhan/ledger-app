@@ -18,7 +18,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
       onClick={onToggle}
       className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${enabled ? "bg-primary" : "bg-stone-700"}`}
     >
-      <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
+      <div className={`w-4 h-4 rounded-full bg-[#fff] shadow transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
     </button>
   );
 }

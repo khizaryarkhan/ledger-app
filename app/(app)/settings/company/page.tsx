@@ -479,7 +479,7 @@ export default function CompanySettingsPage() {
                 onClick={() => setShowPaymentHistory(v => !v)}
                 className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-stone-900 ${showPaymentHistory ? "bg-primary" : "bg-stone-700"}`}
               >
-                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${showPaymentHistory ? "translate-x-4" : ""}`} />
+                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-[#fff] shadow transition-transform ${showPaymentHistory ? "translate-x-4" : ""}`} />
               </button>
             </div>
 
@@ -498,7 +498,7 @@ export default function CompanySettingsPage() {
                 onClick={() => setPayLinksEnabled(v => !v)}
                 className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-stone-900 ${payLinksEnabled ? "bg-primary" : "bg-stone-700"}`}
               >
-                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${payLinksEnabled ? "translate-x-4" : ""}`} />
+                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-[#fff] shadow transition-transform ${payLinksEnabled ? "translate-x-4" : ""}`} />
               </button>
             </div>
 

@@ -1549,3 +1549,19 @@ describe("there is one PDF-rendering engine for native documents", () => {
     }
   });
 });
+
+describe("switch knobs stay white in both themes", () => {
+  // `bg-white` is theme-mapped: on the Light theme it resolves to the primary
+  // INK (near-black), so a toggle knob drawn with it reads as a black dot on a
+  // navy track (reported 2026-11-09 on Send invoices). A knob is always real
+  // white — `bg-[#fff]` — whatever the theme.
+  it("no rounded knob uses the theme-mapped bg-white", () => {
+    const offenders: string[] = [];
+    for (const f of [...sourceFiles("components"), ...sourceFiles("app")]) {
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (/rounded-full bg-white\b/.test(line)) offenders.push(`${f.split(/[\\/]/).slice(-2).join("/")}:${i + 1}`);
+      });
+    }
+    expect(offenders, "use bg-[#fff] for a switch knob").toEqual([]);
+  });
+});

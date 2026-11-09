@@ -76,7 +76,7 @@ export function CurrencySettings() {
                 }}
                 className="flex items-center gap-3 group">
                 <span className={`relative w-9 h-5 rounded-full transition-colors ${mc ? "bg-primary" : "bg-stone-700"}`}>
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${mc ? "translate-x-4" : ""}`} />
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-[#fff] shadow-sm transition-transform ${mc ? "translate-x-4" : ""}`} />
                 </span>
                 <span className="text-left">
                   <span className="block text-[13px] font-medium text-stone-200">Enable multi‑currency</span>
