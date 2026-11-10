@@ -5681,3 +5681,22 @@ screen stops asking for what the company does not use. Rules pure in
   credits Inventory adjustments, a cost-of-sales account, and control accounts refuse an
   Opening entry) so a first stock load distorts the first period margin; no landed-cost
   account; no sales-discount account. Not clicked through in a browser.
+
+## Opening stock posts against Opening Balance Equity (2026-11-10)
+
+Closes the gap named in the Posting Groups section above. Stock accounts are control
+accounts and refuse the Opening Balances entry, so the only way to load starting stock
+was a count gain, which credits Inventory adjustments (cost of sales) and overstated the
+first period margin by the whole opening stock value.
+
+- Stock Adjustments -> Count stock has a **This is opening stock** tick. It sends
+  `opening: true` to `postStockCount`, which credits Opening Balance Equity
+  (`openingEquityAccountId`, `lib/accounting/opening-balances.ts`) instead of the
+  INVENTORY_ADJUSTMENT role. Still sourceType `StockCount` (ADJ- series), so listing and
+  void work unchanged.
+- **New lots only** (`openingCountError`, pure, `lib/inventory/adjustment-rules.ts`): an
+  existing lot has a history, so changing it is a count difference, never an opening
+  balance. Unit cost must be above zero.
+- One item per count, as before. **Not built**: a bulk opening-stock import (many items
+  at once), and the count screen is still behind the Manufacturing module, so an
+  Accounting-only org cannot reach it. Not posted against a database or clicked through.

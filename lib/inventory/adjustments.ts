@@ -23,6 +23,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { loadItemCostInfo, planIssue, commitIssue, commitLotIncrease, commitReceipt, revalueLot, allocatedByLot } from "@/lib/inventory/valuation";
 import { roleAccount } from "@/lib/accounting/account-roles-server";
+import { openingEquityAccountId } from "@/lib/accounting/opening-balances";
+import { openingCountError, countContra } from "@/lib/inventory/adjustment-rules";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { round2, round6, roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 
@@ -38,10 +40,19 @@ export type CountInput = {
   /** Stock found that belongs to no lot: a new lot at the stated cost. */
   found?: { itemId: string; qty: number; unitCost: number; lotNo?: string | null; locationId?: string | null }[];
   notes?: string | null;
+  /**
+   * Opening stock: what the company already held when it started here. New
+   * lots only, credited to Opening Balance Equity instead of Inventory
+   * adjustments (see adjustment-rules.ts).
+   */
+  opening?: boolean;
 };
 
 export async function postStockCount(orgId: string, input: CountInput, actorId: string | null) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) err("A valid count date is required.");
+  const openingWhy = openingCountError(input);
+  if (openingWhy) err(openingWhy);
+  const opening = input.opening === true;
   const lines = (input.lines ?? []).map(l => ({ lotId: String(l.lotId), counted: roundQty(Math.max(0, Number(l.countedQty) || 0)) }));
   const found = (input.found ?? []).filter(f => f?.itemId && Number(f.qty) > 0);
   if (!lines.length && !found.length) err("Count at least one lot.");
@@ -83,15 +94,22 @@ export async function postStockCount(orgId: string, input: CountInput, actorId: 
   for (const f of found) lineAmts.push({ itemId: f.itemId, amount: round2(Number(f.qty) * Number(f.unitCost)) });
 
   const lines2: PostLine[] = [];
+  const openingEquity = countContra(opening) === "OPENING_EQUITY" ? await openingEquityAccountId(orgId) : null;
   for (const [itemId, amount] of sumBy(lineAmts)) {
     if (Math.abs(amount) < 0.005) continue;
     const item = items.get(itemId)!;
+    if (openingEquity) {
+      // Opening stock is always an increase (openingCountError allows new lots only).
+      lines2.push({ accountId: item.assetAccountId!, debit: amount, description: `Opening stock — ${item.name}` });
+      lines2.push({ accountId: openingEquity, credit: amount, description: `Opening stock — ${item.name}` });
+      continue;
+    }
     const adj = roleAccount(item, "INVENTORY_ADJUSTMENT");
     if (amount > 0) { lines2.push({ accountId: item.assetAccountId!, debit: amount, description: `Count gain — ${item.name}` }); lines2.push({ accountId: adj, credit: amount, description: `Count gain — ${item.name}` }); }
     else { lines2.push({ accountId: adj, debit: -amount, description: `Count loss — ${item.name}` }); lines2.push({ accountId: item.assetAccountId!, credit: -amount, description: `Count loss — ${item.name}` }); }
   }
   const entry = lines2.length ? await postJournalEntry({
-    orgId, entryDate: input.date, memo: input.notes?.trim() || "Stock count", series: "Adjustment", sourceType: "StockCount", createdBy: actorId, lines: lines2,
+    orgId, entryDate: input.date, memo: opening ? `Opening stock${input.notes?.trim() ? ` · ${input.notes.trim()}` : ""}` : input.notes?.trim() || "Stock count", series: "Adjustment", sourceType: "StockCount", createdBy: actorId, lines: lines2,
   }) : null;
   const ref = entry?.id ?? `count-${Date.now()}`;
 
@@ -104,7 +122,7 @@ export async function postStockCount(orgId: string, input: CountInput, actorId: 
     await commitReceipt(orgId, {
       itemId: f.itemId, qty: roundQty(Number(f.qty)), unitCost: round6(Number(f.unitCost)), productType: item.productType, lotNo: f.lotNo ?? null,
       sourceType: "adjustment", receivedDate: input.date, refType: "StockCount", refId: ref, entryId: entry?.id ?? null, createdBy: actorId,
-      note: "Found in count", locationId: f.locationId ? await resolveLocationId(orgId, f.locationId, { label: "Location" }) : null,
+      note: opening ? "Opening stock" : "Found in count", locationId: f.locationId ? await resolveLocationId(orgId, f.locationId, { label: "Location" }) : null,
     });
   }
   return { entryId: entry?.id ?? null, docNumber: entry?.docNumber ?? null, adjusted: deltas.length + found.length };

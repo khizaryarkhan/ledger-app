@@ -124,15 +124,18 @@ function CountDrawer({ items, onClose, onDone }: { items: any[]; onClose: () => 
   const [counted, setCounted] = useState<Record<string, string>>({});
   const [found, setFound] = useState({ qty: "", unitCost: "", lotNo: "" });
   const [notes, setNotes] = useState("");
+  // Opening stock: what was already held when the books started here. It posts
+  // against Opening balance equity, not Inventory adjustments, and is new stock only.
+  const [opening, setOpening] = useState(false);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
   const lots = useLots(itemId);
   const item = items.find(i => i.id === itemId);
-  const diff = useMemo(() => (lots ?? []).reduce((s, l) => counted[l.id] === undefined || counted[l.id] === "" ? s : s + (Number(counted[l.id]) - l.remaining) * l.unitCost, 0)
-    + (Number(found.qty) || 0) * (Number(found.unitCost) || 0), [lots, counted, found]);
+  const diff = useMemo(() => (opening ? 0 : (lots ?? []).reduce((s, l) => counted[l.id] === undefined || counted[l.id] === "" ? s : s + (Number(counted[l.id]) - l.remaining) * l.unitCost, 0))
+    + (Number(found.qty) || 0) * (Number(found.unitCost) || 0), [lots, counted, found, opening]);
   async function save() {
     setSaving(true); setErr(null);
-    const lines = Object.entries(counted).filter(([, v]) => v !== "").map(([lotId, v]) => ({ lotId, countedQty: Number(v) || 0 }));
-    const body: any = { kind: "count", date, lines, notes };
+    const lines = opening ? [] : Object.entries(counted).filter(([, v]) => v !== "").map(([lotId, v]) => ({ lotId, countedQty: Number(v) || 0 }));
+    const body: any = { kind: "count", date, lines, notes, opening };
     if (Number(found.qty) > 0) body.found = [{ itemId, qty: Number(found.qty), unitCost: Number(found.unitCost), lotNo: found.lotNo || null }];
     const r = await fetch("/api/inventory/adjustments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({}));
@@ -148,7 +151,14 @@ function CountDrawer({ items, onClose, onDone }: { items: any[]; onClose: () => 
           <ItemPicker items={items} value={itemId} onChange={v => { setItemId(v); setCounted({}); }} />
           <Field label="Count date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
         </div>
-        {itemId && (
+        <label className="flex items-start gap-2.5 text-[13px] text-stone-200 cursor-pointer">
+          <input type="checkbox" className="mt-0.5" checked={opening} onChange={e => setOpening(e.target.checked)} />
+          <span>
+            This is opening stock
+            <span className="block text-[12px] text-stone-400">Stock you already held when you started keeping your books here. It is added against Opening balance equity, so it does not affect profit.</span>
+          </span>
+        </label>
+        {itemId && !opening && (
           <Section title="Lots">
             <div className="rounded-lg border border-stone-800 overflow-hidden">
               <table className="w-full text-[12px]">
@@ -170,7 +180,7 @@ function CountDrawer({ items, onClose, onDone }: { items: any[]; onClose: () => 
           </Section>
         )}
         {itemId && (
-          <Section title="Found stock" desc="Stock that belongs to no lot becomes a new lot at the cost you state.">
+          <Section title={opening ? "Opening stock" : "Found stock"} desc={opening ? "Becomes a new lot at the cost you state: the value the stock is carried at." : "Stock that belongs to no lot becomes a new lot at the cost you state."}>
             <div className="grid grid-cols-3 gap-3">
               <Field label={`Quantity${item?.baseUom ? ` (${item.baseUom})` : ""}`}><input type="number" min="0" step="any" className={controlInset} value={found.qty} onChange={e => setFound(f => ({ ...f, qty: e.target.value }))} /></Field>
               <Field label="Unit cost"><input type="number" min="0" step="any" className={controlInset} value={found.unitCost} onChange={e => setFound(f => ({ ...f, unitCost: e.target.value }))} /></Field>
@@ -179,7 +189,9 @@ function CountDrawer({ items, onClose, onDone }: { items: any[]; onClose: () => 
           </Section>
         )}
         <Field label="Notes"><input className={controlInset} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Month-end count, Store A" /></Field>
-        {itemId && Math.abs(diff) >= 0.005 && <p className={t.secondary}>Posts {diff > 0 ? "a gain" : "a loss"} of <b className="text-stone-200">{fmt.num2(Math.abs(diff))}</b> against Inventory adjustments.</p>}
+        {itemId && Math.abs(diff) >= 0.005 && (opening
+          ? <p className={t.secondary}>Adds <b className="text-stone-200">{fmt.num2(diff)}</b> of stock against Opening balance equity.</p>
+          : <p className={t.secondary}>Posts {diff > 0 ? "a gain" : "a loss"} of <b className="text-stone-200">{fmt.num2(Math.abs(diff))}</b> against Inventory adjustments.</p>)}
       </div>
     </Drawer>
   );

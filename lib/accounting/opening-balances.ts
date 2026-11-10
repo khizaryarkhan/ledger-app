@@ -15,6 +15,19 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const num = (v: any) => Number(v ?? 0);
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
+/**
+ * The Opening Balance Equity account, created if the org has none yet. Opening
+ * STOCK posts against it too (lib/inventory/adjustments.ts): stock accounts are
+ * control accounts and refuse the Opening entry above, so stock is brought in
+ * through a count that creates the lots and credits this account.
+ */
+export async function openingEquityAccountId(orgId: string): Promise<string> {
+  await ensureSystemAccounts(orgId);
+  const id = await systemAccountId(orgId, "OpeningBalanceEquity");
+  if (!id) err("No Opening Balance Equity account is set up.");
+  return id!;
+}
+
 /** The current opening-balance entry (if any) as { date, lines: [{accountId, debit, credit}] }. */
 export async function getOpeningBalances(orgId: string) {
   const [entry] = await db.select().from(journalEntries)
