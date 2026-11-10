@@ -222,6 +222,59 @@ export function rolesForGroupType(t: GroupType): AccountRole[] {
 export const isRoleForGroupType = (role: AccountRole, t: GroupType) => rolesForGroupType(t).includes(role);
 
 /**
+ * Roles only a manufacturing order or a job-work order posts to. An org
+ * without the Manufacturing module can reach neither, so asking it to map
+ * them is asking for accounts nothing will ever post to.
+ */
+export const PRODUCTION_ROLES: readonly AccountRole[] = ["WIP_OPEN_ORDERS", "LABOUR_ABSORBED", "OVERHEAD_ABSORBED", "PRODUCTION_VARIANCE", "SCRAP_LOSS"];
+export const isProductionRole = (r: string) => (PRODUCTION_ROLES as readonly string[]).includes(r);
+
+/**
+ * Roles most companies point at ONE account whatever the group. The mapping
+ * screen offers them once ("Shared accounts") and writes the choice to every
+ * group; a group may still be given its own. Storage stays per group, so the
+ * resolver is unchanged.
+ */
+export const SHARED_ROLES: readonly AccountRole[] = ["GRNI", "PURCHASE_PRICE_VARIANCE", "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"];
+export const isSharedRole = (r: string) => (SHARED_ROLES as readonly string[]).includes(r);
+
+/** What the org actually runs. `production` defaults to true (ask for everything). */
+export type RoleScope = { production?: boolean };
+
+/**
+ * The roles a group of this type must have mapped before its items can post:
+ * everything the type uses, less the production roles when the org does not
+ * run production. An unrequired role is still refused BY NAME if something
+ * does try to post to it (`roleAccount`), never guessed.
+ */
+export function requiredRoles(t: GroupType, scope?: RoleScope): AccountRole[] {
+  const all = rolesForGroupType(t);
+  return scope?.production === false ? all.filter(r => !isProductionRole(r)) : all;
+}
+
+/** One line on what choosing a separate account for this role shows in reports. */
+export const ROLE_REPORT_HINT: Record<AccountRole, string> = {
+  RM_INVENTORY:            "Raw material stock as its own line on the balance sheet.",
+  WIP_STOCK:               "Semi-finished stock as its own line on the balance sheet.",
+  WIP_OPEN_ORDERS:         "The value tied up in orders still open, apart from stock on the shelf.",
+  FG_INVENTORY:            "This group's stock as its own line on the balance sheet.",
+  GRNI:                    "What you have received but not yet been billed for.",
+  PURCHASE_PRICE_VARIANCE: "How far supplier invoices differ from the price you received at.",
+  SALES_FG:                "This group's sales on their own line in the profit and loss.",
+  SALES_SURPLUS:           "Sales of materials and surplus, apart from product sales.",
+  SALES_RETURNS:           "Returns shown apart from sales, so the return rate can be read.",
+  SCRAP_SALES:             "Income from scrap, apart from product sales.",
+  COGS_FG:                 "This group's cost of sales, so its margin can be read on its own.",
+  COGS_SURPLUS:            "Cost of materials and surplus sold, apart from product cost.",
+  LABOUR_ABSORBED:         "Labour charged into production, to compare with wages actually paid.",
+  OVERHEAD_ABSORBED:       "Overhead charged into production, to compare with overhead actually spent.",
+  PRODUCTION_VARIANCE:     "What is left on an order when it closes: the cost you did not plan.",
+  SCRAP_LOSS:              "Production loss beyond the expected yield, on its own line.",
+  INVENTORY_ADJUSTMENT:    "Stock count gains and losses, apart from cost of sales.",
+  INVENTORY_WRITEDOWN:     "Stock written down for damage, expiry or value, on its own line.",
+};
+
+/**
  * How a group's accounts are laid out on the mapping screen. The group's own
  * three goods accounts come first under neutral names ("Stock account"), since
  * what they are called depends only on the group; the shared roles follow,
@@ -230,7 +283,8 @@ export const isRoleForGroupType = (role: AccountRole, t: GroupType) => rolesForG
  */
 export type RoleSection = { title: string; desc: string; roles: { role: AccountRole; label: string }[] };
 
-export function groupRoleSections(t: GroupType): RoleSection[] {
+export function groupRoleSections(t: GroupType, scope?: RoleScope): RoleSection[] {
+  const needed = new Set(requiredRoles(t, scope));
   const m = GROUP_TYPE_META[t];
   const kind = m.label.toLowerCase();
   const produced = isRoleForGroupType("LABOUR_ABSORBED", t);
@@ -264,7 +318,7 @@ export function groupRoleSections(t: GroupType): RoleSection[] {
     ] },
   ];
   return all
-    .map(sec => ({ ...sec, roles: sec.roles.filter(r => isRoleForGroupType(r.role, t)) }))
+    .map(sec => ({ ...sec, roles: sec.roles.filter(r => needed.has(r.role)) }))
     .filter(sec => sec.roles.length > 0);
 }
 
@@ -273,8 +327,8 @@ export function groupRoleSections(t: GroupType): RoleSection[] {
  * type, only the roles that type uses count: an unmapped "Finished goods
  * inventory" on a Raw Materials group blocks nothing, because nothing reads it.
  */
-export function missingRoles(map: Partial<Record<string, string | null | undefined>>, groupType?: GroupType): AccountRole[] {
-  const roles = groupType ? rolesForGroupType(groupType) : [...ACCOUNT_ROLES];
+export function missingRoles(map: Partial<Record<string, string | null | undefined>>, groupType?: GroupType, scope?: RoleScope): AccountRole[] {
+  const roles = groupType ? requiredRoles(groupType, scope) : [...ACCOUNT_ROLES];
   return roles.filter(r => !map[r]);
 }
 

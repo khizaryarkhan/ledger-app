@@ -14,7 +14,7 @@ import { accounts } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { isGroupType, missingRoles } from "@/lib/accounting/account-roles";
-import { ensureInventoryAccounting, loadGroupMaps, isSyncedOrg, createPostingGroup, groupItemCounts } from "@/lib/accounting/account-roles-server";
+import { ensureInventoryAccounting, loadGroupMaps, isSyncedOrg, createPostingGroup, groupItemCounts, orgRoleScope } from "@/lib/accounting/account-roles-server";
 
 const ADMIN = ["company_admin", "super_admin"];
 
@@ -22,18 +22,20 @@ export async function GET() {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
   await ensureInventoryAccounting(orgId!);
-  const [groups, counts, synced, accts] = await Promise.all([
-    loadGroupMaps(orgId!), groupItemCounts(orgId!), isSyncedOrg(orgId!),
+  const [groups, counts, synced, scope, accts] = await Promise.all([
+    loadGroupMaps(orgId!), groupItemCounts(orgId!), isSyncedOrg(orgId!), orgRoleScope(orgId!),
     db.select({ id: accounts.id, name: accounts.name, code: accounts.code, type: accounts.type, status: accounts.status,
       isHeader: accounts.isHeader, defaultRole: accounts.defaultRole, isSystemDefault: accounts.isSystemDefault, source: accounts.source })
       .from(accounts).where(eq(accounts.orgId, orgId!)),
   ]);
   return ok({
     synced,
+    // Whether the org runs production — decides which accounts are asked for.
+    production: scope.production !== false,
     canEdit: ADMIN.includes(role!),
     groups: groups
       .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name))
-      .map(g => ({ ...g, itemCount: counts.get(g.id) ?? 0, missing: missingRoles(g.roles, g.groupType) })),
+      .map(g => ({ ...g, itemCount: counts.get(g.id) ?? 0, missing: missingRoles(g.roles, g.groupType, scope) })),
     accounts: accts.sort((a, b) => (a.code ?? "~").localeCompare(b.code ?? "~") || a.name.localeCompare(b.name)),
   });
 }

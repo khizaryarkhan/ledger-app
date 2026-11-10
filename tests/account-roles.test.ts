@@ -3,6 +3,7 @@ import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, TRADING_DEFAULT_NAMES,
   allowedTypesFor, roleAccountError, groupTypeForKind, missingRoles, defaultAccountName, roleForOverride,
   rolesForGroupType, groupRoleSections, accountTypeError, untrackedIncomeTypes, UNTRACKED_EXPENSE_TYPES,
+  requiredRoles, PRODUCTION_ROLES, SHARED_ROLES, ROLE_REPORT_HINT,
 } from "@/lib/accounting/account-roles";
 import { ITEM_KIND_LIST } from "@/lib/inventory/item-kinds";
 import { ACCOUNT_TYPE_NAMES } from "@/lib/accounting/account-types";
@@ -176,6 +177,58 @@ describe("untracked item account validation", () => {
     for (const t of ["Bank", "Accounts Receivable", "Accounts Payable"])
       expect(UNTRACKED_EXPENSE_TYPES as readonly string[]).not.toContain(t);
     expect(accountTypeError("Expense account", UNTRACKED_EXPENSE_TYPES, { name: "Checking", type: "Bank" })).toMatch(/Expense account must be/);
+  });
+});
+
+// The mapping screen asks only for what the org runs. Every account is still
+// an explicit choice: a role that is not required is refused by name if
+// something does post to it, never filled in.
+describe("required accounts follow what the org runs", () => {
+  const noProduction = { production: false };
+
+  it("asks for everything by default", () => {
+    for (const t of GROUP_TYPES) expect(requiredRoles(t)).toEqual(rolesForGroupType(t));
+    for (const t of GROUP_TYPES) expect(requiredRoles(t, { production: true })).toEqual(rolesForGroupType(t));
+  });
+
+  it("drops the production accounts when the org does not run production", () => {
+    expect(requiredRoles("FP", noProduction)).toHaveLength(8);
+    expect(requiredRoles("WIP", noProduction)).toHaveLength(6);
+    expect(requiredRoles("RM", noProduction)).toHaveLength(7);
+    expect(requiredRoles("TRADING", noProduction)).toHaveLength(8);
+    for (const t of GROUP_TYPES) for (const r of PRODUCTION_ROLES) expect(requiredRoles(t, noProduction)).not.toContain(r);
+  });
+
+  it("never drops stock, sales, cost of sales or the receipt clearing account", () => {
+    for (const t of GROUP_TYPES) {
+      const m = GROUP_TYPE_META[t];
+      for (const r of [m.inventoryRole, m.salesRole, m.cogsRole, "GRNI"] as const) expect(requiredRoles(t, noProduction)).toContain(r);
+    }
+  });
+
+  it("a group missing only production accounts does not block a non-production org", () => {
+    const fp = Object.fromEntries(requiredRoles("FP", noProduction).map(r => [r, "a"]));
+    expect(missingRoles(fp, "FP", noProduction)).toEqual([]);
+    expect([...missingRoles(fp, "FP")].sort()).toEqual([...PRODUCTION_ROLES].sort());
+  });
+
+  it("the screen shows exactly the required accounts", () => {
+    for (const t of GROUP_TYPES) {
+      const shown = groupRoleSections(t, noProduction).flatMap(s => s.roles.map(r => r.role));
+      expect([...shown].sort()).toEqual([...requiredRoles(t, noProduction)].sort());
+    }
+  });
+
+  it("shared accounts are never stock or production accounts, and most groups use them", () => {
+    for (const r of SHARED_ROLES) {
+      expect(INVENTORY_ROLES).not.toContain(r);
+      expect(PRODUCTION_ROLES).not.toContain(r);
+      expect(GROUP_TYPES.filter(t => rolesForGroupType(t).includes(r)).length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("every role says what a separate account shows in reports", () => {
+    for (const r of ACCOUNT_ROLES) expect(ROLE_REPORT_HINT[r].length).toBeGreaterThan(10);
   });
 });
 

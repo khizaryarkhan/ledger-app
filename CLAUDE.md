@@ -5653,3 +5653,31 @@ on top, a toolbar repeating the totals, saved-view pills). Now there is ONE bar
   `table.lines th{text-align:left}` outranked `th.r`, so Amount/Status/Outstanding
   headings sat left of their figures — the right-align rule is now qualified.
   `tests/statement-pdf.test.ts` (HTML built by the pure `buildStatementHtml`).
+
+## Posting Groups: ask only for what applies (2026-11-10)
+
+Product owner: mapping is a one-time exercise the user does themselves, for informed
+reporting. So **every account stays an explicit choice (no automatic fallback)**, but the
+screen stops asking for what the company does not use. Rules pure in
+`lib/accounting/account-roles.ts` (`tests/account-roles.test.ts`).
+
+- **Production accounts are required only with the Manufacturing module**
+  (`PRODUCTION_ROLES`: WIP open orders, labour/overhead absorbed, production variance,
+  scrap loss; `requiredRoles(type, { production })`). `orgRoleScope(orgId)` reads the
+  module; it feeds BOTH the block (`resolveItemAccounts` -> `unmapped`) and the screen, so
+  they cannot disagree. A role that is not required is still refused by name by
+  `roleAccount` if something posts to it. Turning Manufacturing on later makes them
+  required again (posting blocks until chosen).
+- **Shared accounts** (`SHARED_ROLES`: GRNI, purchase price variance, inventory
+  adjustments, write-downs) are picked once in a card and WRITTEN TO EVERY GROUP through
+  the existing PATCH. Storage is still per group, so the resolver is unchanged; inside a
+  group those rows hide while they equal the shared choice ("Set separately for this
+  group" shows them).
+- **A group with no items neither warns nor counts** ("Not in use yet"). Progress reads
+  "N of M accounts chosen" over groups in use.
+- Each row shows what a separate account buys in reports (`ROLE_REPORT_HINT`); what posts
+  there and the account type moved to the tooltip.
+- **Known gaps, not built**: opening stock has no path of its own (a stock count gain
+  credits Inventory adjustments, a cost-of-sales account, and control accounts refuse an
+  Opening entry) so a first stock load distorts the first period margin; no landed-cost
+  account; no sales-discount account. Not clicked through in a browser.

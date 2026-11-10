@@ -25,10 +25,12 @@ import { LedgerValidationError, postJournalEntry } from "@/lib/ledger";
 import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, INVENTORIES_HEADER, MAPPING_PATH,
   TEMPLATE_VERSION, TRADING_DEFAULT_NAMES, defaultAccountName, groupTypeForKind, isGroupType, missingRoles, rolesForGroupType, isRoleForGroupType,
+  type RoleScope,
   roleAccountError, roleForOverride, accountTypeError, UNTRACKED_EXPENSE_TYPES, untrackedIncomeTypes,
   type AccountRole, type GroupType, type OverrideField,
 } from "./account-roles";
 import { kindOf, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
+import { hasModule } from "@/lib/modules";
 
 /** A mapping gap. Extends LedgerValidationError so every route already turns it into a 400. */
 export class AccountMappingError extends LedgerValidationError {}
@@ -256,6 +258,17 @@ export async function ensureInventoryAccounting(orgId: string): Promise<void> {
 
 // ── Resolution ──────────────────────────────────────────────────────────────
 
+/**
+ * What the org runs, for deciding which roles it must map. Manufacturing and
+ * job-work orders are the only posters to the production roles, and both sit
+ * behind the Manufacturing module — without it those roles are not required.
+ * Fails towards asking for everything if the org row can't be read.
+ */
+export async function orgRoleScope(orgId: string): Promise<RoleScope> {
+  const [org] = await db.select({ m: organisations.enabledModules }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  return { production: org ? hasModule(org.m, "manufacturing") : true };
+}
+
 export type GroupMap = {
   id: string; name: string; groupType: GroupType; isDefault: boolean;
   roles: Partial<Record<AccountRole, string>>;
@@ -304,7 +317,7 @@ export async function resolveItemAccounts(orgId: string, items: ItemRow[], opts?
   // Read-only callers (reports, reconciliation) pass provision:false so looking
   // at an org never seeds its chart.
   if (opts?.provision !== false) await ensureInventoryAccounting(orgId);
-  const [groups, accts] = await Promise.all([loadGroupMaps(orgId), orgAccounts(orgId)]);
+  const [groups, accts, scope] = await Promise.all([loadGroupMaps(orgId), orgAccounts(orgId), orgRoleScope(orgId)]);
   const acctById = new Map(accts.map(a => [a.id, a]));
   for (const it of tracked) {
     const t = groupTypeForKind(it.productType)!;
@@ -325,7 +338,7 @@ export async function resolveItemAccounts(orgId: string, items: ItemRow[], opts?
     out.set(it.id, {
       postingGroupId: g?.id ?? null, groupType: t, groupName: g?.name ?? null, roles,
       assetAccountId: roles[m.inventoryRole] ?? null, cogsAccountId: roles[m.cogsRole] ?? null, incomeAccountId: roles[m.salesRole] ?? null,
-      unmapped: missingRoles(roles, t), ignoredOverrides: ignored,
+      unmapped: missingRoles(roles, t, scope), ignoredOverrides: ignored,
     });
   }
   return out;

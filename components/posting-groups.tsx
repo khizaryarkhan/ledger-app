@@ -8,6 +8,11 @@
  * each dropdown offering only accounts of the type the role requires. A
  * tracked item whose group has any role unmapped cannot move stock, so an
  * incomplete group is shown as the blocker it is.
+ *
+ * Every account is still the user's own choice (nothing is filled in for
+ * them), but the screen asks only for what applies: production accounts only
+ * when the org runs production, the four accounts most companies share across
+ * groups once ("Shared accounts"), and no warnings for a group with no items.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -17,8 +22,8 @@ import { ListPage, ListPageHeader } from "@/components/list-view";
 import { Button, Modal, Toast } from "@/components/ui";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset, control, t } from "@/components/form-kit";
 import {
-  ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, groupRoleSections,
-  allowedTypesFor, roleAccountError, type AccountRole, type GroupType,
+  ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, SHARED_ROLES, ROLE_REPORT_HINT, groupRoleSections,
+  allowedTypesFor, roleAccountError, requiredRoles, isRoleForGroupType, isSharedRole, type AccountRole, type GroupType,
 } from "@/lib/accounting/account-roles";
 import { fmt, localToday } from "@/lib/format";
 import { useData } from "@/components/data-provider";
@@ -33,7 +38,7 @@ const acctLabel = (a?: Acct) => a ? `${a.code ? a.code + " · " : ""}${a.name}` 
 export function PostingGroups() {
   const { orgSettings } = useData() as any;
   const ccy = orgSettings?.currency ?? "EUR";
-  const [data, setData] = useState<{ synced: boolean; canEdit: boolean; groups: Group[]; accounts: Acct[] } | null>(null);
+  const [data, setData] = useState<{ synced: boolean; production: boolean; canEdit: boolean; groups: Group[]; accounts: Acct[] } | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<Record<AccountRole, string>>>({});
   const [effective, setEffective] = useState(localToday());
@@ -43,6 +48,9 @@ export function PostingGroups() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<any>(null);
   const [quickAddRole, setQuickAddRole] = useState<AccountRole | null>(null);
+  const [quickAddShared, setQuickAddShared] = useState(false);
+  // Shared accounts are hidden inside a group until the user asks to set one separately.
+  const [ownShared, setOwnShared] = useState(false);
 
   async function load(keep?: string | null) {
     const res = await fetch("/api/accounting/posting-groups");
@@ -59,7 +67,25 @@ export function PostingGroups() {
   const byId = useMemo(() => new Map((data?.accounts ?? []).map(a => [a.id, a])), [data]);
   const dirty = Object.keys(draft).filter(r => group && draft[r as AccountRole] !== group.roles[r as AccountRole]) as AccountRole[];
   const touchesStock = dirty.some(r => (INVENTORY_ROLES as readonly string[]).includes(r));
-  const anyMissing = (data?.groups ?? []).some(g => g.missing.length);
+  const scope = { production: data?.production !== false };
+  // A group with no items blocks nothing, so it neither warns nor counts.
+  const inUse = (data?.groups ?? []).filter(g => g.itemCount > 0);
+  const idle = (data?.groups ?? []).filter(g => g.itemCount === 0);
+  const anyMissing = inUse.some(g => g.missing.length);
+  const needed = inUse.reduce((n, g) => n + requiredRoles(g.groupType, scope).length, 0);
+  const chosen = needed - inUse.reduce((n, g) => n + g.missing.length, 0);
+
+  const sharedValues = (role: AccountRole) =>
+    new Set((data?.groups ?? []).filter(g => isRoleForGroupType(role, g.groupType)).map(g => g.roles[role] ?? ""));
+  // The one account every group agrees on for a shared role; null when they differ or none is set.
+  const sharedValue = (role: AccountRole): string | null => {
+    const vals = sharedValues(role);
+    const [only] = [...vals];
+    return vals.size === 1 && only ? only : null;
+  };
+  // Inside a group, a shared role's row shows only when it differs from the shared choice.
+  const hiddenInGroup = (g: Group, role: AccountRole) =>
+    isSharedRole(role) && !ownShared && draft[role] === undefined && !!g.roles[role] && sharedValue(role) === g.roles[role];
 
   const optionsFor = (role: AccountRole) => {
     const ok = allowedTypesFor(role);
@@ -84,6 +110,28 @@ export function PostingGroups() {
     } catch (e: any) {
       setErr(e.message); setConfirm(null);
     } finally { setSaving(false); }
+  }
+
+  /** Write one account to every group that uses the role: the "set once" path. */
+  async function applyShared(role: AccountRole, accountId: string) {
+    if (!accountId || !data) return;
+    setSaving(true);
+    try {
+      for (const g of data.groups.filter(x => isRoleForGroupType(role, x.groupType) && x.roles[role] !== accountId)) {
+        const res = await fetch(`/api/accounting/posting-groups/${g.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roles: { [role]: accountId }, effectiveDate: localToday(), confirm: false }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d?.error || `Could not set ${ROLES[role].label} on ${g.name}`);
+      }
+      setToast({ message: `${ROLES[role].label} set for every group`, type: "success" });
+    } catch (e: any) {
+      setToast({ message: e.message, type: "error" });
+    } finally {
+      setSaving(false);
+      await load(sel);
+    }
   }
 
   async function provision() {
@@ -121,29 +169,75 @@ export function PostingGroups() {
             Nothing is created or changed in the external ledger. <span className="text-stone-500">"Create missing default accounts" adds them here only.</span>
           </div>
         )}
-        {anyMissing && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-200 flex gap-2">
-            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-            <span>Some groups have roles with no account. Items in those groups can't be received, built, shipped or transferred until every role is mapped.</span>
+        {needed > 0 && (
+          <div className={`rounded-lg border px-4 py-3 ${anyMissing ? "border-amber-500/30 bg-amber-500/5" : "border-stone-800 bg-stone-900/40"}`}>
+            <div className="flex items-center gap-2 text-[13px]">
+              {anyMissing ? <AlertTriangle size={16} className="text-amber-400 shrink-0" /> : <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />}
+              <span className={anyMissing ? "text-amber-200" : "text-stone-300"}>
+                {anyMissing
+                  ? `${chosen} of ${needed} accounts chosen. Items in a group can't be received, sold or adjusted until its accounts are chosen.`
+                  : `All ${needed} accounts chosen. Setup is complete for the groups you use.`}
+              </span>
+            </div>
+            {anyMissing && (
+              <div className="mt-2 h-1 rounded bg-stone-800 overflow-hidden">
+                <div className="h-full bg-amber-400" style={{ width: `${Math.round((chosen / needed) * 100)}%` }} />
+              </div>
+            )}
           </div>
         )}
+
+        {/* Shared accounts: chosen once, written to every group. */}
+        <div className="rounded-lg border border-stone-800 bg-stone-900/40">
+          <div className="px-4 py-3 border-b border-stone-800">
+            <div className={t.heading}>Shared accounts</div>
+            <div className={t.hint}>Chosen once and used by every group. A group can still be given its own.</div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            {SHARED_ROLES.map(r => {
+              const value = sharedValue(r) ?? "";
+              const mixed = !value && sharedValues(r).size > 1;
+              return (
+                <div key={r} className="px-4 py-2.5">
+                  <div className={t.bodyStrong}>{ROLES[r].label}</div>
+                  <div className={`${t.hint} mb-1.5`} title={`${ROLES[r].purpose} · ${allowedTypesFor(r).join(" / ")}`}>{ROLE_REPORT_HINT[r]}</div>
+                  <SelectField value={value} disabled={!data.canEdit || saving}
+                    onChange={e => {
+                      if (e.target.value === "__add__") { setQuickAddShared(true); setQuickAddRole(r); return; }
+                      applyShared(r, e.target.value);
+                    }}>
+                    <option value="">{mixed ? "Different in each group" : "— Not chosen —"}</option>
+                    {optionsFor(r).map(a => <option key={a.id} value={a.id}>{acctLabel(a)}{a.source !== "native" ? ` (${a.source.toUpperCase()})` : ""}</option>)}
+                    {data.canEdit && <option value="__add__">+ Add new account…</option>}
+                  </SelectField>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
           {/* Group list */}
           <div className="space-y-1.5">
-            {data.groups.map(g => (
-              <button key={g.id} onClick={() => { setSel(g.id); setDraft({}); setErr(null); }}
-                className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${g.id === sel ? "border-emerald-500/50 bg-emerald-500/5" : "border-stone-800 hover:border-stone-700 bg-stone-900/40"}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className={t.bodyStrong}>{g.name}</span>
-                  {g.missing.length ? <AlertTriangle size={14} className="text-amber-400 shrink-0" /> : <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />}
+            {[...inUse, ...idle].map((g, i) => {
+              const total = requiredRoles(g.groupType, scope).length;
+              const used = g.itemCount > 0;
+              return (
+                <div key={g.id}>
+                  {!used && i === inUse.length && <div className={`${t.micro} px-1 pt-3 pb-1.5`}>Not in use yet</div>}
+                  <button onClick={() => { setSel(g.id); setDraft({}); setErr(null); setOwnShared(false); }}
+                    className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${g.id === sel ? "border-emerald-500/50 bg-emerald-500/5" : "border-stone-800 hover:border-stone-700 bg-stone-900/40"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={used ? t.bodyStrong : "text-[13px] font-medium text-stone-400"}>{g.name}</span>
+                      {used && (g.missing.length ? <AlertTriangle size={14} className="text-amber-400 shrink-0" /> : <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />)}
+                    </div>
+                    <div className={`${t.hint} mt-0.5`}>
+                      {used ? `${g.itemCount} item${g.itemCount === 1 ? "" : "s"}` : "No items"} · {total - g.missing.length} of {total} chosen
+                    </div>
+                  </button>
                 </div>
-                <div className={`${t.hint} mt-0.5`}>
-                  {GROUP_TYPE_META[g.groupType].label}{g.isDefault ? " · default" : ""} · {g.itemCount} item{g.itemCount === 1 ? "" : "s"}
-                  {g.missing.length ? ` · ${g.missing.length} unmapped` : ""}
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* Role map */}
@@ -160,7 +254,7 @@ export function PostingGroups() {
               </div>
               <table className="w-full text-[13px]">
                 <tbody>
-                  {groupRoleSections(group.groupType).map(section => {
+                  {groupRoleSections(group.groupType, scope).map(section => ({ ...section, roles: section.roles.filter(x => !hiddenInGroup(group, x.role)) })).filter(section => section.roles.length).map(section => {
                     return [
                       <tr key={section.title}><td colSpan={2} className="px-4 pt-5 pb-1.5">
                         <div className={t.micro}>{section.title}</div>
@@ -176,17 +270,17 @@ export function PostingGroups() {
                                 <span className={t.bodyStrong}>{label}</span>
                                 {(INVENTORY_ROLES as readonly string[]).includes(r) && <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-400 bg-stone-800 rounded px-1.5 py-px">control</span>}
                               </div>
-                              <div className={t.hint}>{ROLES[r].purpose} · {allowedTypesFor(r).join(" / ")}</div>
+                              <div className={t.hint} title={`${ROLES[r].purpose} · ${allowedTypesFor(r).join(" / ")}`}>{ROLE_REPORT_HINT[r]}</div>
                             </td>
                             <td className="px-4 py-2 align-top">
                               <SelectField value={value} disabled={!data.canEdit}
                                 onChange={e => { if (e.target.value === "__add__") { setQuickAddRole(r); return; } setDraft(d => ({ ...d, [r]: e.target.value })); }}>
-                                <option value="">{value ? "" : "— Not mapped —"}</option>
+                                <option value="">{value ? "" : "— Not chosen —"}</option>
                                 {optionsFor(r).map(a => <option key={a.id} value={a.id}>{acctLabel(a)}{a.source !== "native" ? ` (${a.source.toUpperCase()})` : ""}</option>)}
                                 {value && !optionsFor(r).some(a => a.id === value) && <option value={value}>{acctLabel(byId.get(value)) || "(unknown account)"}</option>}
                                 {data.canEdit && <option value="__add__">+ Add new account…</option>}
                               </SelectField>
-                              {!value && <p className="mt-1 text-[11px] text-amber-400">Not mapped — blocks stock movements for this group.</p>}
+                              {!value && group.itemCount > 0 && <p className="mt-1 text-[11px] text-amber-400">Not chosen. Items in this group can't move stock until it is.</p>}
                               {bad && <p className="mt-1 text-[11px] text-rose-400">{bad}</p>}
                             </td>
                           </tr>
@@ -196,6 +290,27 @@ export function PostingGroups() {
                   })}
                 </tbody>
               </table>
+              {(() => {
+                const hidden = SHARED_ROLES.filter(r => isRoleForGroupType(r, group.groupType) && hiddenInGroup(group, r));
+                if (!hidden.length && !ownShared) return null;
+                return (
+                  <div className="px-4 py-3 border-t border-stone-800/60 text-[12px] text-stone-400 flex items-center gap-2 flex-wrap">
+                    {hidden.length > 0
+                      ? <span>Uses the shared accounts for {hidden.map(r => ROLES[r].label.toLowerCase()).join(", ")}.</span>
+                      : <span>The shared accounts are listed above for this group.</span>}
+                    {data.canEdit && (
+                      <button className="text-stone-200 underline underline-offset-2 hover:text-white" onClick={() => setOwnShared(v => !v)}>
+                        {ownShared ? "Hide them" : "Set separately for this group"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+              {group.itemCount === 0 && (
+                <div className="px-4 py-3 border-t border-stone-800/60 text-[12px] text-stone-400">
+                  No items use this group yet, so nothing is blocked. Choose its accounts before you add {GROUP_TYPE_META[group.groupType].label.toLowerCase()} items.
+                </div>
+              )}
               {data.canEdit && dirty.length > 0 && (
                 <div className="sticky bottom-0 border-t border-stone-800 bg-stone-900 px-4 py-3 flex items-center gap-3 flex-wrap">
                   <span className={t.secondary}>{dirty.length} change{dirty.length === 1 ? "" : "s"}</span>
@@ -238,11 +353,12 @@ export function PostingGroups() {
       {creating && <NewGroupDrawer onClose={() => setCreating(false)} onCreated={id => { setCreating(false); load(id); setToast({ message: "Group created from the default mapping", type: "success" }); }} />}
       {quickAddRole && (
         <QuickAdd kind="account" accountTypes={allowedTypesFor(quickAddRole)}
-          onClose={() => setQuickAddRole(null)}
+          onClose={() => { setQuickAddRole(null); setQuickAddShared(false); }}
           onCreated={(row) => {
             setData(d => d ? { ...d, accounts: [...d.accounts, row] } : d);
-            setDraft(d => ({ ...d, [quickAddRole]: row.id }));
-            setQuickAddRole(null);
+            if (quickAddShared) applyShared(quickAddRole, row.id);
+            else setDraft(d => ({ ...d, [quickAddRole]: row.id }));
+            setQuickAddRole(null); setQuickAddShared(false);
           }} />
       )}
       <Toast toast={toast} onClose={() => setToast(null)} />
