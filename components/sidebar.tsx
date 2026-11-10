@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -734,6 +734,7 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [theme, setTheme] = useState<string>("");
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const timer = useRef<any>(null);
   const active = items.some(i => pathname === i.href || pathname.startsWith(i.href + "/"));
 
@@ -743,7 +744,7 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
     if (r) {
       // Keep the whole panel on screen: near the bottom of the sidebar it
       // opens upward instead of running off the window (Setup was cut off).
-      const estHeight = 40 + items.length * 32;
+      const estHeight = 48 + items.length * 40;
       const top = Math.max(8, Math.min(Math.round(r.top), window.innerHeight - estHeight - 8));
       setPos({ left: Math.round(r.right + 6), top });
     }
@@ -755,6 +756,15 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
   const closeSoon = () => { timer.current = setTimeout(() => setOpen(false), 160); };
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
+  // The estimate above is only a first guess; once the panel is in the DOM,
+  // measure it and pull it up if its real height still runs past the window.
+  useLayoutEffect(() => {
+    if (!open || !pos || !panelRef.current) return;
+    const h = panelRef.current.offsetHeight;
+    const top = Math.max(8, Math.min(pos.top, window.innerHeight - h - 8));
+    if (top !== pos.top) setPos({ left: pos.left, top });
+  }, [open, pos]);
+
   return (
     <div className="mb-3 pt-3 border-t border-stone-800" onMouseEnter={openNow} onMouseLeave={closeSoon}>
       <button ref={btnRef} onClick={openNow}
@@ -765,7 +775,7 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
       </button>
       {open && pos && typeof document !== "undefined" && createPortal(
         <div data-theme={theme || undefined}>
-          <div style={{ position: "fixed", left: pos.left, top: pos.top }} onMouseEnter={openNow} onMouseLeave={closeSoon}
+          <div ref={panelRef} style={{ position: "fixed", left: pos.left, top: pos.top }} onMouseEnter={openNow} onMouseLeave={closeSoon}
             className="z-[60] bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-2 min-w-[220px] max-h-[calc(100vh-16px)] overflow-y-auto">
             <div className="px-3 pb-1.5 text-[11px] font-bold text-brand-orange uppercase tracking-wider">{label}</div>
             {items.map(item => {
