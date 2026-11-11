@@ -76,7 +76,11 @@ export type EventType =
   | "document_deleted"
   | "document_emailed"
   | "attachment_added"
-  | "attachment_removed";
+  | "attachment_removed"
+  // Bills of materials (BOM Builder). Keyed on docType "bom" / the BOM id.
+  | "bom_created"
+  | "bom_edited"
+  | "bom_deleted";
 
 export interface LogEventArgs {
   orgId: string;
@@ -88,7 +92,7 @@ export interface LogEventArgs {
   // entries.id/trade_documents.id discriminator Print/Download, Email/Send
   // and Attachments already use. Independent of customerId/projectId/
   // invoiceId above: a Bill or Payment has a docId but no invoiceId at all.
-  docType?: "ledger" | "trade" | null;
+  docType?: "ledger" | "trade" | "bom" | null;
   docId?: string | null;
   actorId?: string | null;
   actorName?: string | null;

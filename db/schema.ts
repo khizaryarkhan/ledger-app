@@ -2405,6 +2405,11 @@ export const bomLines = pgTable("bom_lines", {
   createdAt:       timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   bom_lines_bom_idx: index("bom_lines_bom_idx").on(t.bomId, t.role),
+  // 0134: each output pack / ingredient / packaging line is listed once per BOM.
+  // bom_lines_output_unique and bom_lines_pack_unique also exist (migration 0134) but
+  // are on COALESCE(sku, zero-uuid) expressions, which this drizzle version cannot
+  // declare; they live in the SQL migration only.
+  bom_lines_input_unique: uniqueIndex("bom_lines_input_unique").on(t.bomId, t.itemId).where(sql`${t.role} = 'input'`),
 }));
 export type BomLine = typeof bomLines.$inferSelect;
 

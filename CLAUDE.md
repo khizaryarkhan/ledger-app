@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0133` at `when` `1794100000000`;
+  this silently dropped a table in prod once). Latest is `0134` at `when` `1794200000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5722,3 +5722,37 @@ through `POST /api/inventory/receiving`.
   `billReceipt`/`openReceipt` in `ReceivingConsole`.
 - **Not verified in a browser** (dev server cannot reach Neon); typecheck and unit tests only. The
   per-item lot screen and "Receive without a PO" keep their old layout apart from the step header.
+
+## BOM Builder: one drawer, one save (Phase 1, 2026-11-11)
+
+Replaces the header drawer plus four per-line drawers in `components/bom-register.tsx`. PRD:
+`docs/prd-bom-builder.md` (Phases 2-3 and open questions); mockup: `docs/bom-builder-mockup.html`.
+
+- **UI** `components/bom-builder/` (`index.tsx` drawer, `product-section`, `lines-section`,
+  `ops-cost-sections`, `item-typeahead`, `draft.ts`). A register row opens it for edit; "New BOM"
+  picks a product and **copies its latest Active BOM** (new code `<source>-V2`, new ids). Lines are
+  typed as `name amount` (+ Enter), amounts converted to the item's BASE unit when added. Draft
+  quantities are strings, always in base units. Closing a dirty drawer asks before discarding.
+- **Rules are pure** (`lib/inventory/bom-rules.ts`, client-safe): duplicates, validation, entry
+  parsing, 4x quantity-typo check, advisory weight balance, cost roll-up. The drawer and the save
+  route use the same code. Weight check is kg/g items only for now (no weight-per-unit column yet).
+- **Atomic save** (`lib/inventory/bom-save.ts`): neon-http has no transactions, so it validates rules
+  AND database facts first, then one multi-row insert per table. A create that fails part-way deletes
+  its header; an edit that fails puts the old lines back; both log loudly. Edits carry `updatedAt` as a
+  concurrency token (409 if someone else saved). Routes: `POST /api/inventory/boms/full`,
+  `GET/PUT /api/inventory/boms/[id]/full`, `GET /api/inventory/boms/suggest?itemId=`. Admin-only
+  writes; the old `bom-lines` / `bom-operations` routes are untouched.
+- **A BOM lists each output pack (SKU), ingredient and packaging line ONCE** (migration `0134`, partial
+  unique indexes). MO planning keyed outputs by SKU and summed ingredients by item, so a duplicate
+  silently overwrote or merged. Checked read-only on dev AND production first
+  (`scripts/_scan_duplicate_bom_lines.ts`): zero duplicates. The output and pack indexes are on
+  `COALESCE(sku, zero-uuid)` expressions this drizzle version cannot declare, so only the input index
+  is in `db/schema.ts`; the other two live in the SQL migration.
+- **Output packs are SKUs of the SAME item** (qty = base content of one pack); a recipe with none makes
+  the base unit and packaging may attach to it (`forSkuId` null). Co-products of a different item and
+  rework outputs are NOT supported by MO completion; that needs its own work (PRD G3).
+- Audit: `bom_created` / `bom_edited` (`docType: "bom"`). `lib/mcp/route-manifest.ts` regenerated.
+- **Verified**: 37 unit tests; `scripts/_e2e_bom_builder.ts` against the dev DB (create, duplicate
+  refused with nothing written, both indexes refuse a raw duplicate, edit, stale-token 409, cleanup);
+  the sections server-rendered with sample data. **Not clicked through in a browser** (dev server
+  cannot reach Neon). Not built: substitutes, allowed-SKU limits, import, library/bulk swap (Phases 2-3).

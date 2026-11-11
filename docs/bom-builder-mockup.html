@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BOM Builder — mockup v1</title>
+<style>
+:root{color-scheme:dark;--bg:#0c0a09;--p1:#1c1917;--p2:#151312;--ln:#292524;--ln2:#44403c;--tx:#f5f5f4;--mu:#a8a29e;--dim:#78716c;
+--br:#3b82f6;--brd:#2563eb;--ok:#34d399;--okb:rgba(52,211,153,.12);--wn:#fbbf24;--wnb:rgba(251,191,36,.12);--er:#f87171;--erb:rgba(248,113,113,.12);--inf:#60a5fa;--infb:rgba(96,165,250,.12)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer}
+.bar{height:44px;border-bottom:1px solid var(--ln);display:flex;align-items:center;gap:6px;padding:0 20px;background:var(--p2)}
+.bar b{margin-right:14px}.tab{background:none;border:0;padding:6px 12px;border-radius:6px;color:var(--mu);font-weight:600;font-size:13px}.tab.on{background:var(--p1);color:var(--tx)}
+.demo{font-size:12px;color:var(--mu)}
+main{padding:20px 24px 80px;max-width:1280px;margin:0 auto}
+h1{font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em}h2{font-size:15px;margin:0;font-weight:600}h3{font-size:12px;margin:0;text-transform:uppercase;letter-spacing:.05em;color:var(--mu);font-weight:600}
+.sub{color:var(--mu);font-size:13px;margin-top:2px}.head{display:flex;gap:12px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px}
+.btn{border:1px solid var(--ln2);background:var(--p1);border-radius:6px;padding:7px 14px;font-weight:600;font-size:13px}.btn:hover{border-color:var(--mu)}
+.pri{background:var(--brd);border-color:var(--brd);color:#fff}.pri:hover{background:var(--br)}.pri:disabled{opacity:.4;cursor:not-allowed}
+.txt{border:0;background:none;color:var(--inf);padding:3px 6px;font-weight:600;font-size:13px}.txt:hover{text-decoration:underline}
+.sm{padding:4px 10px;font-size:12px}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.inp{background:var(--p2);border:1px solid var(--ln2);border-radius:6px;padding:8px 11px;width:100%;min-height:36px}.inp:focus{outline:none;border-color:var(--br);box-shadow:0 0 0 3px var(--infb)}
+.inp.q{width:110px;text-align:right;font-variant-numeric:tabular-nums}
+select.inp{width:auto}
+.chip{border:1px solid var(--ln2);background:var(--p1);border-radius:6px;padding:4px 11px;font-size:12px;font-weight:600;color:var(--mu)}.chip.on{background:#292524;color:var(--tx);border-color:var(--mu)}
+table{width:100%;border-collapse:collapse}th{text-align:left;font-size:12px;font-weight:600;color:var(--mu);padding:9px 14px;border-bottom:1px solid var(--ln);background:var(--p2)}
+td{padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:middle}tr.row:hover td{background:var(--p2);cursor:pointer}.r{text-align:right;font-variant-numeric:tabular-nums}
+.tw{border:1px solid var(--ln);border-radius:8px;overflow:hidden;background:var(--p1)}
+.tag{display:inline-block;border:1px solid var(--ln2);border-radius:5px;padding:0 6px;font-size:11px;font-weight:700;line-height:18px;color:var(--mu)}
+.t-FP{color:#fb923c;border-color:#7c2d12}.t-RM{color:var(--ok);border-color:#064e3b}.t-WIP{color:var(--inf);border-color:#1e3a8a}.t-PK{color:var(--wn);border-color:#78350f}
+.pill{display:inline-block;border-radius:5px;padding:1px 8px;font-size:12px;font-weight:600}.p-ok{background:var(--okb);color:var(--ok)}.p-wn{background:var(--wnb);color:var(--wn)}.p-er{background:var(--erb);color:var(--er)}.p-n{background:#292524;color:var(--mu)}.p-inf{background:var(--infb);color:var(--inf)}
+.code{font-size:12px;color:var(--dim)}.mu{color:var(--mu)}.sp{flex:1}.row-f{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card{background:var(--p1);border:1px solid var(--ln);border-radius:8px;padding:16px}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40}.drawer{position:fixed;z-index:41;top:0;right:0;bottom:0;width:min(820px,100%);background:var(--p1);border-left:1px solid var(--ln2);display:flex;flex-direction:column}
+.dh{padding:14px 22px;border-bottom:1px solid var(--ln);display:flex;align-items:center;gap:10px}.dh h2{flex:1;font-size:16px}
+.db{flex:1;overflow:auto}.df{border-top:1px solid var(--ln);padding:12px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--p2)}
+.x{background:none;border:0;color:var(--dim);font-size:20px;width:30px;height:30px;border-radius:6px}.x:hover{background:var(--erb);color:var(--er)}.x:disabled{opacity:.25}
+.sec{padding:18px 22px;border-bottom:1px solid var(--ln);display:flex;flex-direction:column;gap:12px}
+.lab{font-size:12px;font-weight:600;color:var(--mu);margin-bottom:4px;display:block}
+.xo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--p2);border:1px solid var(--ln);border-radius:8px;padding:8px 10px}.xo.main{border-color:var(--brd)}
+.xo .l{font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
+.auto{background:var(--infb);border:1px solid #1e3a8a;border-radius:8px;padding:9px 12px;font-size:13px;color:#bfdbfe;display:flex;gap:10px;align-items:center}
+.lines{border:1px solid var(--ln);border-radius:8px;overflow:hidden}.ln{display:grid;grid-template-columns:minmax(0,1fr) auto 90px 30px;gap:6px 12px;align-items:center;padding:9px 10px 9px 14px;border-bottom:1px solid var(--ln);background:var(--p2)}.ln:last-child{border-bottom:0}
+.ln .meta{font-size:12px;color:var(--mu);display:flex;flex-wrap:wrap;gap:2px 10px;align-items:center;margin-top:2px}
+.cost{text-align:right;font-size:12px;color:var(--mu);font-variant-numeric:tabular-nums}
+.subs{grid-column:1/-1;border-left:3px solid #1e3a8a;background:var(--bg);border-radius:0 8px 8px 0;margin:2px 0 4px 10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.sb{display:grid;grid-template-columns:24px minmax(0,1fr) auto auto;gap:8px;align-items:center}.n{width:22px;height:22px;border-radius:50%;background:var(--infb);color:var(--inf);font-size:12px;font-weight:700;display:grid;place-items:center}
+.skupanel{grid-column:1/-1;background:var(--bg);border:1px solid var(--ln2);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.skuopt{display:flex;gap:10px;align-items:center;padding:4px 6px;border-radius:6px;cursor:pointer}.skuopt:hover{background:var(--p1)}.skuopt input{accent-color:var(--brd)}
+.ta{position:relative;flex:1 1 320px}.ta .inp{border-style:dashed;border-width:2px;border-color:var(--ln2);padding-left:34px;min-height:42px}.ta .pl{position:absolute;left:12px;top:8px;font-size:20px;color:var(--br);font-weight:700;pointer-events:none}
+.ta .kbd{position:absolute;right:9px;top:10px;font-size:11px;color:var(--dim);border:1px solid var(--ln2);border-radius:5px;padding:0 6px;pointer-events:none}
+.tl{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);background:var(--p1);border:1px solid var(--ln2);border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,.5);padding:4px;max-height:300px;overflow:auto}
+.ti{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer}.ti.hl,.ti:hover{background:#292524}.ti .why{font-size:12px;color:var(--inf);background:var(--infb);border-radius:5px;padding:0 7px}.ti .rt{margin-left:auto;font-weight:700;color:var(--br)}
+.bn{border:1px solid;border-radius:8px;padding:10px 12px;display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;font-size:13px}.bn .t{flex:1 1 260px}.bn .t span{display:block;color:var(--mu)}
+.bn.wn{background:var(--wnb);border-color:#78350f}.bn.inf{background:var(--infb);border-color:#1e3a8a}
+.empty{border:1px dashed var(--ln2);border-radius:8px;padding:14px;color:var(--mu)}
+.fb{display:flex;gap:8px;align-items:center;font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}.fb.ok{color:var(--ok)}.fb.wn{color:var(--wn)}.fb.id{color:var(--mu);font-weight:400}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}.kpi{background:var(--p2);border:1px solid var(--ln);border-radius:8px;padding:10px 12px}.kpi .l{font-size:12px;color:var(--mu)}.kpi .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .h{font-size:12px;color:var(--dim)}
+.bar2{height:8px;border-radius:4px;background:var(--ln);overflow:hidden;display:flex}.bar2 i{display:block;height:100%}
+textarea.inp{min-height:170px;resize:vertical;line-height:1.5}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#e7e5e4;color:#1c1917;padding:10px 18px;border-radius:8px;font-weight:600;z-index:60;max-width:90vw}
+.note{background:var(--p1);border:1px solid var(--ln);border-radius:8px;padding:14px 16px}.note li{margin:4px 0}
+.cmp td:first-child{font-weight:600}
+@media(max-width:640px){.ln{grid-template-columns:minmax(0,1fr) 30px}.ln>.row-f{grid-column:1;grid-row:2}.cost{display:none}.ln>.x{grid-column:2;grid-row:1}.sec{padding:16px}main{padding:16px}}
+</style></head><body>
+<div class="bar"><b>Prime Accountax</b><button class="tab on" data-v="reg">Bills of Materials</button><button class="tab" data-v="imp">Import recipes</button><button class="tab" data-v="cmp">What changed vs today</button><span class="sp"></span><span class="demo">Mockup v1 · sample data · nothing is saved</span></div>
+<main id="stage"></main><div id="ov"></div><div id="tt"></div>
+<script>
+(function(){'use strict';
+var IT=[
+{id:'fp1',code:'HOB-40',name:'Honey Oat Bar 40 g',t:'FP',uom:'bar',kg:0.04,skus:['Single bar 40 g','Box of 12 bars']},
+{id:'fp2',code:'GRC-500',name:'Granola Clusters 500 g',t:'FP',uom:'pouch',kg:0.5,skus:['500 g pouch']},
+{id:'wip1',code:'HOM',name:'Honey Oat Mix',t:'WIP',uom:'kg',kg:1,skus:[]},
+{id:'i1',code:'RM-101',name:'Rolled oats',t:'RM',uom:'kg',w:1,cost:1.9,al:['gluten'],sk:[['OAT-25','25 kg sack','Millhouse'],['OAT-1T','1 t tote','Millhouse'],['OAT-20','20 kg bag','Grainline']]},
+{id:'i2',code:'RM-102',name:'Honey',t:'RM',uom:'kg',w:1,cost:6.5,al:[],sk:[['HNY-300','300 kg drum','Golden Hive'],['HNY-25','25 kg pail','Golden Hive'],['HNY-25M','25 kg pail','Meadow Foods']]},
+{id:'i3',code:'RM-103',name:'Brown sugar',t:'RM',uom:'kg',w:1,cost:1.2,al:[],sk:[['SUG-25','25 kg bag','']]},
+{id:'i4',code:'RM-104',name:'Sunflower oil',t:'RM',uom:'L',w:0.92,cost:2.4,al:[],sk:[['OIL-20','20 L can','Sunseed'],['OIL-1000','1,000 L tote','Sunseed']]},
+{id:'i5',code:'RM-105',name:'Rapeseed oil',t:'RM',uom:'L',w:0.92,cost:2.6,al:[],sk:[['RPO-20','20 L can','']]},
+{id:'i6',code:'RM-106',name:'Chopped almonds',t:'RM',uom:'kg',w:1,cost:9,al:['tree nuts'],sk:[['ALM-10','10 kg box','Nutworks'],['ALM-25','25 kg sack','Nutworks']]},
+{id:'i7',code:'RM-107',name:'Sea salt',t:'RM',uom:'g',w:0.001,cost:0.002,al:[],sk:[['SLT-25','25 kg bag','']]},
+{id:'i8',code:'RM-108',name:'Agave syrup',t:'RM',uom:'kg',w:1,cost:5.8,al:[],sk:[['AGV-25','25 kg pail','']]},
+{id:'i9',code:'RM-109',name:'Glucose syrup',t:'RM',uom:'kg',w:1,cost:2.1,al:[],sk:[['GLU-300','300 kg drum','']]},
+{id:'p1',code:'PK-201',name:'Bar wrapper film',t:'PK',uom:'each',cost:0.02,sk:[['WRP-1000','Roll of 1,000','']]},
+{id:'p2',code:'PK-202',name:'Shipper carton (12 bars)',t:'PK',uom:'each',cost:0.35,sk:[['CTN-12','Flat-pack','']]},
+{id:'p3',code:'PK-203',name:'Stand-up pouch 500 g',t:'PK',uom:'each',cost:0.11,sk:[['PCH-500','Box of 500','']]}];
+var BY={};IT.forEach(function(i){BY[i.id]=i});
+var WC=[{id:'w1',name:'Mixer line',lab:18,oh:6},{id:'w2',name:'Oven line',lab:22,oh:14},{id:'w3',name:'Wrap line',lab:15,oh:8}];
+var TPL={fp1:{code:'BOM_HOB-40',batch:1000,yield:98,lines:[['i1',18,[]],['i2',7,['i8','i9']],['i3',4,[]],['i4',3,['i5']],['i6',8,[]],['i7',200,[]],['p1',1000,[]],['p2',84,[]]],ops:[['w1',2],['w2',3],['w3',4]]},
+fp2:{code:'BOM_GRC-500',batch:400,yield:97,lines:[['i1',120,[]],['i2',40,[]],['i4',18,['i5']],['i6',30,[]],['i7',1000,[]],['p3',400,[]]],ops:[['w1',3],['w2',4]]}};
+var LIST=[{code:'BOM_HOB-40',p:'fp1',st:'Active',lines:8,cost:0.2},{code:'BOM_GRC-500',p:'fp2',st:'Active',lines:6,cost:0},{code:'SBOM_HOM',p:'wip1',st:'Active',lines:6,cost:0},{code:'BOM_COC-40',p:'fp1',st:'Draft',lines:3,cost:0}];
+var ALIAS=[['oat','i1'],['honey','i2'],['sugar','i3'],['sunflower','i4'],['rapeseed','i5'],['canola','i5'],['almond','i6'],['salt','i7'],['agave','i8'],['wrapper','p1'],['carton','p2'],['pouch','p3']];
+var V='reg',D=null,U=1,focus=null,ta={key:null,q:'',hl:0,on:false},sku=null,subFor=null,dis={};
+var imp={t:'Honey oat bars - batch 1000 bars\noats rolled 18kg\nhoney 7 kg\nbrown sugar 4kg\nsunflower oil 3 l\nalmonds chopped 8 kg\nsalt 200g\ncane syrup 2 kg\nbar wrapper 1000',d:null};
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fmt(n,d){if(n==null||isNaN(n))return '';return Number(n).toLocaleString('en-IE',{minimumFractionDigits:0,maximumFractionDigits:d==null?3:d})}
+function money(n){return Number(n).toLocaleString('en-IE',{minimumFractionDigits:2,maximumFractionDigits:4})}
+function num(v){if(v===''||v==null)return null;var n=parseFloat(String(v).replace(',','.'));return isNaN(n)?null:n}
+function toast(m){var t=$('tt');t.innerHTML='<div class="toast">'+esc(m)+'</div>';clearTimeout(toast.h);toast.h=setTimeout(function(){t.innerHTML=''},3200)}
+function tag(i){return '<span class="tag t-'+i.t+'">'+i.t+'</span>'}
+function conv(q,u,item){u=(u||'').toLowerCase();var b={kg:1000,g:1,l:1000,ml:1},f={kg:'m',g:'m',l:'v',ml:'v'},t=item.uom.toLowerCase();if(!u||u===t||!b[u]||!b[t]||f[u]!==f[t])return{q:q,n:null};var r=Math.round(q*b[u]/b[t]*1000)/1000;return{q:r,n:'Converted '+fmt(q)+' '+u+' to '+fmt(r)+' '+item.uom}}
+function parseEntry(s){var m=String(s).match(/^(.*?)[\s,:]+(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l)?\s*$/i);return m&&m[1].trim()?{q:m[1].trim(),n:parseFloat(m[2].replace(',','.')),u:m[3]||''}:{q:String(s).trim(),n:null,u:''}}
+function newBom(){return{p:null,code:'',batch:null,yield:98,status:'Active',lines:[],ops:[],from:null,outs:[],more:false,paste:false,unk:[]}}
+function mk(id,q,subs){return{id:'l'+(U++),it:id,q:q,subs:(subs||[]).map(function(s){return{id:'s'+(U++),it:s,q:null,follow:true,sk:[]}}),sk:[],note:null}}
+function lineById(id){return D.lines.filter(function(l){return l.id===id})[0]}
+function syncSubs(){D.lines.forEach(function(l){l.subs.forEach(function(s){if(s.follow)s.q=l.q==null?null:Math.round(l.q*BY[l.it].w/(BY[s.it].w||1)*1000)/1000})})}
+function choose(id){var t=TPL[id],p=BY[id];D=newBom();D.p=id;D.code=t?t.code+'-V2':'BOM_'+p.code;D.batch=t?t.batch:null;D.yield=t?t.yield:98;
+ if(t){D.lines=t.lines.map(function(l){return mk(l[0],l[1],l[2])});D.ops=t.ops.map(function(o){return{id:'o'+(U++),wc:o[0],h:o[1]}});D.from=t.code;syncSubs()}}
+function massIn(){var s=0;D.lines.forEach(function(l){var i=BY[l.it];if(i.t==='PK')return;s+=(l.q||0)*(i.w||0)});return s}
+function massOut(){var s=(D.batch||0)*(BY[D.p].kg||0);D.outs.forEach(function(o){s+=(o.q||0)*(BY[o.it].kg||0)});return s}
+function bal(){if(!D.p)return{s:'id',t:'Pick a product to start'};var a=massIn(),b=massOut();if(!(a>0&&b>0))return{s:'id',t:'Add amounts to check weights'};var y=b/a*100;
+ if(y>102)return{s:'wn',t:'Makes more than goes in: '+fmt(a,2)+' kg in, '+fmt(b,2)+' kg out'};
+ if(y<D.yield-5)return{s:'wn',t:'About '+Math.floor(100-y)+'% goes missing (expected '+(100-D.yield)+'%): '+fmt(a,2)+' kg in, '+fmt(b,2)+' kg out'};
+ return{s:'ok',t:fmt(a,2)+' kg in · '+fmt(b,2)+' kg out · '+Math.floor(y)+'% kept'}}
+function costs(){var m=0,pk=0,lab=0,oh=0;D.lines.forEach(function(l){var i=BY[l.it],c=(l.q||0)*(i.cost||0);if(i.t==='PK')pk+=c;else m+=c});D.ops.forEach(function(o){var w=WC.filter(function(x){return x.id===o.wc})[0];if(w){lab+=o.h*w.lab;oh+=o.h*w.oh}});var tot=m+pk+lab+oh;return{m:m,pk:pk,lab:lab,oh:oh,tot:tot,unit:D.batch>0?tot/D.batch:0}}
+function blocker(){if(!D.p)return 'Pick a product to start';if(!(D.batch>0))return 'Say how much one batch makes';if(!D.lines.length)return 'Add at least one ingredient';
+ for(var i=0;i<D.lines.length;i++)if(!(D.lines[i].q>0))return 'Add an amount for '+BY[D.lines[i].it].name;
+ for(var j=0;j<D.lines.length;j++)for(var k=0;k<D.lines[j].subs.length;k++)if(!(D.lines[j].subs[k].q>0))return 'Add an amount for substitute '+BY[D.lines[j].subs[k].it].name;
+ if(D.unk.length)return 'Sort out “'+D.unk[0].text+'”';return null}
+function matches(key){var q=key==='in'?parseEntry(ta.q).q:ta.q,ws=q.toLowerCase().split(/\s+/).filter(Boolean),t=TPL[D.p],used={};D.lines.forEach(function(l){used[l.it]=1});
+ var pool=IT.filter(function(i){if(key==='out')return i.t==='FP'||i.t==='WIP';if(key==='sub'){var ow=lineById(subFor);if(!ow)return false;var p=BY[ow.it];return i.id!==p.id&&i.t===p.t&&i.uom===p.uom&&!ow.subs.some(function(s){return s.it===i.id})}return i.t!=='FP'&&i.id!==D.p});
+ var r=pool.filter(function(i){var h=(i.name+' '+i.code).toLowerCase();return ws.every(function(w){return h.indexOf(w)>=0})});
+ if(key==='in')r.sort(function(a,b){function s(x){return (t&&t.lines.some(function(l){return l[0]===x.id})?2:0)-(used[x.id]?5:0)}return s(b)-s(a)});return r.slice(0,6)}
+function tlist(key){if(!ta.on||ta.key!==key)return '';if(key==='in'&&!ta.q.trim())return '';var m=matches(key),pe=key==='in'?parseEntry(ta.q):null,t=TPL[D.p];
+ if(!m.length)return '<div class="tl"><div class="ti mu">No item called “'+esc(pe?pe.q:ta.q)+'”. '+(key==='in'?'<button class="txt" data-a="newitem">Create it here</button>':'')+'</div></div>';
+ return '<div class="tl">'+m.map(function(i,ix){var why=key==='in'&&t&&t.lines.some(function(l){return l[0]===i.id})?'<span class="why">in your other recipe</span>':'';var rt='';if(pe&&pe.n!=null)rt='<span class="rt">'+fmt(conv(pe.n,pe.u,i).q)+' '+i.uom+'</span>';
+  if(key==='sub'){var p=BY[lineById(subFor).it],add=(i.al||[]).filter(function(a){return(p.al||[]).indexOf(a)<0});if(add.length)rt='<span class="pill p-wn" style="margin-left:auto">adds '+esc(add.join(', '))+'</span>'}
+  return '<div class="ti'+(ix===ta.hl?' hl':'')+'" data-pick="'+key+':'+i.id+'">'+tag(i)+'<b>'+esc(i.name)+'</b><span class="code">'+i.code+'</span>'+why+rt+'</div>'}).join('')+'</div>'}
+function tinput(key,ph,plus){return '<div class="ta"><span class="pl">'+(plus?'+':'⌕')+'</span><input class="inp" id="ta-'+key+'" data-ta="'+key+'" autocomplete="off" placeholder="'+esc(ph)+'" value="'+(ta.on&&ta.key===key?esc(ta.q):'')+'">'+(plus?'<span class="kbd">Enter ↵</span>':'')+tlist(key)+'</div>'}
+function owner(k){var p=k.split('.'),l=lineById(p[0]);if(!l)return null;if(p[1])return l.subs.filter(function(s){return s.id===p[1]})[0];return l}
+function skuChip(k,o,i){if(!i.sk||i.sk.length<2)return i.sk&&i.sk[0]?'<span>'+esc(i.sk[0][1])+'</span>':'';var n=o.sk.length;return '<button class="chip'+(n?' on':'')+'" data-a="skuopen:'+k+'">SKUs: '+(n?'only '+n+' of '+i.sk.length:'any of '+i.sk.length)+' ▾</button>'}
+function skuPanel(k,o,i){var g={},ord=[];i.sk.forEach(function(s){var n=s[2]||'Supplier not set';if(!g[n]){g[n]=[];ord.push(n)}g[n].push(s)});
+ return '<div class="skupanel"><b>Which '+esc(i.name)+' SKUs may production use?</b><span class="mu" style="font-size:13px">Optional. Leave on “any” if all are fine. Ticked SKUs are the only ones accepted when this line is consumed; other lots are refused.</span>'+ord.map(function(n){return '<div class="code" style="margin-top:4px">'+esc(n)+'</div>'+g[n].map(function(s){return '<label class="skuopt"><input type="checkbox" data-a="skutog:'+k+':'+s[0]+'"'+(o.sk.indexOf(s[0])>=0?' checked':'')+'><b>'+esc(s[1])+'</b><span class="code" style="margin-left:auto">'+s[0]+'</span></label>'}).join('')}).join('')+'<div class="row-f"><button class="btn sm" data-a="skuany:'+k+'">Allow any SKU</button><button class="btn sm pri" data-a="skuopen:'+k+'">Done</button></div></div>'}
+function subsHTML(l){var i=BY[l.it];if(!l.subs.length&&subFor!==l.id)return '';
+ var h='<div class="subs"><div><b>If '+esc(i.name)+' is not available</b><div class="mu" style="font-size:13px">Tried in this order; the manufacturing order records which one was used. A substitute is used only when stock of the item above cannot cover the whole order.</div></div>';
+ h+='<div class="sb"><span class="n" style="background:var(--okb);color:var(--ok)">1</span><span><b>'+esc(i.name)+'</b> <span class="mu">is used whenever stock covers the order</span></span></div>';
+ l.subs.forEach(function(s,ix){var si=BY[s.it],add=(si.al||[]).filter(function(a){return(i.al||[]).indexOf(a)<0});
+  h+='<div class="sb"><span class="n">'+(ix+2)+'</span><div>'+tag(si)+' <b>'+esc(si.name)+'</b> <span class="code">'+si.code+'</span><div class="row-f" style="margin-top:2px;font-size:12px;color:var(--mu)">'+skuChip(l.id+'.'+s.id,s,si)+(add.length?'<span class="pill p-wn">Adds '+esc(add.join(', '))+'</span>':'')+(s.follow?'<span>same weight as '+esc(i.name)+'</span>':'<button class="txt" data-a="subsame:'+l.id+':'+s.id+'">Use the same weight</button>')+'</div></div>'+
+  '<div class="row-f"><input class="inp q" inputmode="decimal" data-sq="'+l.id+':'+s.id+'" id="sq-'+s.id+'" value="'+(s.q==null?'':s.q)+'"><span class="mu">'+si.uom+'</span></div>'+
+  '<div class="row-f" style="gap:0"><button class="x" data-a="subup:'+l.id+':'+s.id+'"'+(ix===0?' disabled':'')+'>↑</button><button class="x" data-a="subdn:'+l.id+':'+s.id+'"'+(ix===l.subs.length-1?' disabled':'')+'>↓</button><button class="x" data-a="subdel:'+l.id+':'+s.id+'">×</button></div></div>'+(sku===l.id+'.'+s.id?skuPanel(l.id+'.'+s.id,s,si):'')});
+ h+=subFor===l.id?'<div class="row-f">'+tinput('sub','Search a '+(l.subs.length+2)+'th choice for '+i.name,false)+'<button class="txt" data-a="subcancel">Cancel</button></div>':'<div><button class="txt" data-a="subadd:'+l.id+'">+ Add another substitute</button></div>';
+ return h+'</div>'}
+function lineHTML(l){var i=BY[l.it],c=(l.q||0)*(i.cost||0),eq=i.uom!=='kg'&&i.uom!=='g'&&i.t!=='PK'&&i.w?'≈ '+fmt((l.q||0)*i.w,2)+' kg · 1 '+i.uom+' = '+fmt(i.w)+' kg':'';
+ return '<div class="ln"><div><div>'+tag(i)+' <b>'+esc(i.name)+'</b> <span class="code">'+i.code+'</span></div><div class="meta">'+skuChip(l.id,l,i)+(eq?'<span>'+eq+'</span>':'')+(l.note?'<span>'+esc(l.note)+'</span>':'')+(!l.subs.length&&subFor!==l.id&&i.t==='RM'?'<button class="txt" data-a="subadd:'+l.id+'" style="padding:0">+ Substitute</button>':'')+'</div></div>'+
+ '<div class="row-f"><input class="inp q" inputmode="decimal" id="q-'+l.id+'" data-q="'+l.id+'" value="'+(l.q==null?'':l.q)+'"><span class="mu">'+i.uom+'</span></div><div class="cost">'+(c?money(c):'')+'</div><button class="x" data-a="del:'+l.id+'" aria-label="Remove">×</button>'+(i.t==='RM'?subsHTML(l):'')+(sku===l.id?skuPanel(l.id,l,i):'')+'</div>'}
+function editor(){var p=D.p?BY[D.p]:null,t=p?TPL[D.p]:null,h='';
+ if(!p)return '<section class="sec"><h2>What are you making?</h2><div class="mu">Pick a product. If it already has a recipe we copy its lines, packaging, substitutes and operations for you.</div>'+tinput('out','Type a product name or code, e.g. honey oat or HOB-40',false)+'</section>';
+ h+='<section class="sec"><div class="row-f">'+tag(p)+'<div><b style="font-size:16px">'+esc(p.name)+'</b><div class="code">'+esc(D.code)+'</div></div><span class="sp"></span><button class="txt" data-a="changep">Change product</button></div>';
+ h+='<div><span class="lab">WHAT ONE BATCH MAKES</span><div class="xo main"><span class="l">Main product</span>'+tag(p)+'<b>'+esc(p.name)+'</b><span class="sp"></span><input class="inp q" style="width:130px;font-size:17px;font-weight:700" id="batch" data-batch inputmode="decimal" value="'+(D.batch==null?'':D.batch)+'"><span class="mu">'+p.uom+'</span></div>';
+ h=h.replace('<b>'+esc(p.name)+'</b><span class="sp"></span><input class="inp q" style="width:130px','<b>'+esc(p.name)+'</b>'+(p.skus&&p.skus[0]?'<span class="pill p-n">'+esc(p.skus[0])+'</span>':'')+'<span class="sp"></span><input class="inp q" style="width:130px');
+ D.outs.forEach(function(o){var oi=BY[o.it];h+='<div class="xo" style="margin-top:6px"><span class="l">Also makes</span>'+tag(oi)+'<b>'+esc(oi.name)+'</b>'+(o.sku?'<span class="pill p-n">'+esc(o.sku)+'</span>':'')+'<span class="sp"></span><input class="inp q" data-oq="'+o.id+'" value="'+(o.q==null?'':o.q)+'"><span class="mu">'+oi.uom+'</span><button class="x" data-a="odel:'+o.id+'">×</button></div>'});
+ var freeSkus=(p.skus||[]).slice(1).filter(function(s){return!D.outs.some(function(o){return o.it===D.p&&o.sku===s})}),reworkUsed=D.outs.some(function(o){return o.it==='wip1'});
+ if(freeSkus.length||!reworkUsed)h+='<div class="row-f" style="margin-top:8px"><span class="mu" style="font-size:12px">Quick add:</span>'+freeSkus.map(function(s){return '<button class="chip" data-a="oalso:'+esc(s)+'">+ Also as '+esc(s)+'</button>'}).join('')+(reworkUsed?'':'<button class="chip" data-a="orework" title="Needs engine work (PRD G3), shown for discussion">+ Crumbs kept for rework (phase 2)</button>')+'</div>';
+ h+='<div class="mu" style="font-size:12px;margin-top:6px">Each product + SKU can appear once in a BOM.</div></div>';
+ h+='<div class="auto"><span>✦</span><span style="flex:1">Set up for you: counted by <b>what comes out</b> · expected yield <b>'+D.yield+'%</b> · <b>'+D.ops.length+' operations</b> · ID <b>'+esc(D.code)+'</b></span><button class="txt" data-a="more">'+(D.more?'Done':'Change')+'</button></div>';
+ if(D.more)h+='<div class="row-f"><div><span class="lab">STATUS</span><select class="inp" data-status><option'+(D.status==='Active'?' selected':'')+'>Active</option><option'+(D.status==='Draft'?' selected':'')+'>Draft</option></select></div><div><span class="lab">EXPECTED YIELD %</span><input class="inp q" data-yield value="'+D.yield+'"></div><div><span class="lab">COUNTED BY</span><select class="inp"><option>What comes out</option><option>What goes in</option></select></div></div>';
+ h+='</section>';
+ var b='';if(D.from&&!dis.copied)b+='<div class="bn inf"><div class="t"><b>Started from '+esc(D.from)+'</b><span>Copied '+D.lines.length+' lines, substitutes and '+D.ops.length+' operations. Change what is different; this saves as '+esc(D.code)+'.</span></div><button class="btn sm" data-a="blank">Start blank</button></div>';
+ D.unk.forEach(function(u,ix){b+='<div class="bn wn"><div class="t"><b>We could not find “'+esc(u.text)+'”</b><span>'+fmt(u.q)+' '+esc(u.u)+' from your file. Pick the item it means, or add it as a new item.</span></div><button class="btn sm pri" data-a="unkuse:'+ix+':i8">Use Agave syrup</button><button class="btn sm" data-a="unknew:'+ix+'">Add as new item</button><button class="txt" data-a="unkdrop:'+ix+'">Leave it out</button></div>'});
+ if(t)D.lines.forEach(function(l){var li=BY[l.it];if(li.t==='PK'||!l.q)return;var ref=null;t.lines.forEach(function(x){if(x[0]===l.it)ref=x[1]});if(!ref)return;var e=ref*((D.batch||t.batch)/t.batch),r=l.q/e;if((r>4||r<0.25)&&!dis['q'+l.id])b+='<div class="bn wn"><div class="t"><b>Check the amount of '+esc(li.name)+'</b><span>You entered '+fmt(l.q)+' '+li.uom+'. Your other recipe uses about '+fmt(e)+' '+li.uom+' for '+fmt(D.batch||t.batch)+'.</span></div><button class="btn sm pri" data-a="fixq:'+l.id+':'+e+'">Use '+fmt(e)+'</button><button class="btn sm" data-a="dismiss:q'+l.id+'">Keep '+fmt(l.q)+'</button></div>'});
+ if(b)h+='<div class="sec" style="gap:8px">'+b+'</div>';
+ var ing=D.lines.filter(function(l){return BY[l.it].t!=='PK'}),pk=D.lines.filter(function(l){return BY[l.it].t==='PK'});
+ h+='<section class="sec"><h2>Ingredients &amp; packaging</h2><div class="row-f"><h3>Ingredients</h3><span class="pill p-n">'+ing.length+'</span><span class="sp"></span><span class="mu" style="font-size:12px">Cost</span></div>'+(ing.length?'<div class="lines">'+ing.map(lineHTML).join('')+'</div>':'<div class="empty">Nothing yet. Type a name and an amount below, like <b>honey 7</b>, and press Enter.</div>');
+ if(pk.length)h+='<div class="row-f"><h3>Packaging</h3><span class="pill p-n">'+pk.length+'</span></div><div class="lines">'+pk.map(lineHTML).join('')+'</div>';
+ var miss=p.id==='fp1'?['p1','p2'].filter(function(x){return!D.lines.some(function(l){return l.it===x})}):[];
+ if(!pk.length&&D.lines.length&&miss.length)h+='<div class="row-f"><span class="mu" style="font-size:13px">Usual packaging for this product:</span>'+miss.map(function(x){return '<button class="chip" data-a="addpk:'+x+'" style="color:var(--inf)">+ '+esc(BY[x].name)+'</button>'}).join('')+'</div>';
+ h+='<div class="row-f"><div class="ta"><span class="pl">+</span><input class="inp" id="ta-in" data-ta="in" autocomplete="off" placeholder="Add a line, like honey 7, then Enter" value="'+(ta.on&&ta.key==='in'?esc(ta.q):'')+'"><span class="kbd">Enter ↵</span>'+tlist('in')+'</div><button class="btn" data-a="paste">Paste a list</button></div>';
+ if(D.paste)h+='<div class="xo" style="display:block"><textarea class="inp" id="pastebox">Rolled oats\t18\tkg\nHoney\t7\tkg\nSea salt\t200\tg</textarea><div class="row-f" style="margin-top:8px"><button class="btn pri sm" data-a="dopaste">Add these lines</button><button class="txt" data-a="paste">Close</button><span class="mu" style="font-size:12px">Name, amount, unit. Pasting several lines straight into the box above also works.</span></div></div>';
+ h+='</section><section class="sec"><div class="row-f"><h2>Operations</h2><span class="mu" style="font-size:13px">time per batch at a work centre, feeds labour &amp; overhead cost</span></div>';
+ h+=D.ops.length?'<div class="lines">'+D.ops.map(function(o){var w=WC.filter(function(x){return x.id===o.wc})[0];return '<div class="ln"><div><b>'+esc(w.name)+'</b><div class="meta"><span>'+fmt(w.lab)+' labour + '+fmt(w.oh)+' overhead per hour</span></div></div><div class="row-f"><input class="inp q" data-oh="'+o.id+'" value="'+o.h+'"><span class="mu">hours</span></div><div class="cost">'+money(o.h*(w.lab+w.oh))+'</div><button class="x" data-a="opdel:'+o.id+'">×</button></div>'}).join('')+'</div>':'<div class="empty">No operations. Without them the recipe costs materials only.</div>';
+ h+='<div class="row-f">'+WC.filter(function(w){return!D.ops.some(function(o){return o.wc===w.id})}).map(function(w){return '<button class="chip" data-a="opadd:'+w.id+'">+ '+esc(w.name)+'</button>'}).join('')+'</div></section>';
+ var c=costs();h+='<section class="sec"><h2>Cost per batch</h2><div class="kpis"><div class="kpi"><div class="l">Materials</div><div class="v">'+money(c.m)+'</div></div><div class="kpi"><div class="l">Packaging</div><div class="v">'+money(c.pk)+'</div></div><div class="kpi"><div class="l">Labour</div><div class="v">'+money(c.lab)+'</div></div><div class="kpi"><div class="l">Overhead</div><div class="v">'+money(c.oh)+'</div></div><div class="kpi" style="border-color:var(--brd)"><div class="l">Per '+esc(p.uom)+'</div><div class="v">'+money(c.unit)+'</div><div class="h">'+money(c.tot)+' per batch</div></div></div>'+(c.tot>0?'<div class="bar2"><i style="width:'+c.m/c.tot*100+'%;background:#34d399"></i><i style="width:'+c.pk/c.tot*100+'%;background:#fbbf24"></i><i style="width:'+c.lab/c.tot*100+'%;background:#60a5fa"></i><i style="width:'+c.oh/c.tot*100+'%;background:#a78bfa"></i></div>':'')+'<div class="mu" style="font-size:12px">At current item costs and work-centre rates. Real cost comes from the lots actually consumed when an order completes.</div></section>';
+ return h}
+function foot(){var b=bal(),w=blocker();return '<div class="fb '+b.s+'">'+(b.s==='ok'?'✓':b.s==='wn'?'⚠':'○')+' <span>'+esc(b.t)+'</span></div><span class="sp"></span>'+(w?'<span class="mu" style="font-size:13px">'+esc(w)+'</span>':'<span style="color:var(--ok);font-weight:600;font-size:13px">Ready to save</span>')+'<button class="btn" data-a="close">Cancel</button><button class="btn pri" data-a="save"'+(w?' disabled':'')+'>Save recipe</button>'}
+function drawer(){return '<div class="scrim" data-a="close"></div><aside class="drawer"><header class="dh"><h2>'+(D&&D.p?'Recipe · '+esc(D.code):'Create recipe')+'</h2><button class="x" data-a="close">×</button></header><div class="db" id="ed">'+editor()+'</div><footer class="df" id="ft">'+foot()+'</footer></aside>'}
+function pageReg(){var h='<div class="head"><div><h1>Bills of Materials</h1><div class="sub">One drawer. Pick the product, its existing recipe copies itself, type new lines as <b>name amount</b>, save once.</div></div><button class="btn pri" data-a="newbom">+ New BOM</button></div>';
+ h+='<div class="tools"><input class="inp" style="max-width:300px" placeholder="Search recipes"><button class="chip on">All</button><button class="chip">Active</button><button class="chip">Draft</button><button class="chip">Packaging not linked</button><button class="chip">Weights off</button><span class="sp"></span><button class="btn sm" data-a="swapdemo">Swap an item in every recipe…</button></div>';
+ h+='<div class="tw"><table><thead><tr><th>BOM</th><th>Product</th><th>Batch</th><th class="r">Lines</th><th class="r">Cost per unit</th><th>Status</th></tr></thead><tbody>'+LIST.map(function(r,i){var p=BY[r.p],t=TPL[r.p];return '<tr class="row" data-a="openrow:'+i+'"><td><b>'+r.code+'</b></td><td>'+tag(p)+' '+esc(p.name)+'</td><td>'+(t?fmt(t.batch)+' '+p.uom:'—')+'</td><td class="r">'+r.lines+'</td><td class="r">'+(r.cost?money(r.cost):'—')+'</td><td><span class="pill '+(r.st==='Active'?'p-ok':'p-n')+'">'+r.st+'</span></td></tr>'}).join('')+'</tbody></table></div>';
+ h+='<div class="note" style="margin-top:16px"><b>Try it.</b><ul><li>New BOM → type <b>hon</b> → Enter. The bar recipe copies itself with packaging, substitutes and operations.</li><li>Click <b>+ Substitute</b> on Honey, add Agave, reorder with ↑ ↓. On Sunflower oil try Rapeseed.</li><li>Change oats from 18 to <b>180</b> to trigger the typo check against your other recipe, and watch the weight check and cost move.</li><li>Type <b>vanilla 100ml</b> in the add box to see “Create it here”. Click the “SKUs: any of 3” chip on Oats to limit allowed SKUs.</li></ul></div>';return h}
+function parseText(t){var out=[];t.split(/\n/).map(function(s){return s.trim()}).filter(Boolean).forEach(function(line){if(/batch/i.test(line))return;var cols=line.split(/\t|;/),m;if(cols.length>=2)m=[0,cols[0],cols[1],cols[2]];else m=line.match(/^(.*?)[\s,:\-]*(\d*\.?\d+)\s*(kg|g|l|ml|each)?\s*$/i);if(!m)return;var hit=null;ALIAS.forEach(function(a){if(!hit&&m[1].toLowerCase().indexOf(a[0])>=0)hit=a[1]});var q=parseFloat(m[2]),u=(m[3]||'').trim().toLowerCase(),r={text:m[1].trim(),q:q,u:u,it:hit,note:null};if(hit){var c=conv(q,u,BY[hit]);r.q=c.q;r.note=c.n;r.u=BY[hit].uom}out.push(r)});return out}
+function pageImp(){var h='<div class="head"><div><h1>Start from what you already have</h1><div class="sub">Paste a recipe, upload a sheet, or photograph a card. The assistant reads it, matches each line to your items and hands you a draft. Nothing is saved until you say so.</div></div></div><div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="row-f"><button class="chip on">Paste text</button><button class="chip" data-a="impfake">Upload file (xlsx/pdf)</button><button class="chip" data-a="impfake">Photo of a card</button><button class="chip" data-a="impfake">Whole catalog (thousands)</button></div><textarea class="inp" id="imptext">'+esc(imp.t)+'</textarea><div><button class="btn pri" data-a="read">Read this recipe</button></div>';
+ if(imp.d){var d=imp.d,ok=d.filter(function(r){return r.it}).length,no=d.length-ok;h+='<hr style="border:0;border-top:1px solid var(--ln);width:100%"><div class="row-f"><h2 style="flex:1">Honey Oat Bar 40 g · 1,000 bars per batch</h2><span class="pill p-ok">'+ok+' matched</span>'+(no?'<span class="pill p-er">'+no+' not found</span>':'')+'</div><div class="tw"><table><thead><tr><th>In your file</th><th class="r">Amount</th><th>Matched to</th></tr></thead><tbody>'+d.map(function(r,ix){var i=r.it?BY[r.it]:null;return '<tr><td>'+esc(r.text)+'</td><td class="r">'+fmt(r.q)+' '+esc(r.u)+(r.note?'<div class="code">'+esc(r.note)+'</div>':'')+'</td><td>'+(i?tag(i)+' '+esc(i.name)+' <span class="pill p-ok">Sure</span>':'<span class="pill p-er">Not found</span> <button class="btn sm pri" data-a="drm:'+ix+'">Use Agave syrup</button> <button class="btn sm" data-a="drn:'+ix+'">Add as new</button>')+'</td></tr>'}).join('')+'</tbody></table></div><div class="row-f"><span class="mu" style="font-size:13px">AI suggests; you decide. Each line shows what it read and how sure it is.</span><span class="sp"></span><button class="btn pri" data-a="toeditor">Open in the editor</button></div>'}
+ return h+'</div>'}
+function pageCmp(){var rows=[['Create a BOM','Header drawer, then separate drawers for output pack, ingredient, packaging and operation, each saved on its own','One drawer, one Save. Copies the product’s existing recipe when there is one','Adopt'],
+['Adding an ingredient','Open drawer, pick item, type qty, pick unit, Save, per line','Type “honey 7” + Enter. g/ml converted automatically. Paste a list for many','Adopt'],
+['Quantity display units','Base unit only','Stored in base unit; each output may be shown in kg/lb (matches the MO capture units)','Adopt (display only)'],
+['Substitutes','None','Ordered fallbacks per line with allergen warning. Needs a new table plus MO allocation that falls back in order','New · schema + MO engine'],
+['Restrict to specific SKUs','One supplier SKU per line','Tick several allowed SKUs per line, or leave on any. Needs a join table, enforced at lot allocation','New · schema + allocation'],
+['Weight check (in vs out)','Yield % only','In vs out kg against expected yield. Needs a kg-per-unit on items (asked once)','Adopt · item weight'],
+['Typo / sanity check','None','Flags a line 4× away from your other recipe for the same product','Adopt'],
+['Packaging linked to output','Per-output packaging drawer','Auto-linked when one output; asks only when several','Adopt'],
+['Operations & cost','Operations drawer, no cost view','Kept, in the same drawer, with a live cost-per-unit roll-up','Ours (their concept has none)'],
+['Import from file / photo','None','AI-assisted draft with confidence per line, via the PAX model gateway','New · phase 2'],
+['Library & bulk swap','Flat list, expandable rows','Filters (flagged, drafts) and “swap this item in all recipes”','New · phase 2'],
+['Food-safety plan, floor steps, checklists','—','Their domain is food. Not generic ERP: left out. Allergens kept only as an item attribute for substitute warnings','Skip']];
+ return '<div class="head"><div><h1>Reference concept vs our BOM</h1><div class="sub">Source: “Recipe Builder Concepts v2” (QualityReady). The decision column is my recommendation, change any of it.</div></div></div><div class="tw"><table class="cmp"><thead><tr><th>Area</th><th>Our BOM today</th><th>In this mockup</th><th>Decision</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+r[0]+'</td><td class="mu">'+r[1]+'</td><td>'+r[2]+'</td><td><span class="pill p-inf">'+r[3]+'</span></td></tr>'}).join('')+'</tbody></table></div>'}
+function render(){$('stage').innerHTML=V==='reg'?pageReg():V==='imp'?pageImp():pageCmp();$('ov').innerHTML=D&&V==='reg'?drawer():'';
+ document.querySelectorAll('.tab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-v')===V)});
+ if(focus){var f=document.querySelector(focus);if(f){f.focus();if(f.tagName==='INPUT'&&f.getAttribute('data-ta')===null)f.select();else if(f.value){var v=f.value;f.value='';f.value=v}}focus=null}}
+function derived(){var f=$('ft');if(f)f.innerHTML=foot()}
+function pick(k,id){var pe=k==='in'?parseEntry(ta.q):null;ta={key:null,q:'',hl:0,on:false};
+ if(k==='out'){choose(id);focus=D.lines.length?'#ta-in':'#batch'}
+ else if(k==='sub'){var l=lineById(subFor);l.subs.push({id:'s'+(U++),it:id,q:null,follow:true,sk:[]});syncSubs();subFor=null;focus='#ta-in'}
+ else{var c=pe&&pe.n!=null?conv(pe.n,pe.u,BY[id]):{q:null,n:null},nl=mk(id,c.q);nl.note=c.n;D.lines.push(nl);focus=nl.q==null?'#q-'+nl.id:'#ta-in'}render()}
+function addParsed(rows){var n=0;rows.forEach(function(r){if(r.it){var nl=mk(r.it,r.q);nl.note=r.note;D.lines.push(nl);n++}else D.unk.push(r)});return n}
+function act(a){var p=a.split(':');
+ switch(p[0]){
+ case 'newbom':D=newBom();dis={};ta={key:null,q:'',hl:0,on:false};focus='#ta-out';break;
+ case 'openrow':choose(LIST[+p[1]].p);dis.copied=1;focus=null;break;
+ case 'close':D=null;sku=null;subFor=null;break;
+ case 'changep':D=newBom();focus='#ta-out';break;
+ case 'more':D.more=!D.more;break;
+ case 'blank':D.lines=[];D.ops=[];D.from=null;dis.copied=1;focus='#ta-in';break;
+ case 'dismiss':dis[p[1]]=1;break;
+ case 'fixq':lineById(p[1]).q=Math.round(+p[2]*1000)/1000;syncSubs();break;
+ case 'del':D.lines=D.lines.filter(function(l){return l.id!==p[1]});break;
+ case 'addpk':D.lines.push(mk(p[1],p[1]==='p1'?D.batch:Math.ceil(D.batch/12)));focus='#ta-in';break;
+ case 'subadd':subFor=p[1];ta={key:null,q:'',hl:0,on:false};focus='#ta-sub';break;
+ case 'subcancel':subFor=null;break;
+ case 'subdel':var l1=lineById(p[1]);l1.subs=l1.subs.filter(function(s){return s.id!==p[2]});break;
+ case 'subsame':lineById(p[1]).subs.forEach(function(s){if(s.id===p[2])s.follow=true});syncSubs();break;
+ case 'subup':case 'subdn':var l3=lineById(p[1]),ix=-1;l3.subs.forEach(function(s,k){if(s.id===p[2])ix=k});var j=p[0]==='subup'?ix-1:ix+1;if(ix>=0&&j>=0&&j<l3.subs.length){var t=l3.subs[ix];l3.subs[ix]=l3.subs[j];l3.subs[j]=t}break;
+ case 'skuopen':sku=sku===p[1]?null:p[1];break;
+ case 'skuany':owner(p[1]).sk=[];break;
+ case 'skutog':var o=owner(p[1]),i=o.sk.indexOf(p[2]);if(i>=0)o.sk.splice(i,1);else o.sk.push(p[2]);break;
+ case 'oalso':if(D.outs.some(function(o){return o.it===D.p&&o.sku===p[1]})||p[1]===BY[D.p].skus[0]){toast('That product + SKU is already in this BOM');break}D.outs.push({id:'o'+(U++),it:D.p,sku:p[1],q:null});break;
+ case 'orework':if(D.outs.some(function(o){return o.it==='wip1'})){toast('That product is already in this BOM');break}D.outs.push({id:'o'+(U++),it:'wip1',sku:null,q:1});break;
+ case 'odel':D.outs=D.outs.filter(function(o){return o.id!==p[1]});break;
+ case 'opadd':D.ops.push({id:'o'+(U++),wc:p[1],h:1});break;
+ case 'opdel':D.ops=D.ops.filter(function(o){return o.id!==p[1]});break;
+ case 'paste':D.paste=!D.paste;break;
+ case 'dopaste':var rows=parseText($('pastebox').value),n=addParsed(rows);D.paste=false;toast('Added '+n+' lines'+(rows.length>n?'. '+(rows.length-n)+' need a look':''));focus='#ta-in';break;
+ case 'newitem':toast('Opens the real new-item drawer: name, counted-in unit, and weight per unit asked once');ta={key:null,q:'',hl:0,on:false};break;
+ case 'unkuse':var u=D.unk[+p[1]],ui=BY[p[2]],c=conv(u.q,u.u,ui),nl2=mk(p[2],c.q);nl2.note='From “'+u.text+'” in your file';D.lines.push(nl2);D.unk.splice(+p[1],1);break;
+ case 'unknew':toast('Opens the new-item drawer pre-filled with “'+D.unk[+p[1]].text+'”');D.unk.splice(+p[1],1);break;
+ case 'unkdrop':D.unk.splice(+p[1],1);break;
+ case 'save':if(blocker())break;LIST.unshift({code:D.code,p:D.p,st:D.status,lines:D.lines.length,cost:costs().unit});toast('Saved '+D.code+': '+D.lines.length+' lines, '+D.ops.length+' operations, one save');D=null;break;
+ case 'swapdemo':toast('Bulk tool: Sunflower oil to Rapeseed oil in 214 recipes, same amount. Preview list first, undo for 30 days');break;
+ case 'impfake':toast('In this mockup every source reads as the sample recipe');imp.d=parseText(imp.t);break;
+ case 'read':imp.t=$('imptext').value;imp.d=parseText(imp.t);break;
+ case 'drm':var rr=imp.d[+p[1]],ai=BY.i8,cc=conv(rr.q,rr.u,ai);rr.it='i8';rr.q=cc.q;rr.u=ai.uom;break;
+ case 'drn':imp.d.splice(+p[1],1);toast('Would create a new item first, then match it');break;
+ case 'toeditor':choose('fp1');dis.copied=1;D.lines=[];D.ops=[];D.from=null;addParsed(imp.d);V='reg';break;
+ }render()}
+document.addEventListener('click',function(e){var t=e.target,v=t.closest('[data-v]');if(v){V=v.getAttribute('data-v');D=null;render();return}
+ var pk=t.closest('[data-pick]');if(pk){var s=pk.getAttribute('data-pick').split(':');pick(s[0],s[1]);return}
+ var a=t.closest('[data-a]');if(a){if(a.tagName==='INPUT')return;act(a.getAttribute('data-a'));return}
+ if(!t.closest('.ta')&&ta.on){ta={key:null,q:'',hl:0,on:false};document.querySelectorAll('.tl').forEach(function(n){n.remove()})}});
+document.addEventListener('change',function(e){var t=e.target;if(t.type==='checkbox'&&t.hasAttribute('data-a')){act(t.getAttribute('data-a'));return}if(t.hasAttribute('data-status'))D.status=t.value});
+document.addEventListener('input',function(e){var t=e.target;
+ if(t.hasAttribute('data-ta')){ta={key:t.getAttribute('data-ta'),q:t.value,hl:0,on:true};var w=t.parentNode,o=w.querySelector('.tl');if(o)o.remove();w.insertAdjacentHTML('beforeend',tlist(ta.key));return}
+ if(t.hasAttribute('data-q')){lineById(t.getAttribute('data-q')).q=num(t.value);syncSubs();D.lines.forEach(function(x){x.subs.forEach(function(s){var f=$('sq-'+s.id);if(f&&s.follow)f.value=s.q==null?'':s.q})});derived();return}
+ if(t.hasAttribute('data-sq')){var p=t.getAttribute('data-sq').split(':');lineById(p[0]).subs.forEach(function(s){if(s.id===p[1]){s.q=num(t.value);s.follow=false}});derived();return}
+ if(t.hasAttribute('data-batch')){D.batch=num(t.value);derived();return}
+ if(t.hasAttribute('data-oq')){D.outs.forEach(function(o){if(o.id===t.getAttribute('data-oq'))o.q=num(t.value)});derived();return}
+ if(t.hasAttribute('data-yield')){D.yield=num(t.value)||98;derived();return}
+ if(t.hasAttribute('data-oh')){D.ops.forEach(function(o){if(o.id===t.getAttribute('data-oh'))o.h=num(t.value)||0});derived()}});
+document.addEventListener('focusin',function(e){var t=e.target;if(D&&t.hasAttribute&&t.hasAttribute('data-ta')&&!ta.on){ta={key:t.getAttribute('data-ta'),q:t.value,hl:0,on:true};if(t.value)t.parentNode.insertAdjacentHTML('beforeend',tlist(ta.key))}});
+document.addEventListener('keydown',function(e){var t=e.target;
+ if(t.hasAttribute&&t.hasAttribute('data-ta')){var k=t.getAttribute('data-ta'),m=matches(k);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();ta.hl=Math.max(0,Math.min(m.length-1,ta.hl+(e.key==='ArrowDown'?1:-1)));var o=t.parentNode.querySelector('.tl');if(o)o.remove();t.parentNode.insertAdjacentHTML('beforeend',tlist(k));return}
+  if(e.key==='Enter'){e.preventDefault();if(m[ta.hl])pick(k,m[ta.hl].id);return}
+  if(e.key==='Escape'){if(k==='sub')subFor=null;ta={key:null,q:'',hl:0,on:false};render();return}}
+ if(e.key==='Enter'&&t.hasAttribute&&(t.hasAttribute('data-q')||t.hasAttribute('data-batch'))){e.preventDefault();var f=$('ta-in');if(f)f.focus()}
+ if(e.key==='Escape'&&D&&!ta.on){D=null;render()}});
+document.addEventListener('paste',function(e){var t=e.target;if(D&&t.hasAttribute&&t.getAttribute('data-ta')==='in'){var tx=(e.clipboardData||window.clipboardData).getData('text');if(/\n/.test(tx.trim())){e.preventDefault();var n=addParsed(parseText(tx));ta={key:null,q:'',hl:0,on:false};toast('Added '+n+' lines');focus='#ta-in';render()}}});
+render();
+})();
+</script></body></html>

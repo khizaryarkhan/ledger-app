@@ -2,24 +2,20 @@
 
 /**
  * Bill of Materials register — recipes defining which inputs produce which
- * outputs. Modelled on the FoodReady BOM grid: a header row (BOM ID, output
- * item, processing step, status, batch type/size, expected yield) expands to
- * Output items and Input items editors. A BOM is the definition consumed by a
- * production Build, which moves inventory cost from the inputs to the output.
+ * outputs. A row opens the BOM Builder drawer (components/bom-builder), where the
+ * whole recipe is edited and saved in one go. A production Manufacturing Order
+ * snapshots the BOM when it is planned, so editing a BOM never re-plans an order.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, ArrowRight } from "lucide-react";
-import { kindOf } from "@/lib/inventory/item-kinds";
-import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
-import { CREATE_NEW, CreateNewDrawer, createNewLabel } from "@/components/create-new";
+import { Plus, RefreshCw, Search } from "lucide-react";
+import { controlInset } from "@/components/form-kit";
+import { BomBuilderDrawer } from "@/components/bom-builder";
+import type { ItemLite } from "@/components/bom-builder/draft";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
-  listTable, listRow, listNumCell, type ListColumn,
+  listTable, type ListColumn,
 } from "@/components/list-view";
-
-const inputCls = controlInset;
 
 function StatusBadge({ s }: { s: string }) {
   const cls = s === "Active" ? "bg-emerald-500/12 text-emerald-400 border-emerald-800/50" : s === "Draft" ? "bg-amber-500/12 text-amber-400 border-amber-800/50" : "bg-stone-500/12 text-stone-400 border-stone-700";
@@ -28,10 +24,10 @@ function StatusBadge({ s }: { s: string }) {
 
 export function BomRegister() {
   const [rows, setRows] = useState<any[] | null>(null);
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<ItemLite[]>([]);
   const [q, setQ] = useState("");
-  const [showNew, setShowNew] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  /** undefined = closed, null = new BOM, string = editing that BOM. */
+  const [open, setOpen] = useState<string | null | undefined>(undefined);
 
   async function load() {
     const r = await fetch(`/api/inventory/boms`).then(x => x.json()).catch(() => []);
@@ -42,7 +38,7 @@ export function BomRegister() {
     fetch(`/api/inventory/items`).then(x => x.json()).then(r => setItems(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowNew(true);
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setOpen(null);
   }, []);
 
   const filtered = useMemo(() => {
@@ -53,29 +49,30 @@ export function BomRegister() {
   }, [rows, q]);
 
   const BOM_COLS = useMemo<ListColumn<any>[]>(() => [
-    { key: "expand", label: "" },
     { key: "code", label: "BOM ID", sort: r => r.code, filter: { kind: "text", value: r => r.code } },
     { key: "output", label: "Output item", sort: r => r.outputItemName || r.name, filter: { kind: "text", value: r => r.outputItemName || r.name } },
-    { key: "processingStep", label: "Processing step", sort: r => r.processingStep, filter: { kind: "multi", value: r => r.processingStep } },
-    { key: "batchType", label: "Batch type", sort: r => r.batchType, filter: { kind: "multi", value: r => r.batchType } },
+    { key: "inputs", label: "Ingredients", align: "right", sort: r => r.inputCount },
     { key: "batchSize", label: "Batch size", align: "right", sort: r => Number(r.batchSize ?? 1) },
     { key: "expYield", label: "Exp. yield", align: "right", sort: r => r.expYield },
     { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
   ], []);
-  const lv = useListView(filtered, BOM_COLS, { storageKey: "boms", defaultSort: "code" });
+  const lv = useListView(filtered, BOM_COLS, { storageKey: "boms-v2", defaultSort: "code" });
 
   return (
     <ListPage>
-      <ListPageHeader title="Bill of Materials" subtitle="Recipes that define what inputs are consumed to produce which outputs. A production Build against a BOM moves inventory cost from the inputs to the finished output.">
+      <ListPageHeader title="Bill of Materials" subtitle="Recipes that define what is consumed to make each product. Click a recipe to edit it; a new one copies the product's existing recipe.">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search BOM ID, name or output…" className={`${inputCls} pl-9 w-56`} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search BOM ID, name or output…" className={`${controlInset} pl-9 w-56`} />
         </div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> New BOM</button>
+        <button onClick={() => setOpen(null)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> New BOM</button>
       </ListPageHeader>
 
-      {showNew && <NewBomDrawer items={items} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
+      {open !== undefined && (
+        <BomBuilderDrawer bomId={open} items={items} onClose={() => setOpen(undefined)}
+          onSaved={() => { setOpen(undefined); load(); }} onItemCreated={row => setItems(x => [...x, row])} />
+      )}
 
       {rows === null ? (
         <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
@@ -88,7 +85,14 @@ export function BomRegister() {
               <ListHead lv={lv} />
               <tbody>
                 {lv.rows.map((r: any) => (
-                  <BomRow key={r.id} bom={r} items={items} open={expanded === r.id} onToggle={() => setExpanded(expanded === r.id ? null : r.id)} onChanged={load} />
+                  <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/30 cursor-pointer" onClick={() => setOpen(r.id)}>
+                    <td className="px-4 py-2.5"><span className="text-stone-200 font-mono text-[12px]">{r.code || r.id.slice(0, 8)}</span></td>
+                    <td className="px-4 py-2.5"><span className="text-stone-100 font-medium">{r.outputItemName || r.name}</span></td>
+                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{r.inputCount}</td>
+                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{Number(r.batchSize ?? 1).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{r.expYield != null ? `${Number(r.expYield)}%` : "—"}</td>
+                    <td className="px-4 py-2.5"><StatusBadge s={r.status} /></td>
+                  </tr>
                 ))}
               </tbody>
               {lv.rows.length > 0 && <ListFoot lv={lv} noun="BOM" plural="BOMs" />}
@@ -99,408 +103,3 @@ export function BomRegister() {
     </ListPage>
   );
 }
-
-function BomRow({ bom, items, open, onToggle, onChanged }: { bom: any; items: any[]; open: boolean; onToggle: () => void; onChanged: () => void }) {
-  return (
-    <>
-      <tr className="border-b border-stone-800/60 hover:bg-stone-800/30 cursor-pointer" onClick={onToggle}>
-        <td className="pl-3 text-stone-500">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</td>
-        <td className="px-4 py-2.5"><span className="text-stone-200 font-mono text-[12px]">{bom.code || bom.id.slice(0, 8)}</span></td>
-        <td className="px-4 py-2.5"><span className="text-stone-100 font-medium">{bom.outputItemName || bom.name}</span></td>
-        <td className="px-4 py-2.5 text-stone-400">{bom.processingStep || "—"}</td>
-        <td className="px-4 py-2.5 text-stone-400">{bom.batchType}</td>
-        <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{Number(bom.batchSize ?? 1).toLocaleString()}</td>
-        <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{bom.expYield != null ? `${Number(bom.expYield)}%` : "—"}</td>
-        <td className="px-4 py-2.5"><StatusBadge s={bom.status} /></td>
-      </tr>
-      {open && (
-        <tr className="border-b border-stone-800/60 bg-stone-950/40">
-          <td colSpan={8} className="px-6 py-4"><BomEditor bom={bom} items={items} onChanged={onChanged} /></td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function BomEditor({ bom, items, onChanged }: { bom: any; items: any[]; onChanged: () => void }) {
-  const [data, setData] = useState<any>(null);
-  const [adding, setAdding] = useState<"output" | "input" | "operation" | null>(null);
-  const [packFor, setPackFor] = useState<any | null>(null);   // output line to add packaging to
-  const [openOut, setOpenOut] = useState<string | null>(null);
-  async function load() { setData(await fetch(`/api/inventory/boms/${bom.id}`).then(x => x.json()).catch(() => null)); }
-  useEffect(() => { load(); }, [bom.id]);
-  async function remove(id: string) { await fetch(`/api/inventory/bom-lines?id=${id}`, { method: "DELETE" }); load(); }
-
-  const outputs = data?.outputs ?? [];
-  const inputs = data?.inputs ?? [];
-  const packaging = data?.packaging ?? [];
-  const outputSkus = data?.outputSkus ?? [];
-  const consumable = items.filter(i => kindOf(i.productType).consumable);
-  const baseUom = data?.outputItem?.baseUom || bom.baseUom || "";
-  const packBySku = (skuId: string) => packaging.filter((p: any) => p.packagingForSkuId === skuId);
-  const operations = data?.operations ?? [];
-  async function removeOp(id: string) { await fetch(`/api/inventory/bom-operations?id=${id}`, { method: "DELETE" }); load(); }
-
-  return (
-    <div className="space-y-5">
-      {/* Output packs */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><ArrowRight size={14} className="text-emerald-400" /> Output packs <span className="text-stone-500 font-normal">· same recipe, different packaging</span></div>
-          <button onClick={() => setAdding("output")} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add output pack</button>
-        </div>
-        {data !== null && outputs.length === 0 && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">No output packs yet — add the packaged SKUs this recipe makes.</div>}
-        <div className="space-y-2">
-          {outputs.map((l: any) => {
-            const packs = packBySku(l.skuId);
-            const open = openOut === l.id;
-            return (
-              <div key={l.id} className="rounded-lg border border-stone-800 overflow-hidden">
-                <div className="flex items-center gap-2 px-3 py-2 bg-stone-950/30">
-                  <button onClick={() => setOpenOut(open ? null : l.id)} className="text-stone-500">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12.5px] text-stone-100 truncate">{l.item?.name ?? "—"} <span className="text-[10px] text-stone-500">SKU</span></div>
-                    <div className="text-[11px] text-stone-500">{Number(l.qty)} {baseUom}/pack{l.packagingConfig ? ` · ${l.packagingConfig}` : ""} · {packs.length} packaging material{packs.length !== 1 ? "s" : ""}</div>
-                  </div>
-                  <button onClick={() => remove(l.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>
-                </div>
-                {open && (
-                  <div className="px-3 py-2.5 border-t border-stone-800/60">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">Packaging materials (per pack)</span>
-                      <button onClick={() => setPackFor(l)} className="flex items-center gap-1 text-[11px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={12} /> Add packaging</button>
-                    </div>
-                    {packs.length === 0 ? <p className="text-[11px] text-stone-500">No packaging materials — add the bags/boxes/labels consumed per pack.</p> : (
-                      <table className="w-full text-[11.5px]">
-                        <tbody>
-                          {packs.map((p: any) => (
-                            <tr key={p.id} className="border-b border-stone-800/40">
-                              <td className="py-1 text-stone-200">{p.item?.name ?? "—"}</td>
-                              <td className="py-1 text-right text-stone-300 tabular-nums">{Number(p.qty)} {p.uom || p.item?.baseUom || ""}/pack</td>
-                              <td className="py-1 text-right w-6"><button onClick={() => remove(p.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={12} /></button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Ingredients (inputs — one shared recipe) */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><ArrowRight size={14} className="text-amber-400 rotate-180" /> Ingredients <span className="text-stone-500 font-normal">· per batch of {Number(bom.batchSize)} {baseUom}</span></div>
-          <button onClick={() => setAdding("input")} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add ingredient</button>
-        </div>
-        <div className="rounded-lg border border-stone-800 overflow-hidden">
-          <table className="w-full text-[12px]">
-            <thead><tr className="border-b border-stone-800">
-              <th className={th}>Ingredient</th><th className={th}>Code</th><th className={`${th} !text-right`}>Qty / batch</th><th className="w-8" />
-            </tr></thead>
-            <tbody>
-              {data === null && <tr><td colSpan={4} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
-              {data !== null && inputs.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-stone-500">No ingredients yet.</td></tr>}
-              {inputs.map((l: any) => (
-                <tr key={l.id} className="border-b border-stone-800/50 hover:bg-stone-950/40">
-                  <td className="px-3 py-2 text-stone-200">{l.item?.name ?? "—"}</td>
-                  <td className="px-3 py-2 text-stone-400 font-mono">{l.item?.code || "—"}</td>
-                  <td className="px-3 py-2 text-right text-stone-200 tabular-nums">{Number(l.qty)} {l.uom || l.item?.baseUom || ""}</td>
-                  <td className="px-3 py-2"><button onClick={() => remove(l.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Operations — labour & overhead */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><ArrowRight size={14} className="text-sky-400" /> Operations <span className="text-stone-500 font-normal">· time per batch of {Number(bom.batchSize)} {baseUom}; the work centre's rates cost it</span></div>
-          <button onClick={() => setAdding("operation")} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add operation</button>
-        </div>
-        <div className="rounded-lg border border-stone-800 overflow-hidden">
-          <table className="w-full text-[12px]">
-            <thead><tr className="border-b border-stone-800">
-              <th className={th}>Operation</th><th className={th}>Work centre</th><th className={`${th} !text-right`}>Hours / batch</th><th className={`${th} !text-right`}>Cost / batch</th><th className="w-8" />
-            </tr></thead>
-            <tbody>
-              {data !== null && operations.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-stone-500">No operations — output is costed at materials only. Add the work each batch takes to charge labour and overhead.</td></tr>}
-              {operations.map((o: any) => (
-                <tr key={o.id} className="border-b border-stone-800/50 hover:bg-stone-950/40">
-                  <td className="px-3 py-2 text-stone-200">{o.description || o.workCentre}</td>
-                  <td className="px-3 py-2 text-stone-400">{o.workCentre}</td>
-                  <td className="px-3 py-2 text-right text-stone-200 tabular-nums">{Number(o.hoursPerBatch)}</td>
-                  <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{fmt.num2(Number(o.hoursPerBatch) * (Number(o.labourRate) + Number(o.overheadRate)))}</td>
-                  <td className="px-3 py-2"><button onClick={() => removeOp(o.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {adding === "operation" && <OperationDrawer bom={bom} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
-      {adding === "input" && <IngredientDrawer bom={bom} items={consumable} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
-      {adding === "output" && <OutputPackDrawer bom={bom} outputSkus={outputSkus} baseUom={baseUom} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
-      {packFor && <PackagingDrawer bom={bom} output={packFor} items={consumable} onClose={() => setPackFor(null)} onCreated={() => { setPackFor(null); load(); }} />}
-    </div>
-  );
-}
-
-function OperationDrawer({ bom, onClose, onCreated }: { bom: any; onClose: () => void; onCreated: () => void }) {
-  const [centres, setCentres] = useState<any[] | null>(null);
-  const [f, setF] = useState({ workCentreId: "", hoursPerBatch: "", description: "" });
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { fetch("/api/production/work-centres").then(r => r.json()).then(d => setCentres(Array.isArray(d) ? d.filter((c: any) => c.status === "Active") : [])).catch(() => setCentres([])); }, []);
-  const wc = centres?.find(c => c.id === f.workCentreId);
-  async function save() {
-    setSaving(true); setErr(null);
-    const r = await fetch("/api/inventory/bom-operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bomId: bom.id, ...f }) });
-    const d = await r.json().catch(() => ({}));
-    setSaving(false);
-    if (!r.ok) { setErr(d?.error || "Could not add."); return; }
-    onCreated();
-  }
-  return (
-    <Drawer title="Add operation" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add operation" err={err} saveDisabled={!f.workCentreId || !(Number(f.hoursPerBatch) > 0)} />}>
-      <div className="space-y-4">
-        {centres?.length === 0 && <p className="text-[12px] text-amber-400">No active work centres. Add one under Supply Chain → Work Centres first.</p>}
-        <Field label="Work centre" required>
-          <SelectField inset value={f.workCentreId} onChange={e => setF(p => ({ ...p, workCentreId: e.target.value }))}>
-            <option value="">Select…</option>
-            {(centres ?? []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </SelectField>
-        </Field>
-        <Field label="Hours per batch" required hint={`For a batch of ${Number(bom.batchSize)}. An MO scales it to the quantity it makes.`}>
-          <input type="number" min="0" step="any" className={controlInset} value={f.hoursPerBatch} onChange={e => setF(p => ({ ...p, hoursPerBatch: e.target.value }))} />
-        </Field>
-        <Field label="Description" hint="Optional, e.g. Stitching, Cutting.">
-          <input className={controlInset} value={f.description} onChange={e => setF(p => ({ ...p, description: e.target.value }))} />
-        </Field>
-        {wc && Number(f.hoursPerBatch) > 0 && (
-          <p className="text-[12px] text-stone-400">Costs {fmt.num2(Number(f.hoursPerBatch) * (Number(wc.labourRate) + Number(wc.overheadRate)))} per batch at today's rates ({fmt.num2(wc.labourRate)} labour + {fmt.num2(wc.overheadRate)} overhead per hour).</p>
-        )}
-      </div>
-    </Drawer>
-  );
-}
-
-function IngredientDrawer({ bom, items: baseItems, onClose, onCreated }: { bom: any; items: any[]; onClose: () => void; onCreated: () => void }) {
-  const [addedItems, setAddedItems] = useState<any[]>([]);
-  const [isCreatingItem, setIsCreatingItem] = useState(false);
-  const items = [...baseItems, ...addedItems];
-  const [f, setF] = useState<Record<string, string>>({ itemId: "", qty: "", uom: "" });
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const selected = items.find(i => i.id === f.itemId);
-  async function save() {
-    if (!f.itemId) { setErr("Choose an ingredient."); return; }
-    if (!(Number(f.qty) > 0)) { setErr("Enter a quantity per batch."); return; }
-    setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/bom-lines`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bomId: bom.id, role: "input", itemId: f.itemId, qty: Number(f.qty), uom: f.uom || selected?.baseUom || null }) });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
-  }
-  return (
-    <Drawer title="Add ingredient" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} />}>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-        <Field label="Ingredient / material" required className="col-span-2">
-          <SelectField inset value={f.itemId} onChange={e => { if (e.target.value === CREATE_NEW) { setIsCreatingItem(true); return; } const it = items.find(x => x.id === e.target.value); set("itemId", e.target.value); if (it) set("uom", it.baseUom || ""); }}>
-            <option value="">Select…</option>
-            {items.map(i => <option key={i.id} value={i.id}>{i.name}{i.code ? ` [${i.code}]` : ""}</option>)}
-            <option value={CREATE_NEW}>{createNewLabel("material")}</option>
-          </SelectField>
-          {isCreatingItem && (
-            <CreateNewDrawer kind="material" onClose={() => setIsCreatingItem(false)}
-              onCreated={(row) => { setAddedItems(x => [...x, row]); set("itemId", row.id); set("uom", row.baseUom || ""); }} />
-          )}
-        </Field>
-        <Field label="Qty per batch" required>
-          <input type="number" className={controlInset} value={f.qty} onChange={e => set("qty", e.target.value)} />
-        </Field>
-        <Field label="UoM">
-          <input className={controlInset} value={f.uom || selected?.baseUom || ""} onChange={e => set("uom", e.target.value)} placeholder={selected?.baseUom || "base"} />
-        </Field>
-        {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
-      </div>
-      </Drawer>
-  );
-}
-
-function OutputPackDrawer({ bom, outputSkus, baseUom, onClose, onCreated }: { bom: any; outputSkus: any[]; baseUom: string; onClose: () => void; onCreated: () => void }) {
-  const [f, setF] = useState<Record<string, string>>({ skuId: "", qty: "" });
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const sku = outputSkus.find(s => s.id === f.skuId);
-  // Default unit content = the SKU's own pack size when it defines one.
-  useEffect(() => { if (sku && !f.qty && sku.innerUnitPackSize) set("qty", String(Number(sku.innerUnitPackSize))); }, [f.skuId]);
-  async function save() {
-    if (!f.skuId) { setErr("Choose the packaging SKU."); return; }
-    if (!(Number(f.qty) > 0)) { setErr("Enter the base content per pack."); return; }
-    setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/bom-lines`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bomId: bom.id, role: "output", itemId: bom.outputItemId, skuId: f.skuId, qty: Number(f.qty), uom: baseUom }) });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
-  }
-  return (
-    <Drawer title="Add output pack" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add pack" />}>
-      <div className="space-y-5">
-        <p className="text-[12px] text-stone-400">A packaged variant of the finished product. All packs share the same ingredients — they differ only by packaging.</p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Field label="Packaging SKU" required className="col-span-2">
-            <SelectField inset value={f.skuId} onChange={e => set("skuId", e.target.value)}>
-              <option value="">Select a SKU…</option>
-              {outputSkus.map(s => <option key={s.id} value={s.id}>{s.skuName || s.skuCode || s.id.slice(0, 8)}{s.innerUnitPackSize ? ` · ${Number(s.innerUnitPackSize)} ${baseUom}` : ""}</option>)}
-            </SelectField>
-            {outputSkus.length === 0 && <p className="text-[11px] text-amber-400 mt-1">The output item has no SKUs yet — add packaging SKUs to it in Products &amp; Services first.</p>}
-          </Field>
-          <Field label={`Base content per pack (${baseUom || "base"})`} required className="col-span-2" hint="How much finished product goes into one pack — drives the base qty to make and the cost share.">
-            <input type="number" className={controlInset} value={f.qty} onChange={e => set("qty", e.target.value)} placeholder="e.g. 12" />
-          </Field>
-          {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
-        </div>
-      </div>
-      </Drawer>
-  );
-}
-
-function PackagingDrawer({ bom, output, items, onClose, onCreated }: { bom: any; output: any; items: any[]; onClose: () => void; onCreated: () => void }) {
-  const [f, setF] = useState<Record<string, string>>({ itemId: "", qty: "1", uom: "" });
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const selected = items.find(i => i.id === f.itemId);
-  async function save() {
-    if (!f.itemId) { setErr("Choose a packaging material."); return; }
-    if (!(Number(f.qty) > 0)) { setErr("Enter the qty per pack."); return; }
-    setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/bom-lines`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bomId: bom.id, role: "pack", itemId: f.itemId, packagingForSkuId: output.skuId, qty: Number(f.qty), uom: f.uom || selected?.baseUom || null }) });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
-  }
-  return (
-    <Drawer title={`Packaging for ${output.item?.name ?? "pack"}`} onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add packaging" />}>
-      <div className="space-y-5">
-        <p className="text-[12px] text-stone-400">A material consumed per pack of this SKU — bags, boxes, labels, etc.</p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Field label="Packaging material" required className="col-span-2">
-            <SelectField inset value={f.itemId} onChange={e => { const it = items.find(x => x.id === e.target.value); set("itemId", e.target.value); if (it) set("uom", it.baseUom || ""); }}>
-              <option value="">Select…</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name}{i.code ? ` [${i.code}]` : ""}</option>)}
-            </SelectField>
-          </Field>
-          <Field label="Qty per pack" required>
-            <input type="number" className={controlInset} value={f.qty} onChange={e => set("qty", e.target.value)} />
-          </Field>
-          <Field label="UoM">
-            <input className={controlInset} value={f.uom || selected?.baseUom || ""} onChange={e => set("uom", e.target.value)} placeholder={selected?.baseUom || "each"} />
-          </Field>
-          {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
-        </div>
-      </div>
-      </Drawer>
-  );
-}
-
-function NewBomDrawer({ items: baseItems, onClose, onCreated }: { items: any[]; onClose: () => void; onCreated: () => void }) {
-  const [addedItems, setAddedItems] = useState<any[]>([]);
-  const [isCreatingItem, setIsCreatingItem] = useState(false);
-  const items = [...baseItems, ...addedItems];
-  const [f, setF] = useState<Record<string, string>>({ code: "", name: "", outputItemId: "", outputSkuId: "", processingStep: "", batchType: "Output", batchSize: "1", expYield: "", status: "Active" });
-  const [skus, setSkus] = useState<any[]>([]);
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const producible = items.filter(i => kindOf(i.productType).producible);
-
-  // Load the chosen output item's packaging SKUs so the BOM can name which one it produces.
-  useEffect(() => {
-    if (!f.outputItemId) { setSkus([]); return; }
-    fetch(`/api/inventory/items/${f.outputItemId}`).then(r => r.json()).then(d => setSkus(d?.skus ?? [])).catch(() => setSkus([]));
-  }, [f.outputItemId]);
-
-  async function save() {
-    if (!f.name.trim()) { setErr("A BOM name is required."); return; }
-    setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/boms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
-  }
-
-  return (
-    <Drawer title="New Bill of Materials" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create BOM" />}>
-      <div className="space-y-6">
-        <Section title="Identity">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="BOM ID / code">
-              <input className={controlInset} value={f.code} onChange={e => set("code", e.target.value)} placeholder="e.g. SBOM_Dough" />
-            </Field>
-            <Field label="Status">
-              <SelectField inset value={f.status} onChange={e => set("status", e.target.value)}><option>Active</option><option>Draft</option><option>Archived</option></SelectField>
-            </Field>
-            <Field label="BOM name" required className="col-span-2">
-              <input className={controlInset} value={f.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Dough - WIP" />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title="Output">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="Primary output item" className="col-span-2">
-              <SelectField inset value={f.outputItemId} onChange={e => { if (e.target.value === CREATE_NEW) { setIsCreatingItem(true); return; } set("outputItemId", e.target.value); set("outputSkuId", ""); }}>
-                <option value="">Select item to produce…</option>
-                {producible.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                <option value={CREATE_NEW}>{createNewLabel("item")}</option>
-              </SelectField>
-              {isCreatingItem && (
-                <CreateNewDrawer kind="item" onClose={() => setIsCreatingItem(false)}
-                  onCreated={(row) => { setAddedItems(a => [...a, row]); set("outputItemId", row.id); set("outputSkuId", ""); }} />
-              )}
-              {producible.length === 0 && <p className="text-[11px] text-amber-400 mt-1">Create a Finished Product or Work-in-Progress item first to set an output.</p>}
-            </Field>
-            {f.outputItemId && (
-              <Field label="Output packaging (SKU)" className="col-span-2" hint={`Which packaging this recipe makes — production builds this SKU. Different packs need their own BOM. ${skus.length === 0 ? "Add SKUs to the item to choose one." : ""}`}>
-                <SelectField inset value={f.outputSkuId} onChange={e => set("outputSkuId", e.target.value)}>
-                  <option value="">Base UoM (no specific pack)</option>
-                  {skus.map(s => <option key={s.id} value={s.id}>{s.skuName || s.skuCode || s.id.slice(0, 8)}{s.innerUnitPackSize ? ` · ${Number(s.innerUnitPackSize)} ${s.innerPackType || ""}` : ""}</option>)}
-                </SelectField>
-              </Field>
-            )}
-          </div>
-        </Section>
-
-        <Section title="Batch">
-          <div className="grid grid-cols-3 gap-x-4 gap-y-4">
-            <Field label="Batch type">
-              <SelectField inset value={f.batchType} onChange={e => set("batchType", e.target.value)}><option>Output</option><option>Input</option></SelectField>
-            </Field>
-            <Field label="Batch size">
-              <input type="number" className={controlInset} value={f.batchSize} onChange={e => set("batchSize", e.target.value)} />
-            </Field>
-            <Field label="Exp. yield %" hint="Share of output expected to come out good. Loss within it stays in the product's cost; loss beyond it goes to Scrap & yield loss. Blank = 100%.">
-              <input type="number" className={controlInset} value={f.expYield} onChange={e => set("expYield", e.target.value)} placeholder="optional" />
-            </Field>
-            <Field label="Processing step" className="col-span-3">
-              <input className={controlInset} value={f.processingStep} onChange={e => set("processingStep", e.target.value)} placeholder="e.g. Packaging" />
-            </Field>
-          </div>
-        </Section>
-
-        <p className="text-[11px] text-stone-500">After creating the BOM, expand its row to add the output and input items that make up the recipe.</p>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
-      </div>
-      </Drawer>
-  );
-}
-
-/* ----------------------------- Drawer shell ----------------------------- */
-
-
