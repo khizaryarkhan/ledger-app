@@ -7,7 +7,7 @@
  * lib/inventory/bom-rules.ts, the same module the save route validates with.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { validateBom, weightBalance, type BomInput } from "@/lib/inventory/bom-rules";
 import { fmt } from "@/lib/format";
@@ -16,7 +16,8 @@ import { CreateNewDrawer, type CreateKind } from "@/components/create-new";
 import { ProductSection, type SkuLite } from "./product-section";
 import { LinesSection, type Reference, type UnknownLine } from "./lines-section";
 import { OperationsSection, CostSection, type WorkCentreLite } from "./ops-cost-sections";
-import { draftFromInput, draftToInput, emptyDraft, kgPerUnit, newKey, parseNum, type Draft, type ItemLite } from "./draft";
+import type { SupplierSkuLite } from "./line-extras";
+import { draftFromInput, draftToInput, emptyDraft, kgPerUnit, newLine, parseNum, type Draft, type ItemLite } from "./draft";
 
 interface Suggest { source: { id: string; code: string | null } | null; suggestedCode: string | null; input: BomInput | null }
 const getJson = (url: string) => fetch(url).then(r => r.json()).catch(() => null);
@@ -42,8 +43,21 @@ export function BomBuilderDrawer({ bomId, items, onClose, onSaved, onItemCreated
   const [confirmClose, setConfirmClose] = useState(false);
   const [creating, setCreating] = useState<{ kind: CreateKind; name: string; forProduct: boolean } | null>(null);
   const [made, setMade] = useState<ItemLite[]>([]);
+  const [patched, setPatched] = useState<Record<string, Partial<ItemLite>>>({});
+  const [skusByItem, setSkusByItem] = useState<Record<string, SupplierSkuLite[] | undefined>>({});
+  const asked = useRef<Set<string>>(new Set());
 
-  const all = useMemo(() => [...items, ...made.filter(m => !items.some(i => i.id === m.id))], [items, made]);
+  const all = useMemo(() => [...items, ...made.filter(m => !items.some(i => i.id === m.id))].map(i => (patched[i.id] ? { ...i, ...patched[i.id] } : i)), [items, made, patched]);
+  const onItemPatched = (id: string, patch: Partial<ItemLite>) => setPatched(p => ({ ...p, [id]: { ...p[id], ...patch } }));
+  /** An item's supplier SKUs, fetched once when a limit or substitute first needs them. */
+  function ensureSkus(itemId: string) {
+    if (asked.current.has(itemId)) return;
+    asked.current.add(itemId);
+    getJson(`/api/inventory/items/${itemId}`).then(d => {
+      const rows: any[] = Array.isArray(d?.supplierSkus) ? d.supplierSkus : [];
+      setSkusByItem(m => ({ ...m, [itemId]: rows.map(r => ({ id: r.id, label: r.skuName || r.supplierProductName || r.supplierSku || "SKU", supplier: r.supplierName ?? null, code: r.supplierSku ?? null })) }));
+    });
+  }
   const byId = useMemo(() => new Map(all.map(i => [i.id, i])), [all]);
   const item = draft.outputItemId ? byId.get(draft.outputItemId) : undefined;
   const set = (patch: Partial<Draft>) => setDraft(d => ({ ...d, ...patch }));
@@ -140,6 +154,7 @@ export function BomBuilderDrawer({ bomId, items, onClose, onSaved, onItemCreated
           {item && (
             <>
               <LinesSection draft={draft} set={set} items={all} byId={byId} reference={reference} unknown={unknown} setUnknown={setUnknown} outputItemId={draft.outputItemId} skus={skus}
+                skusByItem={skusByItem} ensureSkus={ensureSkus} onItemPatched={onItemPatched}
                 onCreateItem={name => setCreating({ kind: "material", name, forProduct: false })} />
               <OperationsSection draft={draft} set={set} centres={centres} />
               <CostSection draft={draft} byId={byId} centres={centres} unit={item.baseUom || ""} />
@@ -153,7 +168,7 @@ export function BomBuilderDrawer({ bomId, items, onClose, onSaved, onItemCreated
             const lite: ItemLite = { id: row.id, name: row.name, code: row.code, productType: row.productType, baseUom: row.baseUom, unitCost: row.unitCost ?? null, onHandQty: 0, invValue: 0 };
             setMade(m => [...m, lite]); onItemCreated(lite);
             if (creating.forProduct) { if (kindOf(lite.productType).producible) pickProduct(lite); }
-            else setDraft(d => ({ ...d, inputs: [...d.inputs, { key: newKey(), itemId: lite.id, qty: "" }] }));
+            else setDraft(d => ({ ...d, inputs: [...d.inputs, newLine(lite.id, "")] }));
             setCreating(null);
           }} />
       )}

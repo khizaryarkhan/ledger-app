@@ -2011,6 +2011,10 @@ export const apItems = pgTable("ap_items", {
   // lib/inventory/sourcing.ts; SAP puts the same indicator on the material
   // master rather than on the source list, for the same reason.
   sourcingPolicy:    varchar("sourcing_policy", { length: 16 }).notNull().default("restricted"),
+  // 0135: kilograms in ONE base unit (a litre, a case, a bar) so a BOM's weight check can
+  // add up non-mass items; mass units need none. Allergens are a fixed picklist (bom-rules).
+  weightPerUnitKg:   numeric("weight_per_unit_kg", { precision: 18, scale: 6 }),
+  allergens:         text("allergens").array(),
   baseUom:           varchar("base_uom", { length: 16 }),
   category:          varchar("category", { length: 128 }),
   minOhQty:          numeric("min_oh_qty", { precision: 16, scale: 6 }).notNull().default("0"),
@@ -2412,6 +2416,35 @@ export const bomLines = pgTable("bom_lines", {
   bom_lines_input_unique: uniqueIndex("bom_lines_input_unique").on(t.bomId, t.itemId).where(sql`${t.role} = 'input'`),
 }));
 export type BomLine = typeof bomLines.$inferSelect;
+
+// Ordered fallbacks for one ingredient of a BOM (0135). Keyed by (bom, primary item), NOT by
+// a bom_lines id: saving a BOM replaces its lines. Not read by manufacturing orders yet.
+export const bomLineSubstitutes = pgTable("bom_line_substitutes", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  bomId:         uuid("bom_id").notNull().references(() => boms.id, { onDelete: "cascade" }),
+  primaryItemId: uuid("primary_item_id").notNull(),
+  itemId:        uuid("item_id").notNull(),
+  qty:           numeric("qty", { precision: 20, scale: 6 }).notNull(),   // in the substitute's own base unit
+  sortOrder:     integer("sort_order").notNull().default(0),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  bom_line_substitutes_unique: uniqueIndex("bom_line_substitutes_unique").on(t.bomId, t.primaryItemId, t.itemId),
+}));
+
+// Which supplier SKUs an ingredient (or one of its substitutes) may be drawn from (0135).
+// No rows = any SKU. `itemId` is the item the limit applies to: the primary or a substitute.
+export const bomLineAllowedSkus = pgTable("bom_line_allowed_skus", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  bomId:         uuid("bom_id").notNull().references(() => boms.id, { onDelete: "cascade" }),
+  primaryItemId: uuid("primary_item_id").notNull(),
+  itemId:        uuid("item_id").notNull(),
+  supplierSkuId: uuid("supplier_sku_id").notNull().references(() => itemSupplierSkus.id, { onDelete: "cascade" }),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  bom_line_allowed_skus_unique: uniqueIndex("bom_line_allowed_skus_unique").on(t.bomId, t.primaryItemId, t.itemId, t.supplierSkuId),
+}));
 
 // =========================================================================
 // PRODUCTION RUNS (BOM builds) — consume input lots at exact cost, produce an

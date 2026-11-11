@@ -9,7 +9,7 @@
  */
 
 import { db } from "@/db";
-import { boms, bomLines, bomOperations, workCentres, apItems, itemSkus } from "@/db/schema";
+import { boms, bomLines, bomOperations, bomLineSubstitutes, bomLineAllowedSkus, itemSupplierSkus, workCentres, apItems, itemSkus } from "@/db/schema";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { convert, uom as uomOf } from "@/lib/inventory/uom";
@@ -22,6 +22,7 @@ export class BomValidationError extends Error {
 
 const str = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 const numOr = (v: any, d: number | null = null) => (v == null || v === "" || isNaN(Number(v)) ? d : Number(v));
+const idList = (x: any): string[] => (Array.isArray(x) ? [...new Set(x.map(v => String(v)).filter(Boolean))] : []);
 
 /** Coerce an untrusted request body into the shape the rules expect. */
 export function toBomInput(b: any): BomInput {
@@ -38,7 +39,11 @@ export function toBomInput(b: any): BomInput {
     processingStep: str(b?.processingStep, 64),
     notes: str(b?.notes, 2000),
     outputs: arr(b?.outputs).map((o: any) => ({ skuId: str(o?.skuId, 64), qty: numOr(o?.qty, 0) as number, outputPackQty: numOr(o?.outputPackQty), packagingConfig: str(o?.packagingConfig, 128) })),
-    inputs: arr(b?.inputs).map((i: any) => ({ itemId: String(i?.itemId ?? ""), qty: numOr(i?.qty, 0) as number, uom: str(i?.uom, 16), supplierSkuId: str(i?.supplierSkuId, 64) })),
+    inputs: arr(b?.inputs).map((i: any) => ({
+      itemId: String(i?.itemId ?? ""), qty: numOr(i?.qty, 0) as number, uom: str(i?.uom, 16), supplierSkuId: str(i?.supplierSkuId, 64),
+      allowedSkuIds: idList(i?.allowedSkuIds),
+      substitutes: arr(i?.substitutes).map((s: any) => ({ itemId: String(s?.itemId ?? ""), qty: numOr(s?.qty, 0) as number, allowedSkuIds: idList(s?.allowedSkuIds) })),
+    })),
     packs: arr(b?.packs).map((p: any) => ({ itemId: String(p?.itemId ?? ""), qty: numOr(p?.qty, 0) as number, uom: str(p?.uom, 16), forSkuId: str(p?.forSkuId, 64) })),
     ops: arr(b?.ops).map((o: any) => ({ workCentreId: String(o?.workCentreId ?? ""), hoursPerBatch: numOr(o?.hoursPerBatch, 0) as number, description: str(o?.description, 255) })),
   };
@@ -53,8 +58,9 @@ export async function checkBom(orgId: string, input: BomInput, selfId?: string):
   const errors = validateBom(input);
   if (!input.outputItemId) errors.push("Pick the product this recipe makes.");
 
-  const itemIds = [...new Set([input.outputItemId, ...input.inputs.map(i => i.itemId), ...input.packs.map(p => p.itemId)].filter(Boolean) as string[])];
-  const items = itemIds.length ? await db.select({ id: apItems.id, name: apItems.name, productType: apItems.productType, baseUom: apItems.baseUom })
+  const subItemIds = input.inputs.flatMap(i => (i.substitutes ?? []).map(s => s.itemId));
+  const itemIds = [...new Set([input.outputItemId, ...input.inputs.map(i => i.itemId), ...input.packs.map(p => p.itemId), ...subItemIds].filter(Boolean) as string[])];
+  const items = itemIds.length ? await db.select({ id: apItems.id, name: apItems.name, productType: apItems.productType, baseUom: apItems.baseUom, sourcingPolicy: apItems.sourcingPolicy })
     .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds))) : [];
   const byId = new Map(items.map(i => [i.id, i]));
 
@@ -82,6 +88,30 @@ export async function checkBom(orgId: string, input: BomInput, selfId?: string):
     return { ...l, uom: base ?? l.uom };
   });
   const inputs = convertLines(input.inputs, "Ingredient");
+
+  // Substitutes: real, stocked, usable in a recipe. Their amount is in THEIR OWN base unit (no conversion
+  // exists between, say, kg of honey and litres of syrup), so it is stored as typed.
+  for (const i of input.inputs) for (const sub of i.substitutes ?? []) {
+    const it = byId.get(sub.itemId);
+    if (!it) { errors.push("A substitute was not found."); continue; }
+    const k = kindOf(it.productType);
+    if (!k.consumable || !k.tracked) errors.push(`${it.name} cannot be a substitute (it is not a stocked, consumable item).`);
+  }
+
+  // Allowed supplier SKUs must belong to the item they limit, and an "open" item has none to choose.
+  const skuAsks: { itemId: string; ids: string[] }[] = input.inputs.flatMap(i => [
+    { itemId: i.itemId, ids: i.allowedSkuIds ?? [] }, ...(i.substitutes ?? []).map(s => ({ itemId: s.itemId, ids: s.allowedSkuIds ?? [] })),
+  ]).filter(a => a.ids.length);
+  if (skuAsks.length) {
+    const allIds = [...new Set(skuAsks.flatMap(a => a.ids))];
+    const found = await db.select({ id: itemSupplierSkus.id, itemId: itemSupplierSkus.itemId }).from(itemSupplierSkus).where(and(eq(itemSupplierSkus.orgId, orgId), inArray(itemSupplierSkus.id, allIds)));
+    const owner = new Map(found.map(f => [f.id, f.itemId]));
+    for (const a of skuAsks) {
+      const it = byId.get(a.itemId);
+      if (it?.sourcingPolicy === "open") errors.push(`${it.name} can be bought from any supplier, so it has no supplier SKUs to limit to.`);
+      else if (a.ids.some(id => owner.get(id) !== a.itemId)) errors.push(`A supplier SKU does not belong to ${it?.name ?? "that item"}.`);
+    }
+  }
   const packs = convertLines(input.packs, "Packaging");
 
   const wcIds = [...new Set(input.ops.map(o => o.workCentreId).filter(Boolean))];
@@ -108,6 +138,23 @@ function lineRows(orgId: string, bomId: string, b: BomInput, baseUom: string | n
     ...b.inputs.map(i => ({ orgId, bomId, role: "input", itemId: i.itemId, qty: String(i.qty), uom: i.uom, supplierSkuId: i.supplierSkuId ?? null, sortOrder: n++ })),
     ...b.packs.map(p => ({ orgId, bomId, role: "pack", itemId: p.itemId, qty: String(p.qty), uom: p.uom, packagingForSkuId: p.forSkuId, sortOrder: n++ })),
   ] as any[];
+}
+/** Substitute and allowed-SKU rows, keyed by (bom, primary item) because saving replaces the bom_lines. */
+function extraRows(orgId: string, bomId: string, b: BomInput) {
+  const subs: any[] = [], skus: any[] = [];
+  for (const i of b.inputs) {
+    (i.substitutes ?? []).forEach((s, n) => {
+      subs.push({ orgId, bomId, primaryItemId: i.itemId, itemId: s.itemId, qty: String(s.qty), sortOrder: n });
+      for (const id of s.allowedSkuIds ?? []) skus.push({ orgId, bomId, primaryItemId: i.itemId, itemId: s.itemId, supplierSkuId: id });
+    });
+    for (const id of i.allowedSkuIds ?? []) skus.push({ orgId, bomId, primaryItemId: i.itemId, itemId: i.itemId, supplierSkuId: id });
+  }
+  return { subs, skus };
+}
+async function insertExtras(orgId: string, bomId: string, b: BomInput) {
+  const { subs, skus } = extraRows(orgId, bomId, b);
+  if (subs.length) await db.insert(bomLineSubstitutes).values(subs);
+  if (skus.length) await db.insert(bomLineAllowedSkus).values(skus);
 }
 const opRows = (orgId: string, bomId: string, b: BomInput) => b.ops.map((o, i) => ({ orgId, bomId, workCentreId: o.workCentreId, hoursPerBatch: String(o.hoursPerBatch), description: o.description, sortOrder: i })) as any[];
 const headerValues = (b: BomInput) => ({
@@ -136,6 +183,7 @@ export async function createBom(orgId: string, raw: BomInput): Promise<string> {
     if (lines.length) await db.insert(bomLines).values(lines);
     const ops = opRows(orgId, head.id, b);
     if (ops.length) await db.insert(bomOperations).values(ops);
+    await insertExtras(orgId, head.id, b);
   } catch (e) {
     console.error("[bom-save] create failed part-way; removing the header", head.id, e);
     await db.delete(boms).where(eq(boms.id, head.id)).catch(err => console.error("[bom-save] CLEANUP FAILED, orphan BOM header", head.id, err));
@@ -155,22 +203,31 @@ export async function replaceBom(orgId: string, id: string, raw: BomInput, expec
   const baseUom = await baseUomOf(orgId, b.outputItemId!);
   const oldLines = await db.select().from(bomLines).where(eq(bomLines.bomId, id));
   const oldOps = await db.select().from(bomOperations).where(eq(bomOperations.bomId, id));
+  const oldSubs = await db.select().from(bomLineSubstitutes).where(eq(bomLineSubstitutes.bomId, id));
+  const oldSkus = await db.select().from(bomLineAllowedSkus).where(eq(bomLineAllowedSkus.bomId, id));
 
   await db.update(boms).set({ ...headerValues(b), updatedAt: new Date() } as any).where(and(eq(boms.id, id), eq(boms.orgId, orgId)));
   await db.delete(bomLines).where(eq(bomLines.bomId, id));
   await db.delete(bomOperations).where(eq(bomOperations.bomId, id));
+  await db.delete(bomLineSubstitutes).where(eq(bomLineSubstitutes.bomId, id));
+  await db.delete(bomLineAllowedSkus).where(eq(bomLineAllowedSkus.bomId, id));
   try {
     const lines = lineRows(orgId, id, b, baseUom);
     if (lines.length) await db.insert(bomLines).values(lines);
     const ops = opRows(orgId, id, b);
     if (ops.length) await db.insert(bomOperations).values(ops);
+    await insertExtras(orgId, id, b);
   } catch (e) {
     console.error("[bom-save] edit failed part-way; restoring the previous lines", id, e);
     try {
       await db.delete(bomLines).where(eq(bomLines.bomId, id));
       await db.delete(bomOperations).where(eq(bomOperations.bomId, id));
+      await db.delete(bomLineSubstitutes).where(eq(bomLineSubstitutes.bomId, id));
+      await db.delete(bomLineAllowedSkus).where(eq(bomLineAllowedSkus.bomId, id));
       if (oldLines.length) await db.insert(bomLines).values(oldLines);
       if (oldOps.length) await db.insert(bomOperations).values(oldOps);
+      if (oldSubs.length) await db.insert(bomLineSubstitutes).values(oldSubs);
+      if (oldSkus.length) await db.insert(bomLineAllowedSkus).values(oldSkus);
       await db.update(boms).set({ code: cur.code, name: cur.name, outputItemId: cur.outputItemId, outputSkuId: cur.outputSkuId, status: cur.status, batchType: cur.batchType, batchSize: cur.batchSize, expYield: cur.expYield, processingStep: cur.processingStep, notes: cur.notes, updatedAt: cur.updatedAt }).where(eq(boms.id, id));
     } catch (err) { console.error("[bom-save] RESTORE FAILED — BOM", id, "may be missing lines", err); }
     friendly(e);
@@ -183,11 +240,17 @@ export async function loadBomFull(orgId: string, id: string) {
   if (!bom) return null;
   const lines = await db.select().from(bomLines).where(eq(bomLines.bomId, id)).orderBy(asc(bomLines.sortOrder), asc(bomLines.createdAt));
   const ops = await db.select().from(bomOperations).where(eq(bomOperations.bomId, id)).orderBy(asc(bomOperations.sortOrder), asc(bomOperations.createdAt));
+  const subRows = await db.select().from(bomLineSubstitutes).where(eq(bomLineSubstitutes.bomId, id)).orderBy(asc(bomLineSubstitutes.sortOrder));
+  const skuRows = await db.select().from(bomLineAllowedSkus).where(eq(bomLineAllowedSkus.bomId, id));
+  const allowedFor = (primary: string, item: string) => skuRows.filter(r => r.primaryItemId === primary && r.itemId === item).map(r => r.supplierSkuId);
   const input: BomInput = {
     code: bom.code, name: bom.name, outputItemId: bom.outputItemId, outputSkuId: bom.outputSkuId, status: bom.status, batchType: bom.batchType,
     batchSize: Number(bom.batchSize), expYield: bom.expYield == null ? null : Number(bom.expYield), processingStep: bom.processingStep, notes: bom.notes,
     outputs: lines.filter(l => l.role === "output").map(l => ({ skuId: l.skuId, qty: Number(l.qty), outputPackQty: l.outputPackQty == null ? null : Number(l.outputPackQty), packagingConfig: l.packagingConfig })),
-    inputs: lines.filter(l => l.role === "input").map(l => ({ itemId: l.itemId, qty: Number(l.qty), uom: l.uom, supplierSkuId: l.supplierSkuId })),
+    inputs: lines.filter(l => l.role === "input").map(l => ({
+      itemId: l.itemId, qty: Number(l.qty), uom: l.uom, supplierSkuId: l.supplierSkuId, allowedSkuIds: allowedFor(l.itemId, l.itemId),
+      substitutes: subRows.filter(r => r.primaryItemId === l.itemId).map(r => ({ itemId: r.itemId, qty: Number(r.qty), allowedSkuIds: allowedFor(l.itemId, r.itemId) })),
+    })),
     packs: lines.filter(l => l.role === "pack").map(l => ({ itemId: l.itemId, qty: Number(l.qty), uom: l.uom, forSkuId: l.packagingForSkuId })),
     ops: ops.map(o => ({ workCentreId: o.workCentreId, hoursPerBatch: Number(o.hoursPerBatch), description: o.description })),
   };

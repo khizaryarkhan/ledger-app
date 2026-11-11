@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   findDuplicates, validateBom, parseEntry, quantityCheck, weightBalance, costRollup,
-  suggestPackQty, nextCopyCode, type BomInput,
+  suggestPackQty, nextCopyCode, allergenAdds, followQty, ALLERGENS, type BomInput,
 } from "@/lib/inventory/bom-rules";
 
 const base = (over: Partial<BomInput> = {}): BomInput => ({
@@ -144,4 +144,35 @@ describe("nextCopyCode", () => {
   it("steps past versions already taken", () => expect(nextCopyCode("BOM_HOB-40", ["BOM_HOB-40", "BOM_HOB-40-V2"])).toBe("BOM_HOB-40-V3"));
   it("continues from a source that is itself a version", () => expect(nextCopyCode("BOM_HOB-40-V2", ["BOM_HOB-40-V2"])).toBe("BOM_HOB-40-V3"));
   it("is case-insensitive about what is taken", () => expect(nextCopyCode("a", ["A", "a-v2"])).toBe("a-V3"));
+});
+
+describe("substitute rules", () => {
+  const withSubs = (subs: any[], inputs?: any[]) => base({ inputs: inputs ?? [{ itemId: "i1", qty: 18, uom: "kg", substitutes: subs }] });
+  it("accepts a clean substitute list", () => expect(validateBom(withSubs([{ itemId: "x1", qty: 5 }, { itemId: "x2", qty: 6 }]))).toEqual([]));
+  it("refuses a substitute with no amount", () => expect(validateBom(withSubs([{ itemId: "x1", qty: 0 }])).join()).toMatch(/substitute needs an amount/i));
+  it("refuses an ingredient as its own substitute", () => expect(validateBom(withSubs([{ itemId: "i1", qty: 1 }])).join()).toMatch(/own substitute/i));
+  it("refuses the same substitute twice for one ingredient", () => expect(validateBom(withSubs([{ itemId: "x1", qty: 1 }, { itemId: "x1", qty: 2 }])).join()).toMatch(/twice/i));
+  it("refuses an item that is both an ingredient and a substitute", () => {
+    const e = validateBom(withSubs([{ itemId: "i2", qty: 1 }], [{ itemId: "i1", qty: 1, uom: "kg", substitutes: [{ itemId: "i2", qty: 1 }] }, { itemId: "i2", qty: 1, uom: "kg" }]));
+    expect(e.join()).toMatch(/both an ingredient and a substitute/i);
+  });
+  it("allows the same substitute on two different ingredients", () => {
+    expect(validateBom(withSubs([], [{ itemId: "i1", qty: 1, uom: "kg", substitutes: [{ itemId: "x1", qty: 1 }] }, { itemId: "i2", qty: 1, uom: "kg", substitutes: [{ itemId: "x1", qty: 1 }] }]))).toEqual([]);
+  });
+});
+
+describe("allergenAdds", () => {
+  it("lists what the substitute adds", () => expect(allergenAdds(["gluten"], ["gluten", "tree nuts"])).toEqual(["tree nuts"]));
+  it("treats missing lists as none", () => { expect(allergenAdds(null, ["milk"])).toEqual(["milk"]); expect(allergenAdds(["milk"], null)).toEqual([]); });
+  it("is case-insensitive and keeps the substitute's own spelling", () => expect(allergenAdds(["Milk"], ["milk", "Eggs"])).toEqual(["Eggs"]));
+  it("has a fixed picklist of the 14 major allergens", () => expect(ALLERGENS).toHaveLength(14));
+});
+
+describe("followQty", () => {
+  it("keeps the same weight when both weights are known", () => expect(followQty({ primaryQty: 7, primaryKgPerUnit: 1, subKgPerUnit: 1 })).toBe(7));
+  it("converts litres to kg to litres through the weights", () => expect(followQty({ primaryQty: 3, primaryKgPerUnit: 0.92, subKgPerUnit: 0.9 })).toBeCloseTo(3.066667, 5));
+  it("is null when either weight is unknown", () => {
+    expect(followQty({ primaryQty: 3, primaryKgPerUnit: null, subKgPerUnit: 1 })).toBeNull();
+    expect(followQty({ primaryQty: 3, primaryKgPerUnit: 1, subKgPerUnit: 0 })).toBeNull();
+  });
 });

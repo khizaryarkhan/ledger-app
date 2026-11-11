@@ -14,7 +14,8 @@ import { parseEntry, quantityCheck, suggestPackQty } from "@/lib/inventory/bom-r
 import { fmt } from "@/lib/format";
 import { CalcInput, SelectField, controlInset } from "@/components/form-kit";
 import { ItemTypeahead, type PickedEntry } from "./item-typeahead";
-import { newKey, normUnit, parseNum, unitCostOf, type Draft, type ItemLite } from "./draft";
+import { newKey, newLine, normUnit, parseNum, unitCostOf, type Draft, type ItemLite } from "./draft";
+import { LineExtras, type SupplierSkuLite } from "./line-extras";
 import type { SkuLite } from "./product-section";
 
 export interface UnknownLine { text: string; qty: number | null; unit: string }
@@ -34,7 +35,10 @@ function entryToBase(it: ItemLite, e: PickedEntry): { qty: string; note: string 
 
 const usable = (i: ItemLite) => kindOf(i.productType).consumable;
 
-export function LinesSection({ draft, set, items, byId, reference, unknown, setUnknown, outputItemId, skus, onCreateItem }: {
+export function LinesSection({ draft, set, items, byId, reference, unknown, setUnknown, outputItemId, skus, onCreateItem, skusByItem, ensureSkus, onItemPatched }: {
+  skusByItem: Record<string, SupplierSkuLite[] | undefined>;
+  ensureSkus: (itemId: string) => void;
+  onItemPatched: (itemId: string, patch: Partial<ItemLite>) => void;
   draft: Draft;
   set: (patch: Partial<Draft>) => void;
   items: ItemLite[];
@@ -54,9 +58,9 @@ export function LinesSection({ draft, set, items, byId, reference, unknown, setU
   const skuName = (id: string | null) => { const s = skus.find(x => x.id === id); return s ? (s.skuName || s.skuCode || "Pack") : "base unit"; };
 
   function addIngredient(it: ItemLite, e: PickedEntry) {
-    const { qty, note } = entryToBase(it, e), key = newKey();
-    set({ inputs: [...draft.inputs, { key, itemId: it.id, qty }] });
-    if (note) setNotes(n => ({ ...n, [key]: note }));
+    const { qty, note } = entryToBase(it, e), line = newLine(it.id, qty);
+    set({ inputs: [...draft.inputs, line] });
+    if (note) setNotes(n => ({ ...n, [line.key]: note }));
   }
   function addPack(it: ItemLite, e: PickedEntry) {
     const { qty, note } = entryToBase(it, e), key = newKey();
@@ -74,9 +78,9 @@ export function LinesSection({ draft, set, items, byId, reference, unknown, setU
       if (!hit) { unk.push({ text: e.query, qty, unit: e.unit }); continue; }
       if (seen.has(hit.id)) continue;
       seen.add(hit.id);
-      const c = entryToBase(hit, { qty, unit: e.unit }), key = newKey();
-      add.push({ key, itemId: hit.id, qty: c.qty });
-      if (c.note) nn[key] = c.note;
+      const c = entryToBase(hit, { qty, unit: e.unit }), line = newLine(hit.id, c.qty);
+      add.push(line);
+      if (c.note) nn[line.key] = c.note;
     }
     set({ inputs: [...draft.inputs, ...add] });
     setNotes(n => ({ ...n, ...nn }));
@@ -114,6 +118,8 @@ export function LinesSection({ draft, set, items, byId, reference, unknown, setU
                   <div className="flex items-center gap-1.5"><CalcInput className={qtyCls} value={l.qty} onChange={v => set({ inputs: draft.inputs.map(x => x.key === l.key ? { ...x, qty: v } : x) })} aria-label={`Amount of ${it?.name}`} /><span className="text-[12px] text-stone-500 w-8">{it?.baseUom}</span></div>
                   <div className="text-right text-[12px] text-stone-400 tabular-nums">{uc != null && q > 0 ? fmt.num2(q * uc) : "—"}</div>
                   <button type="button" aria-label={`Remove ${it?.name}`} onClick={() => set({ inputs: draft.inputs.filter(x => x.key !== l.key) })} className="p-1 text-stone-500 hover:text-rose-400"><X size={15} /></button>
+                  {it && <LineExtras line={l} item={it} items={items} byId={byId} primaries={inIds} skusByItem={skusByItem} ensureSkus={ensureSkus}
+                    onChange={patch => set({ inputs: draft.inputs.map(x => x.key === l.key ? { ...x, ...patch } : x) })} onItemPatched={onItemPatched} />}
                   {chk?.flagged && (
                     <div className="col-span-full rounded-lg bg-amber-500/10 border border-amber-800/50 px-2.5 py-1.5 text-[12px] text-amber-300 flex flex-wrap items-center gap-2">
                       <span className="flex-1">Your other recipe for this product uses about {fmt.qty(chk.expected)} {it?.baseUom} for a batch of {fmt.qty(batch)}.</span>

@@ -251,6 +251,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/inventory/delivery-performance", methods: ["GET"], params: ["asOf","from","side","to"] },
   { path: "/api/inventory/items", methods: ["GET","POST"], params: ["type"], body: ["canBePurchased","canBeSold","lotTracked","sourcingPolicy"] },
   { path: "/api/inventory/items/[id]", methods: ["DELETE","GET","PATCH"], body: ["baseUom","canBePurchased","canBeSold","category","code","lotTracked","minOhQty","name","postingGroupId","productType","purchaseTaxRateId","sourcingPolicy","taxRateId","unitCost","unitPrice"] },
+  { path: "/api/inventory/items/[id]/attributes", methods: ["PATCH"], body: ["allergens","weightPerUnitKg"] },
   { path: "/api/inventory/jobwork", methods: ["GET","POST"] },
   { path: "/api/inventory/jobwork-reports", methods: ["GET"], params: ["type"] },
   { path: "/api/inventory/jobwork/[id]", methods: ["DELETE","GET","PATCH"] },

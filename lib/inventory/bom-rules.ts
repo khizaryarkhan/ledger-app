@@ -9,7 +9,15 @@
  */
 
 export interface BomOutputInput { skuId: string | null; qty: number; outputPackQty?: number | null; packagingConfig?: string | null }
-export interface BomIngredientInput { itemId: string; qty: number; uom: string | null; supplierSkuId?: string | null }
+/** A fallback for an ingredient: its own amount (in ITS base unit) and optional supplier-SKU limit. */
+export interface BomSubstituteInput { itemId: string; qty: number; allowedSkuIds?: string[] }
+export interface BomIngredientInput {
+  itemId: string; qty: number; uom: string | null; supplierSkuId?: string | null;
+  /** Ordered: first is tried first. Saved with the recipe; orders do not read it yet (phase 2, slice 2). */
+  substitutes?: BomSubstituteInput[];
+  /** Supplier SKUs this ingredient may be drawn from. Empty/absent = any. */
+  allowedSkuIds?: string[];
+}
 export interface BomPackInput { itemId: string; qty: number; uom: string | null; forSkuId: string | null }
 export interface BomOperationInput { workCentreId: string; hoursPerBatch: number; description: string | null }
 
@@ -66,6 +74,14 @@ export function validateBom(b: BomInput): string[] {
   // A recipe with no output packs makes the BASE unit, and packaging may attach to that.
   const outKeys = new Set(b.outputs.length ? b.outputs.map(o => o.skuId ?? BASE_KEY) : [BASE_KEY]);
   if (b.packs.some(p => !outKeys.has(p.forSkuId ?? BASE_KEY))) e.push("A packaging line points at a pack that is not an output of this BOM.");
+  const primaries = new Set(b.inputs.map(i => i.itemId));
+  for (const i of b.inputs) {
+    const subs = i.substitutes ?? [];
+    if (subs.some(s => !pos(s.qty))) e.push("Every substitute needs an amount above zero.");
+    if (subs.some(s => s.itemId === i.itemId)) e.push("An ingredient cannot be its own substitute.");
+    if (new Set(subs.map(s => s.itemId)).size !== subs.length) e.push("The same substitute is listed twice for one ingredient.");
+    if (subs.some(s => s.itemId !== i.itemId && primaries.has(s.itemId))) e.push("An item cannot be both an ingredient and a substitute in the same BOM.");
+  }
   for (const d of findDuplicates(b)) e.push(`The same ${DUP_LABEL[d.kind]} appears more than once in this BOM (${d.key}). List each once.`);
   return e;
 }
@@ -138,4 +154,22 @@ export function nextCopyCode(source: string, taken: string[]): string {
   let n = 2;
   while (t.has(`${root}-V${n}`.toLowerCase())) n++;
   return `${root}-V${n}`;
+}
+
+/** The 14 allergens regulations name most often. A fixed picklist: free text cannot be compared. */
+export const ALLERGENS = [
+  "gluten", "crustaceans", "eggs", "fish", "peanuts", "soybeans", "milk",
+  "tree nuts", "celery", "mustard", "sesame", "sulphites", "lupin", "molluscs",
+] as const;
+
+/** Allergens the substitute carries that the primary does not (compared without regard to case). */
+export function allergenAdds(primary: readonly string[] | null | undefined, sub: readonly string[] | null | undefined): string[] {
+  const have = new Set((primary ?? []).map(a => a.toLowerCase()));
+  return (sub ?? []).filter(a => !have.has(a.toLowerCase()));
+}
+
+/** The substitute amount that weighs the same as the primary's, or null when a weight is unknown. */
+export function followQty(a: { primaryQty: number; primaryKgPerUnit: number | null; subKgPerUnit: number | null }): number | null {
+  if (!(a.primaryQty > 0) || !a.primaryKgPerUnit || !a.subKgPerUnit || a.primaryKgPerUnit <= 0 || a.subKgPerUnit <= 0) return null;
+  return Math.round((a.primaryQty * a.primaryKgPerUnit / a.subKgPerUnit) * 1e6) / 1e6;
 }

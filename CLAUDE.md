@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0134` at `when` `1794200000000`;
+  this silently dropped a table in prod once). Latest is `0135` at `when` `1794300000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5755,4 +5755,34 @@ Replaces the header drawer plus four per-line drawers in `components/bom-registe
 - **Verified**: 37 unit tests; `scripts/_e2e_bom_builder.ts` against the dev DB (create, duplicate
   refused with nothing written, both indexes refuse a raw duplicate, edit, stale-token 409, cleanup);
   the sections server-rendered with sample data. **Not clicked through in a browser** (dev server
-  cannot reach Neon). Not built: substitutes, allowed-SKU limits, import, library/bulk swap (Phases 2-3).
+  cannot reach Neon). Not built: import, library/bulk swap (Phase 3).
+
+### BOM Builder Phase 2, slice 1: substitutes, SKU limits, item facts (2026-11-11) — SAVED, NOT ENFORCED
+
+Migration `0135`, additive. **Manufacturing orders do not read any of this yet** (slice 2); the drawer
+says so beside each control, because a control that looks enforced and is not is worse than none.
+
+- **`bom_line_substitutes`** (ordered, qty in the SUBSTITUTE's own base unit — no density/equivalence
+  data exists, so there is no conversion) and **`bom_line_allowed_skus`** (supplier SKUs an ingredient or
+  one of its substitutes may be drawn from; none = any). Both are keyed `(bom_id, primary_item_id)`, NOT
+  by a `bom_lines` id: saving a BOM replaces its lines, which would orphan or cascade-delete them. The
+  save path (`bom-save.ts`) rewrites them with the lines and restores them on a failed edit.
+- **Rules** (bom-rules.ts): a substitute needs an amount, cannot be its own ingredient, cannot repeat on a
+  line, cannot also be an ingredient of the same BOM; a substitute must be a stocked, consumable item. A
+  SKU limit must name SKUs of THAT item, and is refused for `sourcing_policy = 'open'` items (they have
+  no supplier SKUs). `allergenAdds` flags what a substitute adds; `followQty` offers "same weight".
+- **`ap_items.weight_per_unit_kg` and `allergens text[]`** (fixed list of 14, `ALLERGENS`). Set from the
+  drawer via `PATCH /api/inventory/items/[id]/attributes` (admin-only, its own route so it never touches
+  the accounting re-validation the full item PATCH does). `kgPerUnit()` uses a mass unit's own factor,
+  else the item's weight, so litre/case/bar items can now join the weight check.
+- **Slice 2 (the money path) is NOT built and has known traps** (found by reading allocation and
+  completion): completion takes the consumed item from the lot allocation, not from `mo_materials`; the
+  cost split keys on `mo_materials` by item, so a substitute with no row is costed as an ingredient by
+  accident and a packaging substitute would lose its per-pack split; completion posts the journal entry
+  BEFORE the other writes, so every substitute check (stocked, posting group mapped) must run in
+  planCompletion; `inventory_lots` has no `supplier_sku_id` (blank for no-PO receipts, counts, opening
+  stock and production lots), so a SKU limit needs that column, a backfill, and a decided rule for blanks.
+  Decisions still open: refuse or warn on a blank supplier SKU; substitutes only after user confirmation.
+- Verified: 50 rules tests; `scripts/_e2e_bom_builder.ts` against the dev DB (substitute round trip,
+  edit-away, copy carries substitutes, cascade on delete, own-substitute and foreign-SKU refused); the
+  controls server-rendered with sample data. Not clicked through in a browser.

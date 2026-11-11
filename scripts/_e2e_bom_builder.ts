@@ -29,7 +29,8 @@ async function main() {
   for (const [o, list] of byOrg) {
     const fp = list.find(i => kindOf(i.productType).producible);
     const rm = list.filter(i => kindOf(i.productType).consumable && i.id !== fp?.id);
-    if (fp && rm.length >= 2) { orgId = o; out = fp; ins = rm.slice(0, 2); break; }
+    const stocked = rm.filter(i => kindOf(i.productType).tracked);
+    if (fp && rm.length >= 2 && stocked.length >= 1) { orgId = o; out = fp; const sub = stocked[0]; ins = [...rm.filter(i => i.id !== sub.id).slice(0, 2), sub]; if (ins.length < 3) continue; break; }
   }
   if (!orgId) { console.log("No org with a producible + 2 consumable items on dev; nothing to test."); return; }
   console.log(`Org ${orgId}; output ${out.name}; inputs ${ins.map(i => i.name).join(", ")}`);
@@ -72,6 +73,26 @@ async function main() {
     // same code on another BOM is refused
     try { await createBom(orgId, { ...input }); check("duplicate BOM id refused", false); }
     catch (e: any) { check("duplicate BOM id refused", e instanceof BomValidationError && /already uses/.test(e.message), e.message); }
+
+    // slice 1: substitutes and allowed SKUs round-trip, and bad ones are refused before any write
+    const withSub = { ...input, status: "Active", code: code + "S", inputs: [{ ...input.inputs[0], substitutes: [{ itemId: ins[2].id, qty: 4 }] }, input.inputs[1]] };
+    const sid = await createBom(orgId, withSub);
+    try {
+      const sf = await loadBomFull(orgId, sid);
+      const l0 = sf!.input.inputs.find(i => i.itemId === ins[0].id);
+      check("substitute saved and read back in order", l0?.substitutes?.length === 1 && l0.substitutes[0].itemId === ins[2].id && l0.substitutes[0].qty === 4);
+      const copy = await suggestFor(orgId, out.id);
+      check("copy suggestion carries the substitutes", copy.source?.id === sid && copy.input?.inputs.find(i => i.itemId === ins[0].id)?.substitutes?.length === 1, copy.source?.id === sid ? "" : "suggest picked a different BOM");
+      await replaceBom(orgId, sid, { ...withSub, inputs: [{ ...withSub.inputs[0], substitutes: [] }, withSub.inputs[1]] }, sf!.updatedAt);
+      const sf2 = await loadBomFull(orgId, sid);
+      check("editing away the substitute removed it", (sf2!.input.inputs.find(i => i.itemId === ins[0].id)?.substitutes ?? []).length === 0);
+    } finally { await db.delete(S.boms).where(eq(S.boms.id, sid)); }
+    const subLeft = await db.select({ id: S.bomLineSubstitutes.id }).from(S.bomLineSubstitutes).where(eq(S.bomLineSubstitutes.bomId, sid));
+    check("deleting the BOM cascaded its substitutes", subLeft.length === 0);
+    try { await createBom(orgId, { ...input, code: code + "X", inputs: [{ ...input.inputs[0], substitutes: [{ itemId: ins[0].id, qty: 1 }] }, input.inputs[1]] }); check("own-substitute refused", false); }
+    catch (e: any) { check("an ingredient as its own substitute is refused", e instanceof BomValidationError && /own substitute/.test(e.message), e.message); }
+    try { await createBom(orgId, { ...input, code: code + "Y", inputs: [{ ...input.inputs[0], allowedSkuIds: ["00000000-0000-0000-0000-000000000001"] }, input.inputs[1]] }); check("foreign SKU refused", false); }
+    catch (e: any) { check("a supplier SKU that is not the item's is refused", e instanceof BomValidationError && /SKU|supplier/i.test(e.message), e.message); }
 
     const sug = await suggestFor(orgId, out.id);
     check("suggest returns without throwing", !!sug && "suggestedCode" in sug, JSON.stringify({ code: sug.suggestedCode }));

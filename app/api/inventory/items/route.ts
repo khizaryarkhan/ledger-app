@@ -28,6 +28,7 @@ export async function GET(req: Request) {
     assetAccountId: r.assetAccountId, cogsAccountId: r.cogsAccountId, lotTracked: r.lotTracked, postingGroupId: r.postingGroupId,
     canBeSold: r.canBeSold, canBePurchased: r.canBePurchased, purchaseTaxRateId: r.purchaseTaxRateId,
     sourcingPolicy: r.sourcingPolicy,
+    weightPerUnitKg: r.weightPerUnitKg == null ? null : Number(r.weightPerUnitKg), allergens: r.allergens ?? [],
     onHandQty: Number(r.onHandQty ?? 0), invValue: Number(r.invValue ?? 0),
   })));
 }
