@@ -17,6 +17,7 @@ import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
 import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, Drawer, QtyUnitField } from "@/components/form-kit";
 import { ClosePoLineDrawer } from "@/components/po-workflow-drawers";
+import { CLOSE_REASONS } from "@/lib/accounting/po-workflow";
 import { CREATE_NEW, CreateNewDrawer, createNewLabel, type CreateKind } from "@/components/create-new";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
@@ -49,6 +50,16 @@ export function ReceivingConsole() {
     fetch(`/api/accounting/tax-rates`).then(x => x.json()).then(r => setTaxes(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
   useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowNew(true); }, []);
+
+  // After posting a receipt: bill it straight away, or open it for a correction.
+  async function billReceipt(id: string) {
+    setShowNew(false);
+    const r = await fetch(`/api/inventory/receiving`).then(x => x.json()).catch(() => []);
+    const list = Array.isArray(r) ? r : [];
+    setRows(list);
+    if (list.some((x: any) => x.id === id)) { setSel({ [id]: true }); setBilling(true); }
+  }
+  function openReceipt(id: string) { setShowNew(false); load(); setEditingId(id); }
 
   async function voidRow(id: string, no: string) {
     if (!confirm(`Delete receipt ${no}? This reverses its stock and GL entry and removes the receipt entirely.`)) return;
@@ -111,7 +122,7 @@ export function ReceivingConsole() {
       </ListPageHeader>
       {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
-      {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} />}
+      {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} onBillReceipt={billReceipt} onOpenReceipt={openReceipt} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
       {editingId && <EditReceiptDrawer receiptId={editingId} items={items} onClose={() => { setEditingId(null); load(); }} />}
 
@@ -185,7 +196,11 @@ type OpenPo = {
 // directly: the computed payloadLines for just that line, held in the
 // ReceiveDrawer until "Post receipt" combines every staged line into one
 // POST (mirrors how AdhocReceive already builds one multi-line payload).
-type DraftLine = { itemName: string; baseUom: string | null; qty: number; lines: any[] };
+type DraftLine = {
+  itemName: string; baseUom: string | null; qty: number; lines: any[];
+  /** The receiver said the shortfall is not coming: close the line (with this reason) once the receipt has posted. */
+  closeShort?: { code: string };
+};
 
 type LotRow = { key: string; qty: string; unitIdx: number; lotNo: string; expiryDate: string; supplierBatchNo: string; productionDate: string; bestBeforeDate: string };
 let lotKeySeq = 0;
@@ -253,10 +268,19 @@ function matchesPoSearch(po: OpenPo, q: string): boolean {
   return po.lines.some(l => l.itemName.toLowerCase().includes(needle) || (l.skuLabel || "").toLowerCase().includes(needle));
 }
 
-type View = { v: "hub" } | { v: "items"; poId: string } | { v: "lots"; poId: string; lineId: string } | { v: "adhoc" };
+type View = { v: "hub" } | { v: "items"; poId: string } | { v: "lots"; poId: string; lineId: string } | { v: "adhoc" } | { v: "posted" };
 
-function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items: any[]; onClose: () => void }) {
-  const [tab, setTab] = useState<"expected" | "inprogress">("expected");
+/** What the "posted" screen shows: the receipt just made and what happened to the order. */
+type PostedInfo = {
+  id: string | null; receiptNo: string | null; supplier: string | null; poNo: string | null; date: string; deliveryNote: string;
+  rows: { name: string; qty: number; uom: string | null }[];
+  stillExpected: number; closedShort: number; closeFailed: number;
+};
+
+function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt }: {
+  suppliers: any[]; items: any[]; onClose: () => void;
+  onBillReceipt: (receiptId: string) => void; onOpenReceipt: (receiptId: string) => void;
+}) {
   const [view, setView] = useState<View>({ v: "hub" });
   const [openPos, setOpenPos] = useState<OpenPo[] | null>(null);
   const [notice, setNotice] = useState("");
@@ -274,6 +298,7 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   const [posting, setPosting] = useState(false);
   const [postErr, setPostErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+  const [posted, setPosted] = useState<PostedInfo | null>(null);
 
   async function fetchPos(): Promise<OpenPo[]> {
     const r = await fetch(`/api/inventory/po-open`).then(x => x.json()).catch(() => []);
@@ -289,14 +314,40 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   const selectedLine = view.v === "lots" ? selectedPo?.lines.find(l => l.lineId === view.lineId) ?? null : null;
 
   function openPo(po: OpenPo) { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setView({ v: "items", poId: po.id }); }
-  function backToHub() { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setView({ v: "hub" }); }
+  function backToHub() { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setPosted(null); setView({ v: "hub" }); }
 
   function stageLine(lineId: string, draft: DraftLine) { setPostErr(""); setDrafts(d => ({ ...d, [lineId]: draft })); }
   function removeDraft(lineId: string) { setDrafts(d => { const n = { ...d }; delete n[lineId]; return n; }); }
 
+  /**
+   * "Everything arrived as ordered": stage every line not yet counted at the
+   * full quantity still expected. No lot number is sent, so the server assigns
+   * the next one exactly as it does for a lot left blank in the lot screen.
+   */
+  function allArrived() {
+    if (!selectedPo) return;
+    setPostErr("");
+    setDrafts(d => {
+      const n = { ...d };
+      for (const l of selectedPo.lines) {
+        if (n[l.lineId] || l.remainingQty <= QTY_EPSILON) continue;
+        n[l.lineId] = {
+          itemName: l.itemName, baseUom: l.baseUom, qty: l.remainingQty,
+          lines: [{
+            itemId: l.itemId, skuId: l.skuId, poId: selectedPo.id, poLineId: l.lineId, description: l.itemName,
+            qtyBase: l.remainingQty, unitCost: l.unitCostBase, lotNo: null, expiryDate: null,
+            supplierBatchNo: null, productionDate: null, bestBeforeDate: null,
+          }],
+        };
+      }
+      return n;
+    });
+  }
+
   async function postReceipt() {
     if (!selectedPo) return;
-    const allLines = Object.values(drafts).flatMap(d => d.lines);
+    const draftEntries = Object.entries(drafts);
+    const allLines = draftEntries.flatMap(([, d]) => d.lines);
     if (!allLines.length) return;
     setPosting(true); setPostErr("");
     const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
@@ -308,12 +359,30 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
     setPosting(false);
     if (!r.ok) { setPostErr(d?.error || "Could not post receipt."); return; }
     if (d.pending) { setPendingMsg("This receipt exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals."); return; }
-    const itemCount = Object.keys(drafts).length;
+
+    // "It is not coming": closed only AFTER the receipt has posted, so a failed
+    // receipt never leaves a line closed with nothing received against it. A
+    // failure here is reported, never allowed to undo the receipt.
+    const closing = draftEntries.filter(([, dr]) => dr.closeShort);
+    let closeFailed = 0;
+    for (const [lineId, dr] of closing) {
+      const cr = await fetch(`/api/inventory/po-lines/${lineId}/close`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: dr.closeShort!.code }),
+      }).catch(() => null);
+      if (!cr || !cr.ok) closeFailed++;
+    }
+
+    const doneRows = draftEntries.map(([, dr]) => ({ name: dr.itemName, qty: dr.qty, uom: dr.baseUom }));
     setDrafts({});
     const fresh = await fetchPos();
-    const stillOpen = fresh.find(p => p.id === selectedPo.id);
-    setNotice(`Received ${itemCount} item${itemCount > 1 ? "s" : ""}${d.receiptNo ? ` — ${d.receiptNo} posted` : ""}.`);
-    setView(stillOpen ? { v: "items", poId: stillOpen.id } : { v: "hub" });
+    const still = fresh.find(p => p.id === selectedPo.id);
+    setPosted({
+      id: d.id ?? null, receiptNo: d.receiptNo ?? null, supplier: selectedPo.partyLabel, poNo: selectedPo.docNumber, date,
+      deliveryNote: deliveryNote.trim(), rows: doneRows,
+      stillExpected: still ? still.lines.filter(l => l.remainingQty > QTY_EPSILON).length : 0,
+      closedShort: closing.length - closeFailed, closeFailed,
+    });
+    setView({ v: "posted" });
   }
 
   // xl, not wide (max-w-lg) — the lot row's Qty column now holds a combined
@@ -325,15 +394,15 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
     <Drawer title="Receive stock" onClose={onClose} size="xl" pad={false}>
       {view.v === "hub" && (
           <ReceiveHub
-            expected={expected} inProgress={inProgress} loaded={openPos !== null}
-            tab={tab} setTab={setTab} notice={notice}
+            expected={expected} inProgress={inProgress} loaded={openPos !== null} notice={notice}
             onOpenPo={openPo} onAdhoc={() => setView({ v: "adhoc" })}
           />
         )}
         {view.v === "items" && selectedPo && (
           <ItemsHub po={selectedPo} notice={notice} onBack={backToHub}
             onOpenLine={(lineId) => setView({ v: "lots", poId: selectedPo.id, lineId })}
-            drafts={drafts} onRemoveDraft={removeDraft}
+            drafts={drafts} onRemoveDraft={removeDraft} onAllArrived={allArrived}
+            date={date} setDate={setDate} locationId={locationId} setLocationId={setLocationId} locations={locations}
             deliveryNote={deliveryNote} setDeliveryNote={setDeliveryNote}
             posting={posting} postErr={postErr} pendingMsg={pendingMsg} onPost={postReceipt}
             onClosed={async (msg) => {
@@ -346,7 +415,6 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
         {view.v === "lots" && selectedPo && selectedLine && (
           <LotCapture
             po={selectedPo} line={selectedLine} items={items}
-            date={date} setDate={setDate} locationId={locationId} setLocationId={setLocationId} locations={locations}
             draft={drafts[selectedLine.lineId]} onStage={stageLine}
             onBack={() => setView({ v: "items", poId: selectedPo.id })}
           />
@@ -357,36 +425,194 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
             onPosted={async (msg) => { await fetchPos(); setNotice(msg); setView({ v: "hub" }); }}
           />
         )}
+        {view.v === "posted" && posted && (
+          <PostedScreen info={posted} onAnother={backToHub} onDone={onClose}
+            onBill={() => { if (posted.id) onBillReceipt(posted.id); }}
+            onOpen={() => { if (posted.id) onOpenReceipt(posted.id); }} />
+        )}
     </Drawer>
+  );
+}
+
+/* ------------------------------- Step header ---------------------------- */
+
+/** Where the receiver is: choose the order, count it, post it. 4 = all three done. */
+function StepHeader({ step }: { step: 1 | 2 | 3 | 4 }) {
+  const steps = ["Choose order", "Count items", "Post receipt"];
+  return (
+    <ol className="flex items-center gap-2.5 text-[12px] font-medium">
+      {steps.map((label, i) => {
+        const n = i + 1;
+        const done = n < step || step === 4;
+        const now = n === step;
+        return (
+          <li key={label} className={`flex items-center gap-2 ${i < steps.length - 1 ? "flex-1" : ""}`} aria-current={now ? "step" : undefined}>
+            <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-[12px] font-semibold shrink-0 ${done ? "bg-emerald-600 text-white" : now ? "bg-primary text-white" : "border border-stone-500 text-stone-400"}`}>
+              {done ? <Check size={12} strokeWidth={3} /> : n}
+            </span>
+            <span className={done ? "text-emerald-400" : now ? "text-stone-100" : "text-stone-400"}>{label}</span>
+            {i < steps.length - 1 && <span aria-hidden="true" className={`flex-1 h-px ${done ? "bg-emerald-600" : "bg-stone-700"}`} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/* --------------------------------- Posted ------------------------------- */
+
+function PostedScreen({ info, onAnother, onBill, onOpen, onDone }: {
+  info: PostedInfo; onAnother: () => void; onBill: () => void; onOpen: () => void; onDone: () => void;
+}) {
+  return (
+    <>
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
+        <StepHeader step={4} />
+      </div>
+      <div className="p-5 space-y-5">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0"><Check size={24} className="text-emerald-400" /></div>
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold text-stone-100">Receipt {info.receiptNo || ""} posted</div>
+            <div className="text-[12px] text-stone-400 mt-0.5">
+              {[info.supplier, info.poNo, fmt.shortDate(info.date), info.deliveryNote ? `note ${info.deliveryNote}` : ""].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-stone-800 overflow-hidden bg-stone-900">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="bg-stone-900/60 border-b border-stone-800 text-[12px] text-stone-400">
+                <th scope="col" className="text-left font-semibold px-4 py-2.5">Item</th>
+                <th scope="col" className="text-right font-semibold px-4 py-2.5">Into stock</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-800/80">
+              {info.rows.map((r, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-stone-100 font-medium">{r.name}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-stone-300">{fmt.qty(r.qty)} {r.uom || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {info.stillExpected > 0 && (
+          <div className="text-[13px] text-stone-200 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 leading-relaxed">
+            {info.poNo || "The order"} stays open. {info.stillExpected} item{info.stillExpected > 1 ? "s are" : " is"} still expected and will show as part received.
+          </div>
+        )}
+        {info.closedShort > 0 && (
+          <div className="text-[13px] text-stone-300 bg-stone-800/60 border border-stone-700 rounded-lg px-4 py-3">
+            {info.closedShort} item{info.closedShort > 1 ? "s" : ""} will no longer be expected on {info.poNo || "the order"}.
+          </div>
+        )}
+        {info.closeFailed > 0 && (
+          <div className="text-[13px] text-rose-300 bg-rose-950/30 border border-rose-900 rounded-lg px-4 py-3">
+            The receipt posted, but {info.closeFailed} item{info.closeFailed > 1 ? "s" : ""} could not be marked as not coming. Use "Stop expecting…" on the order.
+          </div>
+        )}
+
+        <div className="space-y-2.5">
+          <div className="text-[11.5px] font-semibold text-stone-500 uppercase tracking-wide">What next</div>
+          <button onClick={onBill} disabled={!info.id}
+            className="w-full text-left rounded-lg bg-primary hover:bg-primary-hover text-white px-4 py-3 flex items-center gap-3 disabled:opacity-60">
+            <span className="flex-1 min-w-0">
+              <span className="block text-[15px] font-semibold">Create the bill for this receipt</span>
+              <span className="block text-[12px] text-white/75 mt-0.5">Have the supplier's invoice? Match it now.</span>
+            </span>
+            <ChevronRight size={16} className="shrink-0" />
+          </button>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button onClick={onAnother} className="h-11 rounded-lg border border-stone-600 text-[13px] font-medium text-stone-200 hover:bg-stone-800">Receive another delivery</button>
+            <button onClick={onOpen} disabled={!info.id} className="h-11 rounded-lg border border-stone-600 text-[13px] font-medium text-stone-200 hover:bg-stone-800 disabled:opacity-60">Open the receipt</button>
+          </div>
+        </div>
+      </div>
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5 flex items-center gap-3">
+        <p className="flex-1 text-[12px] text-stone-400">Made a mistake? The receipt can be corrected from the list.</p>
+        <button onClick={onDone} className="h-11 px-5 rounded-lg border border-stone-600 text-[13px] font-medium text-stone-200 hover:bg-stone-800">Done</button>
+      </div>
+    </>
   );
 }
 
 /* ------------------------------- Hub: PO cards -------------------------- */
 
-function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenPo, onAdhoc }: {
-  expected: OpenPo[]; inProgress: OpenPo[]; loaded: boolean;
-  tab: "expected" | "inprogress"; setTab: (t: "expected" | "inprogress") => void; notice: string;
+/** Days from today to the PO's expected date; null when it has none. */
+const poDueIn = (po: OpenPo): number | null => (po.expiryDate ? daysFromToday(po.expiryDate) : null);
+
+/** How much of the order has arrived, 0-1: each open line's share, averaged, so a line of 5 kg and a line of 5,000 units count alike. */
+function receivedFraction(po: OpenPo): number {
+  const parts = po.lines.filter(l => l.orderedBaseQty > QTY_EPSILON).map(l => Math.min(1, l.receivedQty / l.orderedBaseQty));
+  return parts.length ? parts.reduce((s, x) => s + x, 0) / parts.length : 0;
+}
+
+const dueLabel = (d: number) => d < 0 ? `${-d} day${d === -1 ? "" : "s"} late` : d === 0 ? "Due today" : d === 1 ? "Due tomorrow" : `Due in ${d} days`;
+
+type HubFilter = "all" | "overdue" | "week" | "part";
+
+function ReceiveHub({ expected, inProgress, loaded, notice, onOpenPo, onAdhoc }: {
+  expected: OpenPo[]; inProgress: OpenPo[]; loaded: boolean; notice: string;
   onOpenPo: (po: OpenPo) => void; onAdhoc: () => void;
 }) {
-  const list = tab === "expected" ? expected : inProgress;
+  const all = useMemo(() => [...expected, ...inProgress], [expected, inProgress]);
   // Global search across the whole list — a shop with 100+ open POs can't
-  // scroll to find one, so this is the real affordance, not the two tabs.
+  // scroll to find one, so this is the real affordance.
   const [q, setQ] = useState("");
-  const filtered = useMemo(() => list.filter(po => matchesPoSearch(po, q)), [list, q]);
-  const overdueCount = useMemo(() => list.filter(po => poUrgency(po) === "overdue").length, [list]);
+  const [filter, setFilter] = useState<HubFilter>("all");
+
+  const inWeek = (po: OpenPo) => { const d = poDueIn(po); return d !== null && d >= 0 && d <= 7; };
+  const isLate = (po: OpenPo) => { const d = poDueIn(po); return d !== null && d < 0; };
+  const counts = { overdue: all.filter(isLate).length, week: all.filter(inWeek).length, part: inProgress.length };
+
+  const visible = useMemo(() => all
+    .filter(po => matchesPoSearch(po, q))
+    .filter(po => filter === "overdue" ? isLate(po) : filter === "week" ? inWeek(po) : filter === "part" ? isStarted(po) : true)
+    .sort((a, b) => (a.expiryDate ?? "9999-12-31").localeCompare(b.expiryDate ?? "9999-12-31")),
+  [all, q, filter]);
+
+  // Grouped by urgency, most urgent first, so the order that arrived late is at the top.
+  const groups = useMemo(() => {
+    const late = visible.filter(isLate), week = visible.filter(inWeek);
+    const later = visible.filter(po => { const d = poDueIn(po); return d !== null && d > 7; });
+    const none = visible.filter(po => poDueIn(po) === null);
+    return [
+      { key: "overdue", title: "Overdue", danger: true, pos: late },
+      { key: "week", title: "Due this week", danger: false, pos: week },
+      { key: "later", title: "Later", danger: false, pos: later },
+      { key: "none", title: "No date", danger: false, pos: none },
+    ].filter(g => g.pos.length > 0);
+  }, [visible]);
+
+  const tile = (key: HubFilter, label: string, n: number, danger = false) => {
+    const on = filter === key;
+    return (
+      <button key={key} onClick={() => setFilter(on ? "all" : key)} aria-pressed={on}
+        className={`text-left rounded-lg border px-3.5 py-3 transition-colors ${on ? "border-stone-500 bg-stone-800" : "border-stone-800 bg-stone-900 hover:bg-stone-800/50"}`}>
+        <div className={`text-[20px] font-semibold tabular-nums ${danger && n > 0 ? "text-rose-400" : "text-stone-100"}`}>{n}</div>
+        <div className="text-[12px] text-stone-400">{label}</div>
+      </button>
+    );
+  };
+
   return (
     <>
-      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-2.5">
-        <div className="flex p-1 rounded-lg bg-stone-800/70 gap-1">
-          <SegButton active={tab === "expected"} onClick={() => setTab("expected")} label="Expected" count={expected.length} />
-          <SegButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-3">
+        <StepHeader step={1} />
+        <div className="grid grid-cols-3 gap-2.5">
+          {tile("overdue", "Overdue", counts.overdue, true)}
+          {tile("week", "Due this week", counts.week)}
+          {tile("part", "Part received", counts.part)}
         </div>
         <div className="relative">
           <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
           <input
-            value={q} onChange={e => setQ(e.target.value)}
+            value={q} onChange={e => setQ(e.target.value)} aria-label="Search orders"
             placeholder="Search supplier, PO number, or item…"
-            className="w-full h-9 rounded-full bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
+            className="w-full h-11 rounded-lg bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
           />
           {q && (
             <button onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
@@ -394,73 +620,61 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
             </button>
           )}
         </div>
-        {overdueCount > 0 && (
-          <div className="flex items-center gap-1.5 text-[11.5px] text-rose-400 font-medium">
-            <Clock size={12} /> {overdueCount} overdue
-          </div>
-        )}
       </div>
-      <div className="p-5">
-        {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
+      <div className="p-5 space-y-5">
+        {notice && <div className="text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
         {!loaded && <p className="text-[13px] text-stone-500 text-center py-10">Loading open purchase orders…</p>}
-        {loaded && list.length === 0 && (
-          <p className="text-[13px] text-stone-500 text-center py-10">
-            {tab === "expected" ? "No open purchase orders are waiting to be received." : "Nothing is part-way through receiving right now."}
-          </p>
+        {loaded && all.length === 0 && (
+          <p className="text-[13px] text-stone-500 text-center py-10">No open purchase orders are waiting to be received.</p>
         )}
-        {loaded && list.length > 0 && filtered.length === 0 && (
-          <p className="text-[13px] text-stone-500 text-center py-10">No purchase orders match "{q}".</p>
+        {loaded && all.length > 0 && visible.length === 0 && (
+          <p className="text-[13px] text-stone-500 text-center py-10">{q ? `No purchase orders match "${q}".` : "No orders in this group."}</p>
         )}
-        {filtered.length > 0 && (
-          <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
-            {filtered.map(po => {
-              const urgency = poUrgency(po);
-              const linesLeft = po.lines.length;
-              const bubbleBg = urgency === "overdue" ? "bg-rose-500/15" : urgency === "soon" ? "bg-amber-500/15" : "bg-cyan-500/15";
-              const bubbleFg = urgency === "overdue" ? "text-rose-400" : urgency === "soon" ? "text-amber-400" : "text-cyan-400";
-              return (
-                <button key={po.id} onClick={() => onOpenPo(po)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
-                  <div className={`w-10 h-10 rounded-full ${bubbleBg} flex items-center justify-center shrink-0`}>
-                    <Truck size={17} className={bubbleFg} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
-                    <div className="text-[12px] text-stone-500 truncate mt-0.5 font-mono">{po.docNumber || po.id.slice(0, 8)}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    {urgency && (
-                      <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full mb-0.5 ${urgency === "overdue" ? "bg-rose-500/15 text-rose-400" : "bg-amber-500/15 text-amber-400"}`}>
-                        {urgency === "overdue" ? "Overdue" : "Due soon"}
-                      </span>
-                    )}
-                    <div className={`text-[11.5px] ${urgency === "overdue" ? "text-rose-400 font-medium" : urgency === "soon" ? "text-amber-400 font-medium" : "text-stone-500"}`}>
-                      {po.expiryDate ? fmt.shortDate(po.expiryDate) : "No date"}
+        {groups.map(g => (
+          <section key={g.key} className="space-y-2">
+            <h2 className={`text-[11px] font-semibold uppercase tracking-wider ${g.danger ? "text-rose-400" : "text-stone-400"}`}>{g.title}</h2>
+            <div className="space-y-2">
+              {g.pos.map(po => {
+                const d = poDueIn(po);
+                const started = isStarted(po);
+                const pct = started ? Math.round(receivedFraction(po) * 100) : null;
+                const names = po.lines.slice(0, 3).map(l => l.itemName).join(", ") + (po.lines.length > 3 ? ` +${po.lines.length - 3} more` : "");
+                const chip = d === null ? null
+                  : d < 0 ? { text: dueLabel(d), cls: "bg-rose-500/15 text-rose-400 border-transparent" }
+                  : d <= 2 ? { text: dueLabel(d), cls: "bg-amber-500/15 text-amber-400 border-transparent" }
+                  : { text: d <= 7 ? dueLabel(d) : fmt.shortDate(po.expiryDate!), cls: "text-stone-300 border-stone-700" };
+                return (
+                  <button key={po.id} onClick={() => onOpenPo(po)}
+                    className="w-full flex items-center gap-3.5 rounded-lg border border-stone-800 bg-stone-900 hover:bg-stone-800/40 active:bg-stone-800/70 px-4 py-3.5 transition-colors text-left">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[15px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</span>
+                        <span className="text-[12px] text-stone-400 font-mono shrink-0">{po.docNumber || po.id.slice(0, 8)}</span>
+                      </div>
+                      <div className="text-[13px] text-stone-400 truncate mt-0.5">{names}</div>
+                      {pct !== null && (
+                        <div className="flex items-center gap-2.5 mt-2">
+                          <span aria-hidden="true" className="flex-1 h-1 rounded-full bg-stone-800 overflow-hidden"><span className="block h-full bg-emerald-600" style={{ width: `${pct}%` }} /></span>
+                          <span className="text-[12px] text-stone-400 shrink-0">{pct}% received</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-[11px] text-stone-600 mt-0.5">{linesLeft} item{linesLeft > 1 ? "s" : ""}</div>
-                  </div>
-                  <ChevronRight size={16} className="text-stone-600 shrink-0" />
-                </button>
-              );
-            })}
-          </div>
-        )}
+                    {chip && <span className={`text-[12px] font-medium px-2.5 py-0.5 rounded-full border whitespace-nowrap ${chip.cls}`}>{chip.text}</span>}
+                    <ChevronRight size={16} className="text-stone-500 shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5 flex items-center justify-center">
-        <button onClick={onAdhoc} className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 rounded-full px-5 py-2.5 transition-colors">
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5 flex items-center justify-between gap-4">
+        <span className="text-[13px] text-stone-400">Goods arrived with no order?</span>
+        <button onClick={onAdhoc} className="flex items-center gap-1.5 h-11 text-[13px] font-medium text-stone-200 border border-stone-600 hover:bg-stone-800 rounded-lg px-4 transition-colors">
           <Plus size={15} /> Receive without a PO
         </button>
       </div>
     </>
-  );
-}
-
-function SegButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
-  return (
-    <button onClick={onClick}
-      className={`flex-1 px-3 py-1.5 text-[12.5px] font-medium rounded-lg transition-colors ${active ? "bg-stone-700 text-stone-100 shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
-      {label} {count > 0 && <span className={active ? "text-stone-300" : "text-stone-600"}>({count})</span>}
-    </button>
   );
 }
 
@@ -493,9 +707,10 @@ function PillFooter({ saving, onClose, onSave, saveLabel = "Save", err, pendingM
 
 /* --------------------------- PO drilldown: items ------------------------- */
 
-function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, deliveryNote, setDeliveryNote, posting, postErr, pendingMsg, onPost }: {
+function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, onAllArrived, date, setDate, locationId, setLocationId, locations, deliveryNote, setDeliveryNote, posting, postErr, pendingMsg, onPost }: {
   po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void;
-  drafts: Record<string, DraftLine>; onRemoveDraft: (lineId: string) => void;
+  drafts: Record<string, DraftLine>; onRemoveDraft: (lineId: string) => void; onAllArrived: () => void;
+  date: string; setDate: (d: string) => void; locationId: string; setLocationId: (id: string) => void; locations: any[];
   deliveryNote: string; setDeliveryNote: (v: string) => void;
   posting: boolean; postErr: string; pendingMsg: string; onPost: () => void;
 }) {
@@ -510,26 +725,48 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
     const needle = q.toLowerCase();
     return po.lines.filter(l => l.itemName.toLowerCase().includes(needle) || (l.skuLabel || "").toLowerCase().includes(needle));
   }, [po.lines, q]);
+  const allStaged = po.lines.length > 0 && po.lines.every(l => drafts[l.lineId] || l.remainingQty <= QTY_EPSILON);
+  const pct = po.lines.length ? Math.round((stagedCount / po.lines.length) * 100) : 0;
   return (
     <>
-      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-2.5">
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-3">
         <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 -ml-1">
           <ChevronLeft size={16} /> All open purchase orders
         </button>
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Truck size={17} className="text-cyan-400" /></div>
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
-            <div className="text-[11.5px] text-stone-500 font-mono">{po.docNumber || po.id.slice(0, 8)}{po.expiryDate ? ` · expected ${fmt.shortDate(po.expiryDate)}` : ""}</div>
+            <div className="text-[12px] text-stone-400 font-mono">{po.docNumber || po.id.slice(0, 8)}{po.expiryDate ? ` · expected ${fmt.shortDate(po.expiryDate)}` : ""}</div>
           </div>
+        </div>
+        <StepHeader step={2} />
+      </div>
+      <div className="p-5 space-y-5">
+        {notice && <div className="text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
+
+        {/* Asked once for the whole delivery, not per item. */}
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Received on"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
+          <LocationField label="Into location" value={locationId} onChange={setLocationId} locations={locations} />
+          <Field label="Delivery note no." hint="The paperwork it arrived with.">
+            <input value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} maxLength={64} className={controlInset} placeholder="e.g. DN-50421" />
+          </Field>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">Items on this order</h2>
+          <button onClick={onAllArrived} disabled={allStaged}
+            className="h-9 px-3 rounded-lg border border-stone-600 text-[12px] font-medium text-stone-200 hover:bg-stone-800 disabled:opacity-50">
+            Everything arrived as ordered
+          </button>
         </div>
         {po.lines.length > 6 && (
           <div className="relative">
             <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
             <input
-              value={q} onChange={e => setQ(e.target.value)}
+              value={q} onChange={e => setQ(e.target.value)} aria-label="Search items"
               placeholder={`Search ${po.lines.length} items…`}
-              className="w-full h-9 rounded-full bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
+              className="w-full h-11 rounded-lg bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
             />
             {q && (
               <button onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
@@ -538,65 +775,59 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
             )}
           </div>
         )}
-      </div>
-      <div className="p-5">
-        {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
-        {stagedCount > 0 && (
-          <div className="mb-4 text-[12.5px] text-stone-300 bg-stone-800/60 border border-stone-700 rounded-lg px-3 py-2">
-            {stagedCount} item{stagedCount > 1 ? "s" : ""} staged — click "Post receipt" below to save them as ONE receipt.
-            <div className="mt-2">
-              <Field label="Supplier delivery note / ASN no." hint="The paperwork the goods arrived with — the third leg of the match.">
-                <input value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} maxLength={64} className={controlInset} placeholder="e.g. DN-50421" />
-              </Field>
-            </div>
-          </div>
-        )}
         {q && filteredLines.length === 0 && (
           <p className="text-[13px] text-stone-500 text-center py-10">No items match "{q}".</p>
         )}
-        <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+        <div className="space-y-2.5">
           {filteredLines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
             const staged = drafts[l.lineId];
-            const bubbleBg = staged ? "bg-emerald-500/15" : started ? "bg-amber-500/15" : "bg-stone-800";
-            const bubbleFg = staged ? "text-emerald-400" : started ? "text-amber-400" : "text-stone-400";
+            const short = staged ? l.remainingQty - staged.qty > QTY_EPSILON : false;
             return (
-              <div key={l.lineId} className={staged ? "bg-emerald-500/5" : ""}>
+              <article key={l.lineId} className={`rounded-lg border ${staged ? "border-emerald-700/50 bg-emerald-500/5" : "border-stone-800 bg-stone-900"}`}>
                 <button onClick={() => onOpenLine(l.lineId)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bubbleBg}`}>
-                    {staged ? <Check size={16} className={bubbleFg} /> : started ? <Clock size={16} className={bubbleFg} /> : <Package size={16} className={bubbleFg} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-stone-100 truncate">{l.itemName}</div>
-                    <div className="text-[12px] text-stone-500 truncate mt-0.5">
-                      {l.skuLabel ? `${l.skuLabel} · ` : ""}Expected <span className="text-stone-300">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
-                      {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && ` (${packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})`}
-                    </div>
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-stone-800/30 transition-colors text-left rounded-lg">
+                  <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${staged ? "bg-emerald-500/15 text-emerald-400" : "border border-dashed border-stone-500"}`}>
+                    {staged && <Check size={14} strokeWidth={3} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold text-stone-100 truncate">{l.itemName}</span>
                     {staged ? (
-                      <div className="mt-1 text-[11.5px] text-emerald-400 font-medium">Staged: {fmt.qty(staged.qty)} {staged.baseUom || ""}</div>
-                    ) : started ? (
-                      <div className="mt-1 text-[11px] text-amber-400">{fmt.qty(l.receivedQty)} already in</div>
-                    ) : null}
-                  </div>
-                  <ChevronRight size={16} className="text-stone-600 shrink-0" />
+                      <span className={`block text-[13px] mt-0.5 font-medium ${short ? "text-amber-400" : "text-emerald-400"}`}>
+                        Counted {fmt.qty(staged.qty)} {staged.baseUom || ""}
+                        {short ? ` of ${fmt.qty(l.remainingQty)}${staged.closeShort ? " · rest not coming" : " · rest still coming"}` : " · all of it"}
+                      </span>
+                    ) : (
+                      <span className="block text-[13px] text-stone-400 mt-0.5">
+                        {l.skuLabel ? `${l.skuLabel} · ` : ""}Expected <span className="text-stone-200">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
+                        {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && ` (${packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})`}
+                        {started ? ` · ${fmt.qty(l.receivedQty)} already in` : ""}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[13px] font-medium text-cyan-400 shrink-0">{staged ? "Change" : "Count"}</span>
+                  <ChevronRight size={16} className="text-stone-500 shrink-0" />
                 </button>
-                <div className="pl-[3.75rem] pr-4 pb-2.5 -mt-0.5 flex items-center justify-between">
-                  <button onClick={() => closeLine(l)} className="text-[11px] text-stone-500 hover:text-rose-400">
-                    Stop expecting…
+                <div className="pl-14 pr-4 pb-2.5 -mt-1 flex items-center justify-between">
+                  <button onClick={() => closeLine(l)} className="text-[12px] text-stone-400 hover:text-rose-400">
+                    Not coming? Stop expecting it
                   </button>
                   {staged && (
-                    <button onClick={() => onRemoveDraft(l.lineId)} className="text-[11px] text-stone-500 hover:text-rose-400">
-                      Remove staged
+                    <button onClick={() => onRemoveDraft(l.lineId)} className="text-[12px] text-stone-400 hover:text-rose-400">
+                      Remove count
                     </button>
                   )}
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5 space-y-3">
+        <div className="flex items-center gap-3 text-[12px] text-stone-300">
+          <span className="shrink-0">{stagedCount} of {po.lines.length} item{po.lines.length === 1 ? "" : "s"} counted</span>
+          <span aria-hidden="true" className="flex-1 h-1 rounded-full bg-stone-800 overflow-hidden"><span className="block h-full bg-emerald-600" style={{ width: `${pct}%` }} /></span>
+        </div>
         <PillFooter
           saving={posting} onClose={onBack} onSave={onPost}
           saveLabel={stagedCount > 0 ? `Post receipt (${stagedCount} item${stagedCount > 1 ? "s" : ""})` : "Post receipt"}
@@ -618,9 +849,8 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
 
 /* ----------------------------- Item: lot capture -------------------------- */
 
-function LotCapture({ po, line, items, date, setDate, locationId, setLocationId, locations, draft, onStage, onBack }: {
-  po: OpenPo; line: PoLine; items: any[]; date: string; setDate: (d: string) => void;
-  locationId: string; setLocationId: (id: string) => void; locations: any[];
+function LotCapture({ po, line, items, draft, onStage, onBack }: {
+  po: OpenPo; line: PoLine; items: any[];
   draft?: DraftLine; onStage: (lineId: string, draft: DraftLine) => void; onBack: () => void;
 }) {
   const item = items.find(i => i.id === line.itemId);
@@ -640,6 +870,10 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   });
   const [moreFor, setMoreFor] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState("");
+  // When less than expected arrived: is the rest still coming, or should the
+  // order stop expecting it? Applied only after the receipt has posted.
+  const [shortAction, setShortAction] = useState<"keep" | "close">(draft?.closeShort ? "close" : "keep");
+  const [closeCode, setCloseCode] = useState(draft?.closeShort?.code ?? "supplier_cannot_deliver");
 
   // Let the receiver count each LOT in whichever pack level is actually in
   // front of them — the first few pallets might arrive by the case, the last
@@ -690,6 +924,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
 
   const total = lotQtyTotal(rows);
   const over = total - line.remainingQty > QTY_EPSILON;
+  const short = total > QTY_EPSILON && line.remainingQty - total > QTY_EPSILON;
 
   function stage() {
     const payloadLines = rows.filter(r => Number(r.qty) > 0).map(r => ({
@@ -702,7 +937,10 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
     if (over) { setErr(`That's more than the ${fmt.qty(line.remainingQty)} ${line.baseUom || ""} still expected — split it across a smaller quantity, or check the PO.`); return; }
     setErr("");
     const qty = payloadLines.reduce((s, l) => s + l.qtyBase, 0);
-    onStage(line.lineId, { itemName: line.itemName, baseUom: line.baseUom, qty, lines: payloadLines });
+    onStage(line.lineId, {
+      itemName: line.itemName, baseUom: line.baseUom, qty, lines: payloadLines,
+      closeShort: short && shortAction === "close" ? { code: closeCode } : undefined,
+    });
     onBack();
   }
 
@@ -722,6 +960,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
             </div>
           </div>
         </div>
+        <div className="mt-3"><StepHeader step={2} /></div>
       </div>
       <div className="p-5 space-y-4">
         {/* Ordered vs received-to-date vs balance — the PO's own history, not
@@ -731,11 +970,6 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
           <div><div className="text-stone-500">Ordered</div><div className="text-stone-200 font-medium">{fmt.qty(line.orderedBaseQty)} {line.baseUom || ""}</div></div>
           <div><div className="text-stone-500">Received so far</div><div className="text-stone-200 font-medium">{fmt.qty(line.receivedQty)} {line.baseUom || ""}</div></div>
           <div><div className="text-stone-500">Balance</div><div className="text-stone-200 font-medium">{fmt.qty(line.remainingQty)} {line.baseUom || ""}</div></div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Field label="Receipt date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
-          <LocationField label="Receive into" value={locationId} onChange={setLocationId} locations={locations} hint="Where the goods physically landed" />
         </div>
 
         <div>
@@ -795,9 +1029,33 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
             {fmt.qty(total)} of {fmt.qty(line.remainingQty)} {line.baseUom || ""} entered{over ? " — that's more than expected" : ""}
           </div>
         </div>
+        {short && (
+          <fieldset className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
+            <legend className="px-1.5 text-[12px] font-semibold text-amber-300">
+              {fmt.qty(roundQty(line.remainingQty - total))} {line.baseUom || ""} did not arrive. What about the rest?
+            </legend>
+            <label className="flex items-center gap-2.5 min-h-[28px] text-[13px] text-stone-200 cursor-pointer">
+              <input type="radio" name="rest" checked={shortAction === "keep"} onChange={() => setShortAction("keep")} className="w-4 h-4 accent-primary" />
+              It is still coming: keep the order open
+            </label>
+            <label className="flex items-center gap-2.5 min-h-[28px] text-[13px] text-stone-200 cursor-pointer">
+              <input type="radio" name="rest" checked={shortAction === "close"} onChange={() => setShortAction("close")} className="w-4 h-4 accent-primary" />
+              It is not coming: stop expecting it
+            </label>
+            {shortAction === "close" && (
+              <div className="pl-6">
+                <Field label="Reason">
+                  <SelectField value={closeCode} onChange={e => setCloseCode(e.target.value)}>
+                    {CLOSE_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                  </SelectField>
+                </Field>
+              </div>
+            )}
+          </fieldset>
+        )}
       </div>
       <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
-        <PillFooter saving={false} onClose={onBack} onSave={stage} saveLabel="Save lots" err={err} />
+        <PillFooter saving={false} onClose={onBack} onSave={stage} saveLabel="Save item" err={err} />
       </div>
     </>
   );

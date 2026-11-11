@@ -5700,3 +5700,25 @@ first period margin by the whole opening stock value.
 - One item per count, as before. **Not built**: a bulk opening-stock import (many items
   at once), and the count screen is still behind the Manufacturing module, so an
   Accounting-only org cannot reach it. Not posted against a database or clicked through.
+
+## Receive stock drawer: three steps (2026-11-11)
+
+`components/receiving-console.tsx`'s drawer was redesigned from a mockup (Choose order -> Count items ->
+Post receipt, with a `StepHeader` on each). Nothing about what posts changed: still one receipt per visit
+through `POST /api/inventory/receiving`.
+
+- **Hub**: Overdue / Due this week / Part received tiles filter the list (replacing the Expected / In
+  progress tabs); orders are grouped by urgency; a part-received order shows `receivedFraction` (each open
+  line's share, averaged, since lines are in different units). Fully received lines are not returned by
+  `po-open`, so progress is over the lines still open, not the whole PO.
+- **Count step** asks date, location and delivery note ONCE (they used to live in the per-item screen).
+  **"Everything arrived as ordered"** stages every uncounted line at its full remaining quantity with no lot
+  number, so the server assigns lots exactly as it does for a blank lot.
+- **Shortfall choice** (`DraftLine.closeShort`): if less than expected is counted, the receiver says whether
+  the rest is still coming or not (with a `CLOSE_REASONS` reason). "Not coming" closes the PO line only AFTER
+  the receipt has posted, and a failed close is reported on the posted screen, never undoes the receipt.
+- **Posted screen** offers "Create the bill" (opens the existing `BillDrawer` for that receipt),
+  "Receive another delivery" and "Open the receipt" (`EditReceiptDrawer`), wired through
+  `billReceipt`/`openReceipt` in `ReceivingConsole`.
+- **Not verified in a browser** (dev server cannot reach Neon); typecheck and unit tests only. The
+  per-item lot screen and "Receive without a PO" keep their old layout apart from the step header.
