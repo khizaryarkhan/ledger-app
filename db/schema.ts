@@ -2214,6 +2214,9 @@ export const inventoryLots = pgTable("inventory_lots", {
   // exactly as the SUPPLIER printed it — not lotNo, which is ours and unique
   // org-wide; two suppliers may print the same batch number.
   supplierBatchNo: varchar("supplier_batch_no", { length: 64 }),
+  // 0136: the supplier SKU this lot was bought as. NULL = never recorded (no-PO receipts, counts,
+  // opening stock, production); a BOM's SKU limit REFUSES such a lot (lib/inventory/allocation.ts).
+  supplierSkuId:   uuid("supplier_sku_id").references(() => itemSupplierSkus.id, { onDelete: "set null" }),
   productionDate:  date("production_date"),                     // GS1 AI (11)
   bestBeforeDate:  date("best_before_date"),                    // GS1 AI (15)
   origQty:       numeric("orig_qty", { precision: 20, scale: 6 }).notNull(),        // base UoM
@@ -2495,6 +2498,7 @@ export const productionConsumptions = pgTable("production_consumptions", {
   orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   runId:         uuid("run_id").notNull().references(() => productionRuns.id, { onDelete: "cascade" }),
   itemId:        uuid("item_id").notNull(),
+  forItemId:     uuid("for_item_id"),   // 0136: the planned material this substitute stood in for (NULL = itself)
   lotId:         uuid("lot_id").notNull(),
   qty:           numeric("qty", { precision: 20, scale: 6 }).notNull(),
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),
@@ -2582,6 +2586,34 @@ export const moMaterials = pgTable("mo_materials", {
 }, (t) => ({
   mo_materials_mo_idx: index("mo_materials_mo_idx").on(t.moId),
 }));
+
+// The MO's own copy of the BOM's ordered substitutes for an ingredient (0136), with the amount
+// scaled to this order. Taken when the order is planned; a later BOM edit never changes it.
+export const moMaterialSubstitutes = pgTable("mo_material_substitutes", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:          uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+  primaryItemId: uuid("primary_item_id").notNull(),
+  itemId:        uuid("item_id").notNull(),
+  plannedQty:    numeric("planned_qty", { precision: 20, scale: 6 }).notNull(),   // the substitute's own base unit
+  sortOrder:     integer("sort_order").notNull().default(0),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  mo_material_substitutes_unique: uniqueIndex("mo_material_substitutes_unique").on(t.moId, t.primaryItemId, t.itemId),
+}));
+
+// Which supplier SKUs the MO may draw an ingredient (or one of its substitutes) from (0136).
+export const moMaterialAllowedSkus = pgTable("mo_material_allowed_skus", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:          uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+  primaryItemId: uuid("primary_item_id").notNull(),
+  itemId:        uuid("item_id").notNull(),
+  supplierSkuId: uuid("supplier_sku_id").notNull().references(() => itemSupplierSkus.id, { onDelete: "cascade" }),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  mo_material_allowed_skus_unique: uniqueIndex("mo_material_allowed_skus_unique").on(t.moId, t.primaryItemId, t.itemId, t.supplierSkuId),
+}));
 export type MoMaterial = typeof moMaterials.$inferSelect;
 
 // The MO's own copy of its operations, with the rates as they were when it was
@@ -2630,6 +2662,8 @@ export const lotAllocations = pgTable("lot_allocations", {
   orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   moId:        uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
   itemId:      uuid("item_id").notNull(),
+  // 0136: the material this lot stands in for when it is a SUBSTITUTE's lot (NULL = the item itself).
+  forItemId:   uuid("for_item_id"),
   lotId:       uuid("lot_id").notNull().references(() => inventoryLots.id, { onDelete: "cascade" }),
   qty:         numeric("qty", { precision: 20, scale: 6 }).notNull(),
   suggested:   boolean("suggested").notNull().default(false),               // accepted as the system proposed it

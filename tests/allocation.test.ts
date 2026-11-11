@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { availableInLot, fefoOrder, suggestPicks, coverage, allocationError, type AllocatableLot } from "@/lib/inventory/allocation";
+import { availableInLot, fefoOrder, suggestPicks, coverage, allocationError, lotsAllowedBySku, proposeSubstitute, substituteConflict, type AllocatableLot } from "@/lib/inventory/allocation";
 
 // MO lot allocation (product owner, 2026-09-24): nothing posts until an MO is
 // completed; while it is in progress, production picks lots and those
@@ -55,5 +55,73 @@ describe("lot allocation", () => {
     expect(allocationError([{ lotId: "a", qty: 10 }, { lotId: "a", qty: 5 }], lots)).toMatch(/twice/);
     expect(allocationError([{ lotId: "zzz", qty: 1 }], lots)).toMatch(/not open stock/);
     expect(allocationError([{ lotId: "a", qty: 0 }], lots)).toMatch(/greater than zero/);
+  });
+});
+
+// Phase 2 slice 2 (BOM Builder): a SKU limit on an ingredient, and substitutes.
+// Decided with the product owner 2026-11-11: a lot whose supplier SKU is UNKNOWN is
+// REFUSED under a limit, and a substitute is only ever PROPOSED, never applied for
+// the planner.
+describe("supplier-SKU limits", () => {
+  const sl = (id: string, sku: string | null) => ({ ...lot(id, 100), supplierSkuId: sku });
+  it("offers every lot when there is no limit", () => {
+    const r = lotsAllowedBySku([sl("a", null), sl("b", "s1")], []);
+    expect(r.allowed.map(l => l.id)).toEqual(["a", "b"]);
+    expect(r.refused).toEqual([]);
+  });
+  it("keeps only lots of an allowed SKU", () => {
+    const r = lotsAllowedBySku([sl("a", "s1"), sl("b", "s2")], ["s1"]);
+    expect(r.allowed.map(l => l.id)).toEqual(["a"]);
+    expect(r.refused.map(x => [x.lot.id, x.reason])).toEqual([["b", "other"]]);
+  });
+  it("REFUSES a lot with an unknown supplier SKU rather than guessing", () => {
+    const r = lotsAllowedBySku([sl("a", null), sl("b", "s1")], ["s1"]);
+    expect(r.allowed.map(l => l.id)).toEqual(["b"]);
+    expect(r.refused.map(x => [x.lot.id, x.reason])).toEqual([["a", "unknown"]]);
+  });
+  it("allows any of several allowed SKUs", () => {
+    expect(lotsAllowedBySku([sl("a", "s1"), sl("b", "s2"), sl("c", "s3")], ["s1", "s2"]).allowed.map(l => l.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("proposeSubstitute", () => {
+  const subs = [{ itemId: "x1", planned: 5, available: 8 }, { itemId: "x2", planned: 6, available: 9 }];
+  it("proposes nothing while the main item covers the order", () => {
+    expect(proposeSubstitute({ planned: 10, primaryAvailable: 10, subs })).toBeNull();
+    expect(proposeSubstitute({ planned: 10, primaryAvailable: 12, subs })).toBeNull();
+  });
+  it("proposes the first substitute that covers its whole amount", () => {
+    expect(proposeSubstitute({ planned: 10, primaryAvailable: 4, subs })).toEqual({ itemId: "x1", order: 1 });
+  });
+  it("skips a substitute that cannot cover and takes the next in order", () => {
+    const r = proposeSubstitute({ planned: 10, primaryAvailable: 4, subs: [{ itemId: "x1", planned: 5, available: 3 }, { itemId: "x2", planned: 6, available: 6 }] });
+    expect(r).toEqual({ itemId: "x2", order: 2 });
+  });
+  it("proposes nothing when no substitute covers", () => {
+    expect(proposeSubstitute({ planned: 10, primaryAvailable: 0, subs: [{ itemId: "x1", planned: 5, available: 1 }] })).toBeNull();
+    expect(proposeSubstitute({ planned: 10, primaryAvailable: 0, subs: [] })).toBeNull();
+  });
+});
+
+describe("substituteConflict", () => {
+  const fam = { primary: "p", substituteIds: ["x1", "x2"] };
+  it("allows the first allocation to any source", () => {
+    expect(substituteConflict({ ...fam, target: "p", allocatedItemIds: [] })).toBeNull();
+    expect(substituteConflict({ ...fam, target: "x1", allocatedItemIds: [] })).toBeNull();
+  });
+  it("allows replacing the same source's own allocation", () => {
+    expect(substituteConflict({ ...fam, target: "x1", allocatedItemIds: ["x1"] })).toBeNull();
+  });
+  it("refuses a substitute while the main item holds lots (never a silent mix)", () => {
+    expect(substituteConflict({ ...fam, target: "x1", allocatedItemIds: ["p"] })).toMatch(/never a mix|one source/i);
+  });
+  it("refuses the main item while a substitute holds lots", () => {
+    expect(substituteConflict({ ...fam, target: "p", allocatedItemIds: ["x1"] })).toMatch(/never a mix|one source/i);
+  });
+  it("refuses a second substitute", () => {
+    expect(substituteConflict({ ...fam, target: "x2", allocatedItemIds: ["x1"] })).toMatch(/never a mix|one source/i);
+  });
+  it("refuses an item that is not in the family", () => {
+    expect(substituteConflict({ ...fam, target: "zzz", allocatedItemIds: [] })).toMatch(/not a substitute|not a material/i);
   });
 });

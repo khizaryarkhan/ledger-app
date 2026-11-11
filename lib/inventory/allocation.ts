@@ -94,3 +94,50 @@ export function allocationError(
   }
   return null;
 }
+
+// ── BOM Builder phase 2: supplier-SKU limits and substitutes ────────────────
+// Decided with the product owner (2026-11-11): under a SKU limit a lot whose supplier
+// SKU is UNKNOWN is refused (a limit always means what it says), and a substitute is
+// only ever PROPOSED — a planner confirms it before any lot of it is reserved.
+
+/**
+ * Split lots by an ingredient's SKU limit. No limit = every lot. Under a limit a lot
+ * must carry an allowed supplier SKU: "other" is a different SKU, "unknown" is a lot
+ * that never recorded one (no-PO receipts, counts, opening stock, production).
+ */
+export function lotsAllowedBySku<T extends { supplierSkuId: string | null }>(lots: T[], allowedSkuIds: string[]): { allowed: T[]; refused: { lot: T; reason: "unknown" | "other" }[] } {
+  if (!allowedSkuIds.length) return { allowed: lots, refused: [] };
+  const ok = new Set(allowedSkuIds);
+  const allowed: T[] = [], refused: { lot: T; reason: "unknown" | "other" }[] = [];
+  for (const l of lots) {
+    if (l.supplierSkuId && ok.has(l.supplierSkuId)) allowed.push(l);
+    else refused.push({ lot: l, reason: l.supplierSkuId ? "other" : "unknown" });
+  }
+  return { allowed, refused };
+}
+
+/**
+ * The substitute to offer when the main item cannot cover the order: the first, in
+ * the BOM's order, that can cover ITS OWN planned amount in full. Null while the main
+ * item covers, or when nothing does. A substitute never tops up a partial main item.
+ */
+export function proposeSubstitute(a: { planned: number; primaryAvailable: number; subs: { itemId: string; planned: number; available: number }[] }): { itemId: string; order: number } | null {
+  if (a.primaryAvailable + QTY_EPSILON >= a.planned) return null;
+  for (let i = 0; i < a.subs.length; i++) {
+    const s = a.subs[i];
+    if (s.planned > 0 && s.available + QTY_EPSILON >= s.planned) return { itemId: s.itemId, order: i + 1 };
+  }
+  return null;
+}
+
+/**
+ * A material is made from ONE source: its main item or exactly one substitute, never
+ * a mix. Returns the reason an allocation to `target` would break that, or null.
+ * `allocatedItemIds` = items of this material's family that already hold lots.
+ */
+export function substituteConflict(a: { target: string; primary: string; substituteIds: string[]; allocatedItemIds: string[] }): string | null {
+  const family = new Set([a.primary, ...a.substituteIds]);
+  if (!family.has(a.target)) return "That item is not a material of this order or one of its substitutes.";
+  const other = a.allocatedItemIds.find(id => id !== a.target && family.has(id));
+  return other ? "A material uses one source: its main item or one substitute, never a mix. Release the lots already chosen for the other source first." : null;
+}

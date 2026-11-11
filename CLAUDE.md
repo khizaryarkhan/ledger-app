@@ -1497,7 +1497,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0135` at `when` `1794300000000`;
+  this silently dropped a table in prod once). Latest is `0136` at `when` `1794400000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
@@ -5757,10 +5757,10 @@ Replaces the header drawer plus four per-line drawers in `components/bom-registe
   the sections server-rendered with sample data. **Not clicked through in a browser** (dev server
   cannot reach Neon). Not built: import, library/bulk swap (Phase 3).
 
-### BOM Builder Phase 2, slice 1: substitutes, SKU limits, item facts (2026-11-11) — SAVED, NOT ENFORCED
+### BOM Builder Phase 2, slice 1: substitutes, SKU limits, item facts (2026-11-11)
 
-Migration `0135`, additive. **Manufacturing orders do not read any of this yet** (slice 2); the drawer
-says so beside each control, because a control that looks enforced and is not is worse than none.
+Migration `0135`, additive. Saved with the recipe; **enforced by manufacturing orders from slice 2
+(below)** — an order planned before slice 2 has no copy of them and behaves exactly as it did.
 
 - **`bom_line_substitutes`** (ordered, qty in the SUBSTITUTE's own base unit — no density/equivalence
   data exists, so there is no conversion) and **`bom_line_allowed_skus`** (supplier SKUs an ingredient or
@@ -5775,14 +5775,47 @@ says so beside each control, because a control that looks enforced and is not is
   drawer via `PATCH /api/inventory/items/[id]/attributes` (admin-only, its own route so it never touches
   the accounting re-validation the full item PATCH does). `kgPerUnit()` uses a mass unit's own factor,
   else the item's weight, so litre/case/bar items can now join the weight check.
-- **Slice 2 (the money path) is NOT built and has known traps** (found by reading allocation and
-  completion): completion takes the consumed item from the lot allocation, not from `mo_materials`; the
-  cost split keys on `mo_materials` by item, so a substitute with no row is costed as an ingredient by
-  accident and a packaging substitute would lose its per-pack split; completion posts the journal entry
-  BEFORE the other writes, so every substitute check (stocked, posting group mapped) must run in
-  planCompletion; `inventory_lots` has no `supplier_sku_id` (blank for no-PO receipts, counts, opening
-  stock and production lots), so a SKU limit needs that column, a backfill, and a decided rule for blanks.
-  Decisions still open: refuse or warn on a blank supplier SKU; substitutes only after user confirmation.
 - Verified: 50 rules tests; `scripts/_e2e_bom_builder.ts` against the dev DB (substitute round trip,
   edit-away, copy carries substitutes, cascade on delete, own-substitute and foreign-SKU refused); the
   controls server-rendered with sample data. Not clicked through in a browser.
+
+### BOM Builder Phase 2, slice 2: manufacturing orders honour substitutes and SKU limits (2026-11-11)
+
+Migration `0136`, additive. Decided with the product owner: **under a SKU limit a lot whose supplier SKU
+is UNKNOWN is REFUSED** (a limit always means what it says), and **a substitute is only ever PROPOSED**:
+a planner accepts it by allocating its lots, never automatically.
+
+- **The MO keeps its own copy** (`mo_material_substitutes`, `mo_material_allowed_skus`), written by
+  `snapshotMaterials` with the substitute amounts scaled to the order, like `mo_materials`. A BOM edit
+  never re-plans an order, and an order planned before 0136 simply has none.
+- **Pure rules** (`lib/inventory/allocation.ts`, 20 tests): `lotsAllowedBySku` (refused = "unknown" or
+  "other"), `proposeSubstitute` (first substitute, in BOM order, that covers ITS OWN amount in full; never
+  tops up a partial main item), `substituteConflict` (a material uses ONE source: its main item or one
+  substitute, never a mix).
+- **`lib/inventory/mo-allocations.ts`**: `allocationView` returns per material `limitSkuIds`, `refused`
+  (with the message), `substitutes[]` (each with its own lots/suggestion), `usingSubstitute` and `proposal`.
+  `setMaterialAllocation` accepts a material OR one of its substitutes, refuses a mix, and refuses a
+  refused lot with a message that says why. `lot_allocations.for_item_id` records the material a
+  substitute's lots stand in for.
+- **Completion** (`mo-completion.ts`): a consumed substitute is costed as the material it replaced
+  (`substituteOf`), so an ingredient substitute stays an ingredient and a packaging one keeps its per-pack
+  split — before this it was costed as an ingredient only by accident. A mixed material or an untracked
+  substitute is refused in `planCompletion`, BEFORE the entry posts. `production_consumptions.for_item_id`
+  keeps what stood in for what after the allocations are released; `moDetail` shows it per completion.
+- **`inventory_lots.supplier_sku_id`**: set by `commitReceipt` from a Bill line's supplier SKU
+  (`documents.ts`) and from the PO line on a goods receipt (`receiving.ts`). **Blank for** no-PO receipts,
+  stock counts, opening stock and production lots, by design. `scripts/_backfill_lot_supplier_sku.ts`
+  (dry run by default, `--commit`) fills existing PO-linked lots; it was NOT run against production.
+- **UI** (`components/mo-console.tsx`): a material card shows "Using X (substitute n)" and, when the main
+  item is short, a proposal with a "Use X" button (that click is the confirmation); the lot step has a
+  Source switch (main / each substitute) and says how many lots are not offered and why. "Allocate the
+  rest" skips a material that has a proposal or a chosen substitute. `isCovered(l)` is the one definition
+  of "has lots" (main item or the chosen substitute).
+- **Verified**: `scripts/_e2e_mo_substitutes.ts` on the dev DB, all passing: copy to the MO, proposal when
+  short, planner's choice recorded, mix refused both ways, completion consumed ONLY the substitute's lot
+  and left the main lot alone, `for_item_id` recorded, MO detail names it, void restored the lot, unknown
+  and other-SKU lots refused, allowed lot allocated, nothing left behind. **Not clicked through in a
+  browser** (dev server cannot reach Neon).
+- **Not built**: a substitute for PACKAGING (the BOM builder only offers them for ingredients); a
+  stock count or opening balance that records a supplier SKU; "units" for a lot's supplier SKU in
+  `consumptionUnits` (still keyed on supplier id).

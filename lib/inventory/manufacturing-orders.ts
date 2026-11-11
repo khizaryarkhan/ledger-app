@@ -19,7 +19,7 @@
 
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
-import { manufacturingOrders, moOutputs, moMaterials, moOperations, lotAllocations, boms, bomLines, bomOperations, workCentres, apItems, itemSkus, productionRuns } from "@/db/schema";
+import { manufacturingOrders, moOutputs, moMaterials, moMaterialSubstitutes, moMaterialAllowedSkus, bomLineSubstitutes, bomLineAllowedSkus, moOperations, lotAllocations, productionConsumptions, boms, bomLines, bomOperations, workCentres, apItems, itemSkus, productionRuns } from "@/db/schema";
 import { and, eq, asc, desc, inArray, isNull, sql } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { coverage } from "@/lib/inventory/allocation";
@@ -147,6 +147,8 @@ export async function ensureMoMaterials(orgId: string, mo: { id: string; bomId: 
  */
 async function snapshotMaterials(orgId: string, moId: string, bomId: string | null, outputs: { skuId: string; qty: number }[]) {
   await db.delete(moMaterials).where(and(eq(moMaterials.orgId, orgId), eq(moMaterials.moId, moId)));
+  await db.delete(moMaterialSubstitutes).where(and(eq(moMaterialSubstitutes.orgId, orgId), eq(moMaterialSubstitutes.moId, moId)));
+  await db.delete(moMaterialAllowedSkus).where(and(eq(moMaterialAllowedSkus.orgId, orgId), eq(moMaterialAllowedSkus.moId, moId)));
   await db.delete(moOperations).where(and(eq(moOperations.orgId, orgId), eq(moOperations.moId, moId)));
   if (!bomId || !outputs.length) return;
   const [bom] = await db.select().from(boms).where(and(eq(boms.id, bomId), eq(boms.orgId, orgId))).limit(1);
@@ -169,6 +171,18 @@ async function snapshotMaterials(orgId: string, moId: string, bomId: string | nu
     await db.insert(moMaterials).values(rows.map((r, i) => ({
       orgId, moId, itemId: r.itemId, kind: r.kind, forSkuId: r.forSkuId, plannedQty: roundQty(r.qty).toString(), sortOrder: i,
     })));
+    // The BOM's ordered substitutes and supplier-SKU limits, copied like the materials above: scaled
+    // to this order, and frozen — a later BOM edit never changes an order already planned.
+    const [subs, limits] = await Promise.all([
+      db.select().from(bomLineSubstitutes).where(and(eq(bomLineSubstitutes.orgId, orgId), eq(bomLineSubstitutes.bomId, bomId))),
+      db.select().from(bomLineAllowedSkus).where(and(eq(bomLineAllowedSkus.orgId, orgId), eq(bomLineAllowedSkus.bomId, bomId))),
+    ]);
+    const subRows = subs.filter(s => ing.has(s.primaryItemId)).map(s => ({
+      orgId, moId, primaryItemId: s.primaryItemId, itemId: s.itemId, plannedQty: roundQty(num(s.qty) * factor).toString(), sortOrder: s.sortOrder,
+    }));
+    const limitRows = limits.filter(l => ing.has(l.primaryItemId)).map(l => ({ orgId, moId, primaryItemId: l.primaryItemId, itemId: l.itemId, supplierSkuId: l.supplierSkuId }));
+    if (subRows.length) await db.insert(moMaterialSubstitutes).values(subRows);
+    if (limitRows.length) await db.insert(moMaterialAllowedSkus).values(limitRows);
   }
 
   const ops = await db.select({ op: bomOperations, wc: workCentres }).from(bomOperations)
@@ -221,6 +235,13 @@ export async function moDetail(orgId: string, id: string) {
   const items = ids.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom, onHand: apItems.onHandQty, productType: apItems.productType }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids))) : [];
   const byId = new Map(items.map(i => [i.id, i]));
   const { mine, others } = await allocationTotals(orgId, id, ids);
+  // This order's frozen substitutes. A material that a substitute has been chosen for is covered by
+  // THAT item's lots against THAT item's planned amount, not by the main item's.
+  const subRows = await db.select().from(moMaterialSubstitutes).where(and(eq(moMaterialSubstitutes.orgId, orgId), eq(moMaterialSubstitutes.moId, id))).orderBy(asc(moMaterialSubstitutes.sortOrder));
+  const subIds = [...new Set(subRows.map(s => s.itemId))];
+  const subItems = subIds.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, subIds))) : [];
+  const subById = new Map(subItems.map(i => [i.id, i]));
+  const subTotals = subIds.length ? await allocationTotals(orgId, id, subIds) : { mine: new Map<string, number>(), others: new Map<string, number>() };
   const lines = snap.map(m => {
     const it = byId.get(m.itemId);
     const required = num(m.plannedQty);
@@ -229,10 +250,16 @@ export async function moDetail(orgId: string, id: string) {
     // this order already holds (it is on hand and it is ours).
     const onHand = roundQty(num(it?.onHand) - (others.get(m.itemId) ?? 0));
     const tracked = kindOf(it?.productType).tracked;
+    const subs = subRows.filter(s => s.primaryItemId === m.itemId);
+    const chosen = subs.find(s => (subTotals.mine.get(s.itemId) ?? 0) > 0);
+    const chosenAllocated = chosen ? roundQty(subTotals.mine.get(chosen.itemId) ?? 0) : 0;
     return {
       itemId: m.itemId, name: it?.name ?? "Item", baseUom: it?.baseUom ?? null, kind: m.kind, tracked,
-      required, onHand, allocated, coverage: tracked ? coverage(required, allocated) : "full",
-      short: roundQty(required - onHand), ok: onHand + 1e-6 >= required,
+      required, onHand, allocated,
+      coverage: !tracked ? "full" : chosen ? coverage(num(chosen.plannedQty), chosenAllocated) : coverage(required, allocated),
+      short: roundQty(required - onHand), ok: chosen ? true : onHand + 1e-6 >= required,
+      hasSubstitutes: subs.length > 0,
+      substitute: chosen ? { itemId: chosen.itemId, name: subById.get(chosen.itemId)?.name ?? "Item", baseUom: subById.get(chosen.itemId)?.baseUom ?? null, planned: num(chosen.plannedQty), allocated: chosenAllocated, order: subs.indexOf(chosen) + 1 } : null,
     };
   });
   const materials = { baseTotal: plannedBase.baseTotal || num(mo.qty), lines, anyShort: lines.some(l => !l.ok) };
@@ -242,7 +269,13 @@ export async function moDetail(orgId: string, id: string) {
     plannedCost: Math.round(num(o.plannedHours) * (num(o.labourRate) + num(o.overheadRate)) * 100) / 100,
   }));
   const runs = await db.select().from(productionRuns).where(and(eq(productionRuns.orgId, orgId), eq(productionRuns.moId, id))).orderBy(asc(productionRuns.createdAt));
+  // What stood in for what, from the consumptions themselves, so it survives the allocations being released.
+  const subCons = runs.length ? await db.select().from(productionConsumptions).where(and(eq(productionConsumptions.orgId, orgId), inArray(productionConsumptions.runId, runs.map(r => r.id)))) : [];
+  const usedIds = [...new Set(subCons.filter(c => c.forItemId).flatMap(c => [c.itemId, c.forItemId as string]))];
+  const usedItems = usedIds.length ? await db.select({ id: apItems.id, name: apItems.name }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, usedIds))) : [];
+  const usedName = new Map(usedItems.map(i => [i.id, i.name]));
   const completions = runs.map(r => ({
+    substitutions: [...new Set(subCons.filter(c => c.runId === r.id && c.forItemId).map(c => `${c.forItemId}|${c.itemId}`))].map(k => { const [f, u] = k.split("|"); return { forItemId: f, forName: usedName.get(f) ?? "Item", itemId: u, name: usedName.get(u) ?? "Item", qty: roundQty(subCons.filter(c => c.runId === r.id && c.forItemId === f && c.itemId === u).reduce((s, c) => s + num(c.qty), 0)) }; }),
     id: r.id, runNo: r.runNo, date: r.producedDate, goodQty: num(r.goodQty), rejectedQty: num(r.rejectedQty),
     materialCost: Math.round((num(r.totalInputCost) - num(r.labourCost) - num(r.overheadCost)) * 100) / 100,
     labourCost: num(r.labourCost), overheadCost: num(r.overheadCost), scrapCost: num(r.scrapCost),

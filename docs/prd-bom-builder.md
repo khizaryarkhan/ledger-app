@@ -1,6 +1,6 @@
 # PRD — BOM Builder (single-drawer recipe editor)
 
-Status: Phase 1 shipped (2026-11-11). Phase 2 slice 1 shipped (substitutes, SKU limits, weight, allergens: saved, NOT enforced). Slice 2 (order engine) not started; see CLAUDE.md "BOM Builder Phase 2, slice 1" for the traps found. · Owner: product owner · Mockup: `docs/bom-builder-mockup.html`
+Status: Phase 1 shipped (2026-11-11). Phase 2 slice 1 shipped (substitutes, SKU limits, weight, allergens: saved, NOT enforced). Phase 2 slice 2 shipped: orders honour substitutes and SKU limits (unknown-SKU lots refused; substitutes proposed, planner confirms). See CLAUDE.md for the design and what is not built. · Owner: product owner · Mockup: `docs/bom-builder-mockup.html`
 Reference concept: "Recipe Builder Concepts v2" (another product; used for ideas, not copied wholesale)
 
 ## 1. Problem

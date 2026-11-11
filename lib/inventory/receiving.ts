@@ -143,13 +143,20 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
 
   // Create lots + subledger movements, receipt lines, and advance PO progress.
   const poAmounts = new Map<string, number>();
+  // The supplier SKU each PO line was raised against, so the lot records what it was bought as.
+  const poLineIds = [...new Set(commits.map(c => c.r.poLineId).filter(Boolean) as string[])];
+  const skuByPoLine = new Map<string, string | null>();
+  if (poLineIds.length) {
+    const rows = await db.select({ id: tradeDocumentLines.id, s: tradeDocumentLines.supplierSkuId }).from(tradeDocumentLines).where(and(eq(tradeDocumentLines.orgId, orgId), inArray(tradeDocumentLines.id, poLineIds)));
+    for (const r of rows) skuByPoLine.set(r.id, r.s ?? null);
+  }
   for (const c of commits) {
     const item = itemMap.get(c.r.itemId)!;
     const qty = roundQty(Math.abs(Number(c.r.qtyBase) || 0));
     const lotId = await commitReceipt(orgId, {
       itemId: item.id, skuId: c.r.skuId ?? null, qty, unitCost: c.homeUnit, productType: item.productType, lotNo: c.r.lotNo ?? null, expiryDate: c.r.expiryDate ?? null,
       supplierBatchNo: c.r.supplierBatchNo ?? null, productionDate: c.r.productionDate ?? null, bestBeforeDate: c.r.bestBeforeDate ?? null,
-      supplierId: input.supplierId ?? null, sourceType: "purchase", receivedDate: date,
+      supplierId: input.supplierId ?? null, supplierSkuId: c.r.poLineId ? skuByPoLine.get(c.r.poLineId) ?? null : null, sourceType: "purchase", receivedDate: date,
       locationId: c.locationId,
       refType: "GoodsReceipt", refId, entryId: entry?.id ?? null, createdBy: actorId, note: c.r.description ?? null,
     }).catch(e => { console.error("[receiving lot]", e); return null; });

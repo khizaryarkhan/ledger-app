@@ -3,8 +3,8 @@
 /**
  * What hangs off one ingredient: ordered substitutes, a supplier-SKU limit, and the
  * item facts they lean on (weight per unit, allergens). Everything here is SAVED with
- * the recipe, but manufacturing orders do not read substitutes or SKU limits yet, and
- * the panels say so — a control that looks enforced and is not would be worse than none.
+ * the recipe, and manufacturing orders planned afterwards follow them (an order keeps
+ * the copy it was planned with, so a later edit never re-plans it).
  */
 
 import { useState } from "react";
@@ -19,7 +19,7 @@ import { uom as uomOf } from "@/lib/inventory/uom";
 
 export interface SupplierSkuLite { id: string; label: string; supplier: string | null; code: string | null }
 
-const NOT_YET = "Saved with the recipe. Manufacturing orders do not use this yet.";
+const NOT_YET = "Manufacturing orders planned from now on follow this; orders already planned keep their old plan.";
 const chip = "text-[12px] font-semibold rounded-lg border px-2.5 py-1";
 
 /** Weight per unit and allergens for one item. Saved straight to the item, so every recipe sees it. */
@@ -75,7 +75,7 @@ function SkuPanel({ item, skus, selected, onChange, onClose }: { item: ItemLite;
   for (const s of skus) { const g = s.supplier || "Supplier not set"; (groups.get(g) ?? groups.set(g, []).get(g)!).push(s); }
   return (
     <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-3 space-y-2">
-      <div><b className="text-[13px] text-stone-100">Which {item.name} SKUs may production use?</b><div className="text-[12px] text-stone-400">Optional. Leave on “any” if all are fine. {NOT_YET}</div></div>
+      <div><b className="text-[13px] text-stone-100">Which {item.name} SKUs may production use?</b><div className="text-[12px] text-stone-400">Optional. Leave on “any” if all are fine. A lot with no supplier SKU on record is refused under a limit. {NOT_YET}</div></div>
       {[...groups.entries()].map(([g, list]) => (
         <div key={g}>
           <div className="text-[11px] text-stone-500 mt-1">{g}</div>
@@ -137,7 +137,7 @@ export function LineExtras({ line, item, items, byId, primaries, skusByItem, ens
 
       {subOpen && (
         <div className="rounded-lg border-l-[3px] border-sky-800 bg-stone-950/60 px-3 py-2.5 space-y-2">
-          <div><b className="text-[13px] text-stone-100">If {item.name} is not available</b><div className="text-[12px] text-stone-400">Tried in this order. {NOT_YET}</div></div>
+          <div><b className="text-[13px] text-stone-100">If {item.name} is not available</b><div className="text-[12px] text-stone-400">Offered, in this order, when the main item cannot cover an order; a planner confirms before it is used. {NOT_YET}</div></div>
           <div className="flex items-center gap-2 text-[12px]"><span className="w-5 h-5 rounded-full bg-emerald-500/15 text-emerald-400 grid place-items-center text-[11px] font-semibold">1</span><span className="text-stone-300"><b>{item.name}</b> is used whenever stock covers the order</span></div>
           {line.subs.map((s, ix) => {
             const si = byId.get(s.itemId), adds = allergenAdds(item.allergens, si?.allergens), same = followQty({ primaryQty: q, primaryKgPerUnit: kg, subKgPerUnit: kgPerUnit(si) });

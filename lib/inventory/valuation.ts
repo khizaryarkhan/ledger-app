@@ -14,7 +14,7 @@
 import { roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 import { LedgerValidationError } from "@/lib/ledger";
 import { db } from "@/db";
-import { apItems, inventoryLots, inventoryMovements, lotAllocations } from "@/db/schema";
+import { apItems, inventoryLots, inventoryMovements, lotAllocations, itemSupplierSkus } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
 import { kindOf, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 import { resolveItemAccounts, unmappedMessage, AccountMappingError, type ResolvedItemAccounts } from "@/lib/accounting/account-roles-server";
@@ -358,6 +358,8 @@ export type ReceiptInput = {
   lotNo?: string | null; expiryDate?: string | null; supplierId?: string | null;
   /** GS1 lot data beside the expiry (0091). supplierBatchNo is the supplier's AI (10) as printed — never lotNo. */
   supplierBatchNo?: string | null; productionDate?: string | null; bestBeforeDate?: string | null;
+  /** The supplier SKU (item_supplier_skus) this stock was bought as. Null when the caller has none: no-PO receipts, counts, opening stock, production. */
+  supplierSkuId?: string | null;
   sourceType?: "purchase" | "production" | "opening" | "adjustment" | "jobwork";
   receivedDate: string; refType: string; refId: string; entryId?: string | null;
   createdBy?: string | null; note?: string | null;
@@ -397,11 +399,19 @@ export async function commitReceipt(orgId: string, r: ReceiptInput): Promise<str
   // created — rather than leaving a lot behind with nowhere to put it.
   const locationId = await resolveLocationId(orgId, r.locationId, { label: "Receiving location" });
   const lotNo = await resolveLotNo(orgId, r.productType, r.lotNo);
+  // A supplier SKU that no longer exists must not fail the receipt (the foreign key would, and callers swallow
+  // that, leaving stock with no lot): record it only when it is a real SKU of THIS item, else leave it unknown.
+  let supplierSkuId: string | null = null;
+  if (r.supplierSkuId) {
+    const [sku] = await db.select({ id: itemSupplierSkus.id }).from(itemSupplierSkus)
+      .where(and(eq(itemSupplierSkus.id, r.supplierSkuId), eq(itemSupplierSkus.orgId, orgId), eq(itemSupplierSkus.itemId, r.itemId))).limit(1);
+    supplierSkuId = sku?.id ?? null;
+  }
   const [lot] = await db.insert(inventoryLots).values({
     orgId, itemId: r.itemId, skuId: r.skuId ?? null,
     lotNo,
     sourceType: r.sourceType ?? "purchase", sourceId: r.entryId ?? r.refId,
-    supplierId: r.supplierId ?? null,
+    supplierId: r.supplierId ?? null, supplierSkuId,
     receivedDate: r.receivedDate, expiryDate: r.expiryDate ?? null,
     supplierBatchNo: r.supplierBatchNo?.trim().slice(0, 64) || null,
     productionDate: r.productionDate || null, bestBeforeDate: r.bestBeforeDate || null,

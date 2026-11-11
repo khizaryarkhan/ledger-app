@@ -117,6 +117,18 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
     if (roundQty(c.qty - num(a!.qty)) > QTY_EPSILON) err(`More is being consumed from a lot than is allocated to this order (${num(a!.qty)}).`);
   }
 
+  // A material is made from ONE source: its main item or one substitute, never a mix. The same rule
+  // setMaterialAllocation enforces, checked again here because completion posts to the ledger.
+  // `substituteOf` maps a consumed substitute item to the material it stood in for.
+  const substituteOf = new Map<string, string>();
+  for (const a of allocs) if (a.forItemId) substituteOf.set(a.itemId, a.forItemId);
+  const sourcesOf = new Map<string, Set<string>>();
+  for (const c of consume) {
+    const material = substituteOf.get(c.itemId) ?? c.itemId;
+    (sourcesOf.get(material) ?? sourcesOf.set(material, new Set()).get(material)!).add(c.itemId);
+  }
+  for (const [material, srcs] of sourcesOf) if (srcs.size > 1) err("A material uses one source: its main item or one substitute, never a mix. Release the lots of the extra source before completing.");
+
   const byItem = new Map<string, { lotId: string; qty: number }[]>();
   for (const c of consume) (byItem.get(c.itemId) ?? byItem.set(c.itemId, []).get(c.itemId)!).push({ lotId: c.lotId, qty: c.qty });
   const itemMap = await loadItemCostInfo(orgId, [...byItem.keys(), mo!.outputItemId]);
@@ -126,6 +138,7 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   const plans: { itemId: string; plan: IssuePlan; credit: number; assetAcct: string; name: string }[] = [];
   for (const [itemId, picks] of byItem) {
     const it = itemMap.get(itemId);
+    if (substituteOf.has(itemId) && (!it || !it.tracked)) err(`${it?.name ?? "A substitute"} is not a stocked item, so it cannot stand in for a material. Release its lots before completing.`);
     if (!it || !it.tracked) continue;
     const plan = await planIssue(orgId, it, roundQty(picks.reduce((sm, x) => sm + x.qty, 0)), { exactPicks: picks, forMoId: moId });
     if (plan.shortfallQty > 0) err(`${it.name}: the allocated lots no longer hold ${plan.shortfallQty} of what is being consumed — it was issued elsewhere. Re-allocate before completing.`);
@@ -138,7 +151,9 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   let ingredientCost = 0;
   const packagingCostBySku: Record<string, number> = {};
   for (const p of plans) {
-    const rows = matsByItem.get(p.itemId) ?? [];
+    // A substitute has no material row of its own; it is costed as the material it stood in for, so a
+    // packaging substitute keeps its per-pack split and an ingredient substitute stays an ingredient.
+    const rows = matsByItem.get(substituteOf.get(p.itemId) ?? p.itemId) ?? [];
     const packRows = rows.filter(r => r.kind === "packaging" && r.forSkuId);
     const ingQty = rows.filter(r => r.kind === "ingredient").reduce((s, r) => s + num(r.plannedQty), 0);
     const packQty = packRows.reduce((s, r) => s + num(r.plannedQty), 0);
@@ -172,7 +187,7 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   });
   if (goodBase > 0 && cost.total <= 0) err("Nothing with a cost is being consumed or charged — allocate the lots this run used.");
 
-  return { mo: mo!, date, final, outputs, rejectedBase, consume, plans, operations, labourCost, overheadCost, ingredientCost, packagingCostBySku, cost, output: output!, itemMap };
+  return { mo: mo!, date, final, outputs, rejectedBase, consume, plans, operations, labourCost, overheadCost, ingredientCost, packagingCostBySku, cost, output: output!, itemMap, substituteOf };
 }
 
 /** Preview for the completion drawer: the numbers, no writes. */
@@ -253,7 +268,7 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
   for (const x of p.plans) {
     await commitIssue(orgId, { itemId: x.itemId, plan: x.plan, movementType: "issue_production", refType: "ProductionRun", refId: entry.id, entryId: entry.id, date: p.date, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}` });
     for (const pick of x.plan.picks) if (pick.lotId) {
-      await db.insert(productionConsumptions).values({ orgId, runId: run.id, itemId: x.itemId, lotId: pick.lotId, qty: pick.qty.toString(), unitCost: pick.unitCost.toString(), totalCost: round2(pick.qty * pick.unitCost).toString() } as any);
+      await db.insert(productionConsumptions).values({ orgId, runId: run.id, itemId: x.itemId, forItemId: p.substituteOf.get(x.itemId) ?? null, lotId: pick.lotId, qty: pick.qty.toString(), unitCost: pick.unitCost.toString(), totalCost: round2(pick.qty * pick.unitCost).toString() } as any);
     }
   }
   for (const o of cost.outputs) {

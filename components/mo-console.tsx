@@ -399,7 +399,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
   const mo = d?.mo;
   const lines: any[] = d?.materials?.lines ?? [];
   const stocked = lines.filter(l => l.tracked && l.required > 0);
-  const unallocated = stocked.filter(l => !(l.allocated > 0));
+  const unallocated = stocked.filter(l => !isCovered(l));
   const canComplete = mo?.status === "InProgress" && stocked.length > 0 && unallocated.length === 0;
   useEffect(() => {
     if (!pendingRun || !d) return;
@@ -416,10 +416,19 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Failed."); return; }
     await load(); onProgressed(msg);
   }
+  /** The planner accepts a proposed substitute: reserve its suggested lots. Nothing is applied without this click. */
+  async function useSubstitute(itemId: string, subId: string) {
+    const sub = alloc?.materials?.find((x: any) => x.itemId === itemId)?.substitutes?.find((x: any) => x.itemId === subId);
+    if (!sub?.suggestion?.length) return;
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: subId, picks: sub.suggestion.map((p: any) => ({ ...p, suggested: true })) }) });
+    if (!r.ok) setErr((await r.json().catch(() => ({})))?.error || "Could not allocate the substitute.");
+    setBusy(false); await load();
+  }
   async function allocateAll() {
     setBusy(true); setErr("");
     for (const m of alloc?.materials ?? []) {
-      if (m.allocated > 0 || !m.suggestion?.length) continue;
+      if (m.allocated > 0 || m.usingSubstitute || m.proposal || !m.suggestion?.length) continue;
       const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: m.itemId, picks: m.suggestion.map((p: any) => ({ ...p, suggested: true })) }) });
       if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); break; }
     }
@@ -453,7 +462,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
         <StageNote status={mo.status} />
 
         <MoTabs d={d} tab={tab} setTab={setTab} />
-        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={onOpenLot} />}
+        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={onOpenLot} onUseSubstitute={useSubstitute} />}
         {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
               onSave={packs => { setProduced(p => { const n = { ...p }; if (packs == null) delete n[openOut]; else n[openOut] = packs; return n; }); setOpenOut(null); }} />
@@ -501,10 +510,15 @@ function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string
 
   const line = (d?.materials?.lines ?? []).find((l: any) => l.itemId === itemId);
   const m = (alloc?.materials ?? []).find((x: any) => x.itemId === itemId);
+  // A material is made from ONE source: its main item or one substitute. The planner picks which here.
+  const [pickedSrc, setPickedSrc] = useState<string | null>(null);
+  const activeId: string = pickedSrc ?? m?.usingSubstitute ?? itemId;
+  const src = activeId === itemId ? m : (m?.substitutes ?? []).find((x: any) => x.itemId === activeId);
+  const srcLine = activeId === itemId || !line ? line : { ...line, name: src?.name ?? line.name, required: src?.planned ?? line.required, baseUom: src?.baseUom ?? line.baseUom };
 
   async function put(picks: { lotId: string; qty: number; suggested?: boolean }[]) {
     setErr("");
-    const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, picks }) });
+    const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: activeId, picks }) });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
     return true;
   }
@@ -527,7 +541,19 @@ function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string
         {!d || !alloc ? <p className="text-[13px] text-stone-500">Loading…</p> : !m ? (
           <p className="text-[13px] text-rose-400">{err || "This material isn't part of the order."}</p>
         ) : (
-          <LotPicker line={line} m={m} editable={d?.mo?.status === "InProgress"} onSave={save} onSaveAndRun={saveAndRun} />
+          <>
+            {(m.substitutes ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="text-[12px] text-stone-500">Source:</span>
+                {[{ id: itemId, label: `${line?.name ?? "Main item"} (main)` }, ...m.substitutes.map((x: any) => ({ id: x.itemId, label: `${x.name} (substitute ${x.order})` }))].map((o: any) => (
+                  <button key={o.id} type="button" onClick={() => setPickedSrc(o.id)} className={`text-[12px] font-semibold rounded-lg border px-2.5 py-1 ${o.id === activeId ? "border-sky-700 text-sky-300 bg-sky-500/10" : "border-stone-700 text-stone-400 hover:border-stone-500"}`}>{o.label}</button>
+                ))}
+                <span className="text-[11px] text-stone-500">A material uses one source, never a mix.</span>
+              </div>
+            )}
+            {(src?.refused ?? []).length > 0 && <p className="text-[12px] text-amber-400 mb-2">{src.refused.length} lot{src.refused.length === 1 ? "" : "s"} not offered: {src.refused[0].message}</p>}
+            <LotPicker key={activeId} line={srcLine} m={src ?? m} editable={d?.mo?.status === "InProgress"} onSave={save} onSaveAndRun={saveAndRun} />
+          </>
         )}
         {err && <p className="text-[12px] text-rose-400 mt-2">{err}</p>}
       </div>
@@ -575,7 +601,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   };
   const lines: any[] = d?.materials?.lines ?? [];
   const stocked = lines.filter(l => l.tracked && l.required > 0);
-  const unallocated = stocked.filter(l => !(l.allocated > 0));
+  const unallocated = stocked.filter(l => !isCovered(l));
   const canComplete = mo?.status === "InProgress" && unallocated.length === 0;
   // "Save & complete a run" — wait for the reload, then open completion with
   // exactly what was just allocated (or say what is still missing).
@@ -588,7 +614,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   }, [pendingRun, d]);
 
   async function transition(to: string) {
-    if (to === "Cancelled" && lines.some(l => l.allocated > 0) && !confirm("Cancel this order? Its allocated lots are released back to stock.")) return;
+    if (to === "Cancelled" && lines.some(l => isCovered(l)) && !confirm("Cancel this order? Its allocated lots are released back to stock.")) return;
     setBusy(true); setErr("");
     const r = await fetch(`/api/production/mos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
     setBusy(false);
@@ -632,11 +658,16 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
     await load(); return true;
   }
+  /** The planner accepts a proposed substitute: reserve its suggested lots. */
+  async function useSubstitute(itemId: string, subId: string) {
+    const sub = alloc?.materials?.find((x: any) => x.itemId === itemId)?.substitutes?.find((x: any) => x.itemId === subId);
+    if (sub?.suggestion?.length) await saveAlloc(subId, sub.suggestion.map((p: any) => ({ ...p, suggested: true })));
+  }
   /** Allocate every material that has nothing yet, by earliest expiry. */
   async function allocateAll() {
     setBusy(true);
     for (const m of alloc?.materials ?? []) {
-      if (m.allocated > 0 || !m.suggestion?.length) continue;
+      if (m.allocated > 0 || m.usingSubstitute || m.proposal || !m.suggestion?.length) continue;
       const ok = await saveAlloc(m.itemId, m.suggestion.map((p: any) => ({ ...p, suggested: true })));
       if (!ok) break;
     }
@@ -691,7 +722,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
                 editable={mo.status === "InProgress"} onBack={() => setOpenItem(null)}
                 onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }}
                 onSaveAndRun={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) { setOpenItem(null); setPendingRun(true); } return ok; }} />
-            : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} />)}
+            : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} onUseSubstitute={useSubstitute} />)}
 
           {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
@@ -934,13 +965,15 @@ function MoTabs({ d, tab, setTab }: { d: any; tab: MoTab; setTab: (t: MoTab) => 
 }
 
 /** Input: one card per material. A card opens that material's lots. */
-function InputPanel({ d, alloc, busy, onAllocateAll, onOpen }: {
+function InputPanel({ d, alloc, busy, onAllocateAll, onOpen, onUseSubstitute }: {
   d: any; alloc: any; busy: boolean; onAllocateAll: () => void; onOpen: (itemId: string) => void;
+  /** Accept the proposed substitute for a material: reserves its suggested lots. */
+  onUseSubstitute?: (itemId: string, subId: string) => void;
 }) {
   const mo = d.mo;
   const lines: any[] = d?.materials?.lines ?? [];
   const stocked = lines.filter(l => l.tracked && l.required > 0);
-  const unallocated = stocked.filter(l => !(l.allocated > 0));
+  const unallocated = stocked.filter(l => !isCovered(l));
   const inProgress = mo.status === "InProgress";
   return (
     <div className="space-y-4">
@@ -962,7 +995,8 @@ function InputPanel({ d, alloc, busy, onAllocateAll, onOpen }: {
             <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">{kind === "ingredient" ? "Ingredients" : "Packaging"}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {group.map(l => (
-                <InputCard key={l.itemId} l={l} inProgress={inProgress}
+                <InputCard key={l.itemId} l={l} inProgress={inProgress} m={alloc?.materials?.find((x: any) => x.itemId === l.itemId)}
+                  onUseSubstitute={onUseSubstitute && alloc?.materials?.find((x: any) => x.itemId === l.itemId)?.proposal ? () => onUseSubstitute(l.itemId, alloc.materials.find((x: any) => x.itemId === l.itemId).proposal.itemId) : undefined}
                   onOpen={l.tracked && alloc?.materials?.some((x: any) => x.itemId === l.itemId) ? () => onOpen(l.itemId) : undefined} />
               ))}
             </div>
@@ -1164,15 +1198,18 @@ function OperationsPanel({ d }: { d: any }) {
  * a run needs lots for all of them — say which, rather than open a drawer
  * that can only fail.
  */
+/** A material is covered by its main item's lots, or by the lots of the ONE substitute chosen for it. */
+function isCovered(l: any): boolean { return l.allocated > 0 || (l.substitute?.allocated ?? 0) > 0; }
+
 function runBlocker(d: any): string | null {
   if (d?.mo?.status !== "InProgress") return "The order must be In Progress to record a run.";
-  const missing = (d?.materials?.lines ?? []).filter((l: any) => l.tracked && l.required > 0 && !(l.allocated > 0));
+  const missing = (d?.materials?.lines ?? []).filter((l: any) => l.tracked && l.required > 0 && !isCovered(l));
   if (!missing.length) return null;
   return `Saved. To record a run, also pick lots for ${missing.map((l: any) => l.name).join(", ")} — a run consumes every material.`;
 }
 
 /** One input material as a card: what the order expects, and where it stands. */
-function InputCard({ l, inProgress, onOpen }: { l: any; inProgress: boolean; onOpen?: () => void }) {
+function InputCard({ l, m, inProgress, onOpen, onUseSubstitute }: { l: any; m?: any; inProgress: boolean; onOpen?: () => void; onUseSubstitute?: () => void }) {
   const attention = l.tracked && (inProgress ? l.coverage === "none" || l.coverage === "partial" : !l.ok);
   const body = (
     <>
@@ -1189,14 +1226,27 @@ function InputCard({ l, inProgress, onOpen }: { l: any; inProgress: boolean; onO
         <span className="text-stone-500 tabular-nums">{!l.tracked ? "" : inProgress ? `Allocated ${qtyFmt(l.allocated)}` : `On hand ${qtyFmt(l.onHand)}`}</span>
         <MaterialStatus l={l} inProgress={inProgress} />
       </div>
+      {l.substitute && <div className="mt-2 text-[11px] text-sky-400">Using {l.substitute.name} (substitute {l.substitute.order}) · {qtyFmt(l.substitute.allocated)} of {qtyFmt(l.substitute.planned)} {l.substitute.baseUom}</div>}
     </>
   );
   const cls = attention
     ? "group text-left rounded-lg border p-3 border-amber-800/60 bg-amber-950/10"
     : "group text-left rounded-lg border p-3 border-stone-800 bg-stone-900/40";
-  return onOpen
+  const card = onOpen
     ? <button onClick={onOpen} className={`${cls} hover:border-stone-600 hover:bg-stone-900/80 transition-colors`}>{body}</button>
     : <div className={cls}>{body}</div>;
+  // A substitute is only ever PROPOSED: the planner accepts it with this click, and nothing is reserved before.
+  const proposed = inProgress && m?.proposal ? (m.substitutes ?? []).find((x: any) => x.itemId === m.proposal.itemId) : null;
+  if (!proposed) return card;
+  return (
+    <div className="space-y-1.5">
+      {card}
+      <div className="rounded-lg border border-sky-800/50 bg-sky-500/10 px-3 py-2 text-[12px] text-stone-300">
+        Not enough {l.name} to cover this order. {proposed.name} (substitute {proposed.order}) can cover {qtyFmt(proposed.planned)} {proposed.baseUom}.{" "}
+        {onUseSubstitute && <button type="button" onClick={onUseSubstitute} className="font-semibold text-sky-300 hover:underline">Use {proposed.name}</button>}
+      </div>
+    </div>
+  );
 }
 
 /**
