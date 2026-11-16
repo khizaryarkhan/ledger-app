@@ -15,6 +15,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField, CalcInput } from "@/components/form-kit";
+import { useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, listTable, listRow, listCell, listNumCell, type ListColumn } from "@/components/list-view";
 import { batchFromBase } from "@/lib/inventory/batch-unit";
 import { totalBase, batchesFromOutputs, scaleOutputsToBatches, batchWarnings, outputUnitOptions } from "@/lib/inventory/mo-batches";
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
@@ -41,6 +42,18 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_TONE[status] ?? "border-stone-700 text-stone-400"}`}>{STATUS_LABEL[status] ?? status}</span>;
 }
 
+/** The Production Schedule's columns: the Collections Board's list shell (sort + filter on each header, chips, sticky head). */
+const MO_COLS: ListColumn<any>[] = [
+  { key: "mo", label: "MO #", sort: m => m.moNo ?? "", filter: { kind: "text", value: m => m.moNo } },
+  { key: "status", label: "Status", sort: m => m.status, filter: { kind: "multi", value: m => STATUS_LABEL[m.status] ?? m.status } },
+  { key: "skus", label: "SKUs", filter: { kind: "text", value: m => m.skuLabel || m.outputItem?.name } },
+  { key: "qty", label: "Qty expected", align: "right", sort: m => m.qty, descFirst: true },
+  { key: "actual", label: "Actual qty", align: "right", sort: m => m.completedBase, descFirst: true },
+  { key: "scheduled", label: "Scheduled", sort: m => m.scheduledDate ?? null },
+  { key: "started", label: "Started", sort: m => m.startedAt ?? null },
+  { key: "done", label: "Manufactured", sort: m => m.completedAt ?? null },
+];
+
 export function MoConsole() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [boms, setBoms] = useState<any[]>([]);
@@ -61,15 +74,6 @@ export function MoConsole() {
   useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowSchedule(true); }, []);
 
   const list = rows ?? [];
-  const weekAhead = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return ymd(d); }, []);
-  const kpis = useMemo(() => {
-    const open = list.filter(m => !["Completed", "Cancelled"].includes(m.status));
-    const soon = open.filter(m => m.scheduledDate && m.scheduledDate <= weekAhead);
-    const wip = list.filter(m => m.status === "InProgress");
-    const month = new Date().toISOString().slice(0, 7);
-    const doneThisMonth = list.filter(m => m.status === "Completed" && String(m.completedAt ?? m.updatedAt ?? "").slice(0, 7) === month);
-    return { open: open.length, soon: soon.length, wip: wip.length, done: doneThisMonth.length };
-  }, [list, weekAhead]);
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const s of STATUSES) c[s] = 0;
@@ -78,93 +82,63 @@ export function MoConsole() {
   }, [list]);
   const shown = statusFilter ? list.filter(m => m.status === statusFilter) : list;
   const readyToProcess = useMemo(() => list.filter(m => ["Scheduled", "Released", "InProgress"].includes(m.status)).length, [list]);
+  const lv = useListView(shown, MO_COLS, { storageKey: "production-schedule", defaultSort: "scheduled", defaultDir: "desc" });
 
   return (
-    <div className="p-6 max-w-7xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center"><Workflow size={18} className="text-orange-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Production Schedule</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowProcess(true)} disabled={readyToProcess === 0} title={readyToProcess ? "" : "Nothing is scheduled, released or in progress yet"}
-            className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40">
-            <PlayCircle size={14} /> Process MO{readyToProcess ? ` (${readyToProcess})` : ""}
-          </button>
-          <button onClick={() => setShowSchedule(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Schedule MO</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Plan and monitor manufacturing orders. Nothing posts until an order is completed: start it, allocate the lots it uses, then complete it to consume them and produce the output.</p>
-
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        {([["Open MOs", kpis.open, "text-stone-100"], ["Scheduled ≤7 days", kpis.soon, "text-sky-400"], ["In progress", kpis.wip, "text-amber-400"], ["Completed this month", kpis.done, "text-emerald-400"]] as const).map(([l, v, c]) => (
-          <div key={l} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
-            <div className="text-[10px] uppercase tracking-wide text-stone-500">{l}</div>
-            <div className={`text-[18px] font-semibold ${c}`}>{v}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-1.5 mb-5 flex-wrap">
-        <button onClick={() => setStatusFilter(null)} className={`text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${!statusFilter ? "border-stone-500 text-stone-100 bg-stone-800" : "border-stone-800 text-stone-500 hover:text-stone-300"}`}>
-          All <span className={!statusFilter ? "text-stone-400" : "text-stone-600"}>{list.length}</span>
+    <ListPage>
+      <ListPageHeader title="Production Schedule"
+        subtitle="Plan and monitor manufacturing orders. Nothing posts until an order is completed: start it, choose the lots it uses, then complete it to consume them and produce the output.">
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowProcess(true)} disabled={readyToProcess === 0} title={readyToProcess ? "" : "Nothing is scheduled, released or in progress yet"}
+          className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40">
+          <PlayCircle size={14} /> Process MO{readyToProcess ? ` (${readyToProcess})` : ""}
         </button>
-        {STATUSES.map(s => (
-          <button key={s} onClick={() => setStatusFilter(f => f === s ? null : s)}
-            className={`text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${statusFilter === s ? STATUS_TONE[s] : "border-stone-800 text-stone-500 hover:text-stone-300"}`}>
-            {STATUS_LABEL[s]} <span className={statusFilter === s ? "" : "text-stone-600"}>{counts[s]}</span>
+        <button onClick={() => setShowSchedule(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Schedule MO</button>
+      </ListPageHeader>
+
+      <ListToolbar lv={lv} noun="order" filtered={!!statusFilter}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button onClick={() => setStatusFilter(null)} className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${!statusFilter ? "border-stone-500 text-stone-100 bg-stone-800" : "border-stone-800 text-stone-400 hover:text-stone-200"}`}>
+            All <span className="text-stone-400">{list.length}</span>
           </button>
-        ))}
-      </div>
+          {STATUSES.map(st => (
+            <button key={st} onClick={() => setStatusFilter(f => f === st ? null : st)}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${statusFilter === st ? STATUS_TONE[st] : "border-stone-800 text-stone-400 hover:text-stone-200"}`}>
+              {STATUS_LABEL[st]} <span className={statusFilter === st ? "" : "text-stone-500"}>{counts[st]}</span>
+            </button>
+          ))}
+        </div>
+      </ListToolbar>
+      <ListChips lv={lv} />
 
       {showSchedule && <ScheduleMoDrawer boms={boms} items={items} salesOrders={salesOrders} onClose={() => setShowSchedule(false)} onCreated={() => { setShowSchedule(false); load(); }} />}
       {showProcess && <ProcessMoDrawer rows={list} onClose={() => setShowProcess(false)} onChanged={load} />}
       {openId && <MoDrawer id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[980px]">
-            <thead>
-              <tr className="border-b border-stone-800">
-                <th className={th}>MO #</th>
-                <th className={th}>Status</th>
-                <th className={th}>SKUs</th>
-                <th className={`${th} !text-right`}>Qty expected</th>
-                <th className={`${th} !text-right`}>Actual qty</th>
-                <th className={th}>Scheduled</th>
-                <th className={th}>Started</th>
-                <th className={th}>Manufactured</th>
+      <ListScroll lv={lv} empty={rows === null ? "Loading…" : list.length === 0 ? "No manufacturing orders yet. Plan one with Schedule MO." : "No orders match the current filters."}>
+        <table className={listTable}>
+          <ListHead lv={lv} />
+          <tbody>
+            {lv.rows.map(m => (
+              <tr key={m.id} onClick={() => setOpenId(m.id)} className={`${listRow()} cursor-pointer`}>
+                <td className={`${listCell} font-mono text-[12px] text-stone-200 whitespace-nowrap`}>
+                  {m.moNo || m.id.slice(0, 8)}{m.priority === "High" && <span className="ml-1.5 text-[10px] text-rose-400 font-medium align-middle">HIGH</span>}
+                </td>
+                <td className={listCell}><StatusPill status={m.status} /></td>
+                <td className={`${listCell} text-stone-300 max-w-[260px] truncate`}>{m.skuLabel || m.outputItem?.name || "—"}</td>
+                <td className={`${listNumCell} text-stone-300`}>{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}</td>
+                <td className={listNumCell}>
+                  {m.completedBase > 0 ? <span className="text-emerald-400">{qtyFmt(m.completedBase)} {m.outputItem?.baseUom || ""}</span> : <span className="text-stone-500">—</span>}
+                </td>
+                <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.scheduledDate ? fmt.shortDate(m.scheduledDate) : "—"}</td>
+                <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.startedAt ? fmt.dateTime(m.startedAt) : "—"}</td>
+                <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.completedAt ? fmt.dateTime(m.completedAt) : "—"}</td>
               </tr>
-            </thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && shown.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">
-                  {list.length === 0 ? "No manufacturing orders yet — plan one with Schedule MO." : "Nothing at this status."}
-                </td></tr>
-              )}
-              {shown.map(m => (
-                <tr key={m.id} onClick={() => setOpenId(m.id)} className="border-b border-stone-800/60 hover:bg-stone-800/20 cursor-pointer">
-                  <td className="px-4 py-2.5 font-mono text-[12px] text-stone-200 whitespace-nowrap">
-                    {m.moNo || m.id.slice(0, 8)}{m.priority === "High" && <span className="ml-1.5 text-[10px] text-rose-400 font-medium align-middle">HIGH</span>}
-                  </td>
-                  <td className="px-4 py-2.5"><StatusPill status={m.status} /></td>
-                  <td className="px-4 py-2.5 text-stone-300 max-w-[220px] truncate">{m.skuLabel || m.outputItem?.name || "—"}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums whitespace-nowrap">{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">
-                    {m.completedBase > 0 ? <span className="text-emerald-400">{qtyFmt(m.completedBase)} {m.outputItem?.baseUom || ""}</span> : <span className="text-stone-600">—</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.scheduledDate ? fmt.shortDate(m.scheduledDate) : "—"}</td>
-                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.startedAt ? fmt.dateTime(m.startedAt) : "—"}</td>
-                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.completedAt ? fmt.dateTime(m.completedAt) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+            ))}
+          </tbody>
+        </table>
+      </ListScroll>
+    </ListPage>
   );
 }
 
@@ -505,15 +479,6 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
     if (!r.ok) setErr((await r.json().catch(() => ({})))?.error || "Could not allocate the substitute.");
     setBusy(false); await load();
   }
-  async function allocateAll() {
-    setBusy(true); setErr("");
-    for (const m of alloc?.materials ?? []) {
-      if (m.allocated > 0 || m.usingSubstitute || m.proposal || !m.suggestion?.length) continue;
-      const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: m.itemId, picks: m.suggestion.map((p: any) => ({ ...p, suggested: true })) }) });
-      if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); break; }
-    }
-    setBusy(false); await load();
-  }
   function onRunPosted(res: any) {
     setCompleting(false);
     if (!res?.pending) setProduced({});
@@ -542,7 +507,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
         <StageNote status={mo.status} />
 
         <MoTabs d={d} tab={tab} setTab={setTab} />
-        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={onOpenLot} onUseSubstitute={useSubstitute} />}
+        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onOpen={onOpenLot} onUseSubstitute={useSubstitute} />}
         {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
               onSave={packs => { setProduced(p => { const n = { ...p }; if (packs == null) delete n[openOut]; else n[openOut] = packs; return n; }); setOpenOut(null); }} />
@@ -743,16 +708,6 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
     const sub = alloc?.materials?.find((x: any) => x.itemId === itemId)?.substitutes?.find((x: any) => x.itemId === subId);
     if (sub?.suggestion?.length) await saveAlloc(subId, sub.suggestion.map((p: any) => ({ ...p, suggested: true })));
   }
-  /** Allocate every material that has nothing yet, by earliest expiry. */
-  async function allocateAll() {
-    setBusy(true);
-    for (const m of alloc?.materials ?? []) {
-      if (m.allocated > 0 || m.usingSubstitute || m.proposal || !m.suggestion?.length) continue;
-      const ok = await saveAlloc(m.itemId, m.suggestion.map((p: any) => ({ ...p, suggested: true })));
-      if (!ok) break;
-    }
-    setBusy(false);
-  }
 
   const footer = mo && (
     <div className="flex flex-wrap items-center gap-2">
@@ -802,7 +757,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
                 editable={mo.status === "InProgress"} onBack={() => setOpenItem(null)}
                 onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }}
                 onSaveAndRun={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) { setOpenItem(null); setPendingRun(true); } return ok; }} />
-            : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} onUseSubstitute={useSubstitute} />)}
+            : <InputPanel d={d} alloc={alloc} busy={busy} onOpen={setOpenItem} onUseSubstitute={useSubstitute} />)}
 
           {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
@@ -1045,8 +1000,8 @@ function MoTabs({ d, tab, setTab }: { d: any; tab: MoTab; setTab: (t: MoTab) => 
 }
 
 /** Input: one card per material. A card opens that material's lots. */
-function InputPanel({ d, alloc, busy, onAllocateAll, onOpen, onUseSubstitute }: {
-  d: any; alloc: any; busy: boolean; onAllocateAll: () => void; onOpen: (itemId: string) => void;
+function InputPanel({ d, alloc, busy, onOpen, onUseSubstitute }: {
+  d: any; alloc: any; busy: boolean; onOpen: (itemId: string) => void;
   /** Accept the proposed substitute for a material: reserves its suggested lots. */
   onUseSubstitute?: (itemId: string, subId: string) => void;
 }) {
@@ -1062,9 +1017,6 @@ function InputPanel({ d, alloc, busy, onAllocateAll, onOpen, onUseSubstitute }: 
           <span className="text-[12px] text-stone-400">
             {unallocated.length ? `${unallocated.length} of ${stocked.length} material${stocked.length === 1 ? "" : "s"} still need lots — open one to pick its lots.` : "Every material has lots allocated — ready to complete."}
           </span>
-          {unallocated.length > 0 && (
-            <button onClick={onAllocateAll} disabled={busy || !alloc} className="shrink-0 text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">Allocate the rest by earliest expiry</button>
-          )}
         </div>
       )}
       {(["ingredient", "packaging"] as const).map(kind => {
@@ -1348,8 +1300,10 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
   const planned = new Map<string, number>((m.suggestion ?? []).map((p: any) => [p.lotId, Number(p.qty) || 0]));
   const lots: any[] = m.lots ?? [];
   const hasMine = lots.some(l => l.mine > 0);
+  // The planner chooses the lots. Opening this screen shows what is ALREADY allocated to the order and nothing else:
+  // the earliest-expiry plan is only a suggestion, applied by the "Suggest" button or a lot's own "Use this lot".
   const seed = (from: "current" | "suggest") => Object.fromEntries(lots.map(l => {
-    const base = from === "current" && hasMine ? l.mine : (planned.get(l.lotId) ?? 0);
+    const base = from === "current" ? (l.mine ?? 0) : (planned.get(l.lotId) ?? 0);
     return [l.lotId, { v: base > 0 ? String(base) : "", u: 0 }];
   }));
   const [rows, setRows] = useState<Record<string, { v: string; u: number }>>(() => seed("current"));
@@ -1367,6 +1321,16 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
     const cur = baseOf(l), per = unitsOf(l)[u]?.perUnit ?? 1;
     setRows(r => ({ ...r, [l.lotId]: { u, v: cur > 0 ? String(Number((cur / per).toFixed(6))) : r[l.lotId]?.v ?? "" } }));
   }
+
+  /** Take this lot: as much as it can give toward what the order still needs. Reversible with "Unselect". */
+  function useLot(l: any) {
+    const others = total - baseOf(l);
+    const take = Math.max(0, Math.min(l.available, line.required - others));
+    const per = unitsOf(l)[rows[l.lotId]?.u ?? 0]?.perUnit ?? 1;
+    setRows(r => ({ ...r, [l.lotId]: { u: r[l.lotId]?.u ?? 0, v: take > 0 ? String(Number((take / per).toFixed(6))) : "" } }));
+  }
+  const unselect = (l: any) => setRows(r => ({ ...r, [l.lotId]: { u: r[l.lotId]?.u ?? 0, v: "" } }));
+  const clearAll = () => setRows(Object.fromEntries(lots.map(l => [l.lotId, { v: "", u: rows[l.lotId]?.u ?? 0 }])));
 
   const matches = Math.abs(total - line.required) < 1e-6;
   return (
@@ -1419,6 +1383,14 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
                   </div>
                 </div>
               </div>
+              {editable && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-stone-500">{base > 0 ? "Selected for this order" : "Not selected"}</span>
+                  {base > 0
+                    ? <button type="button" onClick={() => unselect(l)} className="text-[12px] font-semibold text-rose-400 hover:text-rose-300">Unselect</button>
+                    : <button type="button" onClick={() => useLot(l)} disabled={l.available <= 0 || total >= line.required - 1e-6} className="text-[12px] font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-40 disabled:cursor-not-allowed">Use this lot</button>}
+                </div>
+              )}
               <div className="mt-2.5">
                 <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Actual</div>
                 <QtyUnitField variant="cell" qtyWidth="w-24" qty={r.v} disabled={!editable}
@@ -1442,8 +1414,11 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
       )}
       {editable && lots.length > 0 && (
         <div className="flex items-center justify-end gap-2 pt-1">
+          {picks.length > 0 && <button onClick={clearAll} className="text-[12px] text-stone-400 hover:text-rose-400 px-2 py-1">Clear all</button>}
           <button onClick={() => setRows(seed("suggest"))} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Suggest by earliest expiry</button>
-          {picks.length === 0 ? (
+          {picks.length === 0 && !hasMine ? (
+            <span className="text-[12px] text-stone-500">Choose the lots this order will use.</span>
+          ) : picks.length === 0 ? (
             <button disabled={saving} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
               className="text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50">
               {saving ? "Saving…" : "Release"}
