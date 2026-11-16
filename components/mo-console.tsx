@@ -13,7 +13,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
+import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin, FileText } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField, CalcInput } from "@/components/form-kit";
 import { useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, listTable, listRow, listCell, listNumCell, type ListColumn } from "@/components/list-view";
 import { batchFromBase } from "@/lib/inventory/batch-unit";
@@ -713,6 +713,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
       {mo.status !== "Completed" && !mo.productionRunId && (
         <button onClick={del} className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete MO"><Trash2 size={14} /></button>
       )}
+      <a href={`/api/production/mos/${id}/report`} target="_blank" rel="noopener noreferrer" title="Open the order report as a PDF"
+        className="flex items-center gap-1.5 text-[12px] font-medium text-stone-300 hover:text-white rounded-lg px-2 py-1.5 hover:bg-stone-800"><FileText size={14} /> Report</a>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {(NEXT[mo.status] ?? []).filter(t => !(mo.status === "Cancelled" && hasRuns)).map(t => (
           <button key={t.to} onClick={() => transition(t.to)} disabled={busy || (pending && ["Cancelled", "Released"].includes(t.to))} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>

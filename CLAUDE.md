@@ -921,6 +921,26 @@ stay posted; **reopening a Cancelled order that has posted runs is refused**; pe
   The compensation and approval-claim paths have no automated test (they need a database); the happy path was exercised end to end on
   the dev branch (`scripts/_e2e_mo_substitutes.ts`). Not clicked through in a browser.
 
+## Manufacturing order report (2026-11-16)
+
+`GET /api/production/mos/[id]/report` returns a PDF, opened by the **Report** button in the MO drawer footer. It is
+built on the Customer Statement's engine (`lib/statement-pdf.ts`'s `esc`/`monogram`/`safeLogoSrc` + `renderHtmlToPdf`),
+not a second generator. A sample supplied by a customer was the idea, not the template: the page leads with the
+answer (made vs plan, yield, total and per-unit cost, cycle time) and plain-language "What stood out" findings, then
+output, material planned-vs-used with variance flagged past 5%, cost build-up, operation hours, completions and
+lot-level traceability.
+
+- Rules + HTML are pure in `lib/inventory/mo-report.ts` (`computeInsights`, `buildMoReportHtml`); the DB half is
+  `mo-report-server.ts` (`loadMoReport`, read-only). `tests/mo-report.test.ts`.
+- Costs come from the completion runs (what actually posted), never the plan. An order with no runs states that
+  nothing was produced and **flags no variance** (an unstarted order would otherwise read -100% on every material).
+- A material a substitute replaced shows as the substitute against ITS planned amount, not -100% on the original.
+- Instants (started/finished) are shown in UTC and labelled, since the server has no viewer; due and scheduled
+  dates go through `formatDateShort`.
+- **Not built / not verified**: no company address or phone (no org field carries one), no reviewer sign-off storage
+  (the page prints blank signature lines), and it was rendered locally from synthetic data only, never against a real
+  order or on Vercel's Chromium.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,
@@ -1557,7 +1577,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0137` at `when` `1794500000000`;
+  this silently dropped a table in prod once). Latest is `0138` at `when` `1794600000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

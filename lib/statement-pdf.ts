@@ -54,11 +54,11 @@ function fmtCcyMap(map: Record<string, number>): string {
  */
 const fmtDate = (iso: string | null | undefined) => (iso ? formatDateShort(iso) : "—");
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function monogram(name: string): string {
+export function monogram(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const first = words[0] ?? "";
   if (first.length >= 2 && first.length <= 4 && first === first.toUpperCase()) return first.slice(0, 2);
