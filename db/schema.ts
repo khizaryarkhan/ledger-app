@@ -2352,7 +2352,11 @@ export const boms = pgTable("boms", {
   outputSkuId:     uuid("output_sku_id"),                     // which packaging SKU (item_skus) this BOM produces
   status:          varchar("status", { length: 16 }).notNull().default("Active"), // Active | Draft | Archived
   batchType:       varchar("batch_type", { length: 16 }).notNull().default("Output"), // Output | Input
+  // Always stored in the OUTPUT ITEM'S BASE unit, so every consumer (MOs, costing) is unchanged.
   batchSize:       numeric("batch_size", { precision: 14, scale: 4 }).notNull().default("1"),
+  // 0137: the unit the author counted the batch in (same dimension as the item's base unit). null = the base unit.
+  // Display and entry only: batch_size above is already converted.
+  batchUom:        varchar("batch_uom", { length: 16 }),
   expYield:        numeric("exp_yield", { precision: 9, scale: 4 }),   // expected yield %
   processingStep:  varchar("processing_step", { length: 64 }),
   notes:           text("notes"),

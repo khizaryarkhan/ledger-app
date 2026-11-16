@@ -70,7 +70,7 @@ export async function listMOs(orgId: string) {
 
 /** Materials required to produce a set of output packs on a BOM, vs on-hand. */
 export async function materialsForOutputs(orgId: string, bomId: string | null, outputs: { skuId: string; qty: number }[]) {
-  const empty = { baseTotal: 0, lines: [] as any[], anyShort: false };
+  const empty = { baseTotal: 0, batches: 0, batchSize: 0, lines: [] as any[], anyShort: false };
   if (!bomId || !outputs.length) return empty;
   const [bom] = await db.select().from(boms).where(and(eq(boms.id, bomId), eq(boms.orgId, orgId))).limit(1);
   if (!bom) return empty;
@@ -97,7 +97,8 @@ export async function materialsForOutputs(orgId: string, bomId: string | null, o
     const r = req.get(id)!; const it = byId.get(id); const onHand = num(it?.onHand);
     return { itemId: id, name: it?.name ?? "Item", baseUom: it?.baseUom ?? null, kind: r.kind, required: r.qty, onHand, short: roundQty(r.qty - onHand), ok: onHand + 1e-6 >= r.qty };
   });
-  return { baseTotal, lines: outLinesList, anyShort: outLinesList.some(l => !l.ok) };
+  // `batches` is what the SKU quantities imply (fractions allowed), the number the order screen shows.
+  return { baseTotal, batches: roundQty(factor), batchSize: batch, lines: outLinesList, anyShort: outLinesList.some(l => !l.ok) };
 }
 
 /** Read an MO's output packs (with SKU names + unit content from the BOM). */
@@ -177,8 +178,13 @@ async function snapshotMaterials(orgId: string, moId: string, bomId: string | nu
       db.select().from(bomLineSubstitutes).where(and(eq(bomLineSubstitutes.orgId, orgId), eq(bomLineSubstitutes.bomId, bomId))),
       db.select().from(bomLineAllowedSkus).where(and(eq(bomLineAllowedSkus.orgId, orgId), eq(bomLineAllowedSkus.bomId, bomId))),
     ]);
-    const subRows = subs.filter(s => ing.has(s.primaryItemId)).map(s => ({
-      orgId, moId, primaryItemId: s.primaryItemId, itemId: s.itemId, plannedQty: roundQty(num(s.qty) * factor).toString(), sortOrder: s.sortOrder,
+    // An ingredient substitute's amount is per batch (scaled by `factor`). A PACKAGING substitute's amount is a
+    // ratio per ONE unit of the main packaging item, so it follows that item's planned total across every pack.
+    const packTotals = new Map<string, number>();
+    for (const r of rows) if (r.kind === "packaging") packTotals.set(r.itemId, (packTotals.get(r.itemId) ?? 0) + r.qty);
+    const subRows = subs.filter(s => ing.has(s.primaryItemId) || packTotals.has(s.primaryItemId)).map(s => ({
+      orgId, moId, primaryItemId: s.primaryItemId, itemId: s.itemId, sortOrder: s.sortOrder,
+      plannedQty: roundQty(ing.has(s.primaryItemId) ? num(s.qty) * factor : num(s.qty) * (packTotals.get(s.primaryItemId) ?? 0)).toString(),
     }));
     const limitRows = limits.filter(l => ing.has(l.primaryItemId)).map(l => ({ orgId, moId, primaryItemId: l.primaryItemId, itemId: l.itemId, supplierSkuId: l.supplierSkuId }));
     if (subRows.length) await db.insert(moMaterialSubstitutes).values(subRows);

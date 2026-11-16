@@ -18,7 +18,16 @@ export interface BomIngredientInput {
   /** Supplier SKUs this ingredient may be drawn from. Empty/absent = any. */
   allowedSkuIds?: string[];
 }
-export interface BomPackInput { itemId: string; qty: number; uom: string | null; forSkuId: string | null }
+export interface BomPackInput {
+  itemId: string; qty: number; uom: string | null; forSkuId: string | null;
+  /**
+   * Ordered fallbacks for the packaging item. A substitute's `qty` is per ONE unit of the main packaging item
+   * (1 = one-for-one), not an absolute amount: the same packaging item can serve several SKUs at different
+   * quantities, so a ratio is the only meaning that holds for all of them. Must be identical on every line
+   * that uses the same packaging item.
+   */
+  substitutes?: BomSubstituteInput[];
+}
 export interface BomOperationInput { workCentreId: string; hoursPerBatch: number; description: string | null }
 
 export interface BomInput {
@@ -28,7 +37,10 @@ export interface BomInput {
   outputSkuId: string | null;
   status: string;
   batchType: string;
+  /** In `batchUom` units on the way in and out of the API; the server stores it in the item's base unit. */
   batchSize: number;
+  /** The unit the batch is counted in (same dimension as the output item's base unit). null = the base unit. */
+  batchUom?: string | null;
   expYield: number | null;
   processingStep: string | null;
   notes: string | null;
@@ -81,6 +93,22 @@ export function validateBom(b: BomInput): string[] {
     if (subs.some(s => s.itemId === i.itemId)) e.push("An ingredient cannot be its own substitute.");
     if (new Set(subs.map(s => s.itemId)).size !== subs.length) e.push("The same substitute is listed twice for one ingredient.");
     if (subs.some(s => s.itemId !== i.itemId && primaries.has(s.itemId))) e.push("An item cannot be both an ingredient and a substitute in the same BOM.");
+  }
+  // Packaging substitutes (0137 era). Keyed by the packaging item, so they must agree on every line of it.
+  const ingredientItems = new Set(b.inputs.map(i => i.itemId));
+  const packSubs = new Map<string, string>();
+  for (const p of b.packs) {
+    const subs = p.substitutes ?? [];
+    if (!subs.length) { if (packSubs.has(p.itemId) && packSubs.get(p.itemId) !== "[]") e.push("A packaging item's substitutes must be the same on every pack it serves."); packSubs.set(p.itemId, packSubs.get(p.itemId) ?? "[]"); continue; }
+    if (subs.some(s => !pos(s.qty))) e.push("Every packaging substitute needs a quantity above zero.");
+    if (subs.some(s => s.itemId === p.itemId)) e.push("A packaging item cannot be its own substitute.");
+    if (new Set(subs.map(s => s.itemId)).size !== subs.length) e.push("The same substitute is listed twice for one packaging item.");
+    if (ingredientItems.has(p.itemId)) e.push("An item that is both an ingredient and packaging cannot have packaging substitutes.");
+    if (subs.some(s => ingredientItems.has(s.itemId))) e.push("An item cannot be both an ingredient and a packaging substitute in the same BOM.");
+    if (subs.some(s => b.packs.some(q => q.itemId === s.itemId))) e.push("An item cannot be both a packaging line and a substitute for other packaging in the same BOM.");
+    const sig = JSON.stringify(subs.map(s => [s.itemId, s.qty]));
+    if (packSubs.has(p.itemId) && packSubs.get(p.itemId) !== sig) e.push("A packaging item's substitutes must be the same on every pack it serves.");
+    packSubs.set(p.itemId, sig);
   }
   for (const d of findDuplicates(b)) e.push(`The same ${DUP_LABEL[d.kind]} appears more than once in this BOM (${d.key}). List each once.`);
   return e;

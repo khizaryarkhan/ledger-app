@@ -176,3 +176,38 @@ describe("followQty", () => {
     expect(followQty({ primaryQty: 3, primaryKgPerUnit: 1, subKgPerUnit: 0 })).toBeNull();
   });
 });
+
+describe("packaging substitutes", () => {
+  const withPack = (subs: { itemId: string; qty: number }[] | undefined, extra: any = {}) =>
+    base({ packs: [{ itemId: "p1", qty: 1, uom: "each", forSkuId: "sA", substitutes: subs }], ...extra });
+
+  it("accepts an ordered list of substitutes, each a ratio per one main unit", () => {
+    expect(validateBom(withPack([{ itemId: "p2", qty: 1 }, { itemId: "p3", qty: 2 }]))).toEqual([]);
+  });
+  it("refuses a substitute with no quantity, a repeat, or the item itself", () => {
+    expect(validateBom(withPack([{ itemId: "p2", qty: 0 }])).join()).toMatch(/quantity above zero/i);
+    expect(validateBom(withPack([{ itemId: "p2", qty: 1 }, { itemId: "p2", qty: 1 }])).join()).toMatch(/twice/i);
+    expect(validateBom(withPack([{ itemId: "p1", qty: 1 }])).join()).toMatch(/own substitute/i);
+  });
+  it("refuses an item that is both an ingredient and packaging when substitutes are set", () => {
+    const b = withPack([{ itemId: "p2", qty: 1 }]);
+    b.inputs = [{ itemId: "p1", qty: 1, uom: "kg" }, ...b.inputs];
+    expect(validateBom(b).join()).toMatch(/both an ingredient and packaging/i);
+  });
+  it("refuses a substitute that is also a packaging line or an ingredient", () => {
+    const b = base({ outputs: [{ skuId: "sA", qty: 1 }, { skuId: "sB", qty: 2 }], packs: [
+      { itemId: "p1", qty: 1, uom: "each", forSkuId: "sA", substitutes: [{ itemId: "p2", qty: 1 }] },
+      { itemId: "p2", qty: 1, uom: "each", forSkuId: "sB" }] });
+    expect(validateBom(b).join()).toMatch(/both a packaging line and a substitute/i);
+  });
+  it("needs the same substitutes on every pack a packaging item serves", () => {
+    const b = base({ outputs: [{ skuId: "sA", qty: 1 }, { skuId: "sB", qty: 2 }], packs: [
+      { itemId: "p1", qty: 1, uom: "each", forSkuId: "sA", substitutes: [{ itemId: "p2", qty: 1 }] },
+      { itemId: "p1", qty: 1, uom: "each", forSkuId: "sB" }] });
+    expect(validateBom(b).join()).toMatch(/same on every pack/i);
+    const ok = base({ outputs: [{ skuId: "sA", qty: 1 }, { skuId: "sB", qty: 2 }], packs: [
+      { itemId: "p1", qty: 1, uom: "each", forSkuId: "sA", substitutes: [{ itemId: "p2", qty: 1 }] },
+      { itemId: "p1", qty: 2, uom: "each", forSkuId: "sB", substitutes: [{ itemId: "p2", qty: 1 }] }] });
+    expect(validateBom(ok)).toEqual([]);
+  });
+});

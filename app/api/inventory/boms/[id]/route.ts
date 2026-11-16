@@ -10,6 +10,7 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
 import { bomReferences, blockerMessage } from "@/lib/inventory/references";
+import { batchFromBase } from "@/lib/inventory/batch-unit";
 import { NextResponse } from "next/server";
 
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
@@ -34,6 +35,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const outputItem = bom.outputItemId ? (byId.get(bom.outputItemId) ?? (await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(and(eq(apItems.orgId, orgId!), eq(apItems.id, bom.outputItemId))).limit(1))[0] ?? null) : null;
   return ok({
     bom,
+    // The batch in the unit its author counted it in (bom.batchSize itself is in the item's base unit).
+    batch: { size: batchFromBase(Number(bom.batchSize), outputItem?.baseUom, bom.batchUom), uom: bom.batchUom || outputItem?.baseUom || null, baseSize: Number(bom.batchSize), baseUom: outputItem?.baseUom ?? null },
     outputItem,
     outputSkus,
     outputs: lines.filter(l => l.role === "output").map(decorate),

@@ -15,6 +15,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 import { convert, uom as uomOf } from "@/lib/inventory/uom";
 import { validateBom, nextCopyCode, type BomInput } from "@/lib/inventory/bom-rules";
 import { roundQty } from "@/lib/inventory/round";
+import { batchUnitError, batchToBase, batchFromBase } from "@/lib/inventory/batch-unit";
 
 export class BomValidationError extends Error {
   constructor(public messages: string[], public status = 400) { super(messages.join(" ")); }
@@ -35,6 +36,7 @@ export function toBomInput(b: any): BomInput {
     status: ["Active", "Draft", "Archived"].includes(b?.status) ? b.status : "Active",
     batchType: b?.batchType === "Input" ? "Input" : "Output",
     batchSize: numOr(b?.batchSize, 0) as number,
+    batchUom: str(b?.batchUom, 16),
     expYield: b?.expYield == null || b?.expYield === "" ? null : (numOr(b.expYield, NaN) as number),
     processingStep: str(b?.processingStep, 64),
     notes: str(b?.notes, 2000),
@@ -44,7 +46,10 @@ export function toBomInput(b: any): BomInput {
       allowedSkuIds: idList(i?.allowedSkuIds),
       substitutes: arr(i?.substitutes).map((s: any) => ({ itemId: String(s?.itemId ?? ""), qty: numOr(s?.qty, 0) as number, allowedSkuIds: idList(s?.allowedSkuIds) })),
     })),
-    packs: arr(b?.packs).map((p: any) => ({ itemId: String(p?.itemId ?? ""), qty: numOr(p?.qty, 0) as number, uom: str(p?.uom, 16), forSkuId: str(p?.forSkuId, 64) })),
+    packs: arr(b?.packs).map((p: any) => ({
+      itemId: String(p?.itemId ?? ""), qty: numOr(p?.qty, 0) as number, uom: str(p?.uom, 16), forSkuId: str(p?.forSkuId, 64),
+      substitutes: arr(p?.substitutes).map((s: any) => ({ itemId: String(s?.itemId ?? ""), qty: numOr(s?.qty, 0) as number })),
+    })),
     ops: arr(b?.ops).map((o: any) => ({ workCentreId: String(o?.workCentreId ?? ""), hoursPerBatch: numOr(o?.hoursPerBatch, 0) as number, description: str(o?.description, 255) })),
   };
 }
@@ -55,10 +60,20 @@ export function toBomInput(b: any): BomInput {
  * problem found, not just the first.
  */
 export async function checkBom(orgId: string, input: BomInput, selfId?: string): Promise<BomInput> {
-  const errors = validateBom(input);
-  if (!input.outputItemId) errors.push("Pick the product this recipe makes.");
+  // The builder no longer asks for a product first: the output SKUs say what is made. A SKU's content per
+  // pack comes from the SKU itself, so an output line needs only the SKU; and the product is the SKUs' item.
+  const skuAsk = [...new Set(input.outputs.map(o => o.skuId).filter(Boolean) as string[])];
+  const skuFacts = skuAsk.length ? await db.select({ id: itemSkus.id, itemId: itemSkus.itemId, content: itemSkus.innerUnitPackSize }).from(itemSkus).where(and(eq(itemSkus.orgId, orgId), inArray(itemSkus.id, skuAsk))) : [];
+  const contentOf = new Map(skuFacts.map(r => [r.id, r.content == null ? 0 : Number(r.content)]));
+  const skuItems = [...new Set(skuFacts.map(r => r.itemId))];
+  input = { ...input, outputs: input.outputs.map(o => (o.skuId && !(o.qty > 0) ? { ...o, qty: contentOf.get(o.skuId) ?? 0 } : o)) };
+  if (!input.outputItemId && skuItems.length === 1) input = { ...input, outputItemId: skuItems[0] };
 
-  const subItemIds = input.inputs.flatMap(i => (i.substitutes ?? []).map(s => s.itemId));
+  const errors = validateBom(input);
+  if (!input.outputItemId) errors.push("Add at least one output SKU: it says what this recipe makes.");
+  if (skuItems.length > 1) errors.push("All output SKUs must be SKUs of the same product. A recipe that makes different products from one batch is not supported yet.");
+
+  const subItemIds = [...input.inputs.flatMap(i => (i.substitutes ?? []).map(s => s.itemId)), ...input.packs.flatMap(p => (p.substitutes ?? []).map(s => s.itemId))];
   const itemIds = [...new Set([input.outputItemId, ...input.inputs.map(i => i.itemId), ...input.packs.map(p => p.itemId), ...subItemIds].filter(Boolean) as string[])];
   const items = itemIds.length ? await db.select({ id: apItems.id, name: apItems.name, productType: apItems.productType, baseUom: apItems.baseUom, sourcingPolicy: apItems.sourcingPolicy })
     .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds))) : [];
@@ -67,6 +82,10 @@ export async function checkBom(orgId: string, input: BomInput, selfId?: string):
   const out = input.outputItemId ? byId.get(input.outputItemId) : null;
   if (input.outputItemId && !out) errors.push("The product this recipe makes was not found.");
   if (out && !kindOf(out.productType).producible) errors.push(`${out.name} cannot be produced from a BOM (its item type is not producible).`);
+  const unitErr = out ? batchUnitError(out.baseUom, input.batchUom) : null;
+  if (unitErr) errors.push(unitErr);
+  // Stored in the item's base unit so manufacturing orders read what they always read; the chosen unit is remembered.
+  const batchBase = out && !unitErr ? batchToBase(input.batchSize, out.baseUom, input.batchUom) : input.batchSize;
 
   const skuIds = [...new Set(input.outputs.map(o => o.skuId).filter(Boolean) as string[])];
   if (skuIds.length && input.outputItemId) {
@@ -91,7 +110,7 @@ export async function checkBom(orgId: string, input: BomInput, selfId?: string):
 
   // Substitutes: real, stocked, usable in a recipe. Their amount is in THEIR OWN base unit (no conversion
   // exists between, say, kg of honey and litres of syrup), so it is stored as typed.
-  for (const i of input.inputs) for (const sub of i.substitutes ?? []) {
+  for (const sub of [...input.inputs.flatMap(i => i.substitutes ?? []), ...input.packs.flatMap(p => p.substitutes ?? [])]) {
     const it = byId.get(sub.itemId);
     if (!it) { errors.push("A substitute was not found."); continue; }
     const k = kindOf(it.productType);
@@ -128,7 +147,7 @@ export async function checkBom(orgId: string, input: BomInput, selfId?: string):
   }
 
   if (errors.length) throw new BomValidationError([...new Set(errors)]);
-  return { ...input, inputs, packs, outputSkuId: input.outputs[0]?.skuId ?? input.outputSkuId };
+  return { ...input, inputs, packs: packs.map((p, n) => ({ ...p, substitutes: input.packs[n].substitutes })), batchSize: batchBase, outputSkuId: input.outputs[0]?.skuId ?? input.outputSkuId };
 }
 
 function lineRows(orgId: string, bomId: string, b: BomInput, baseUom: string | null) {
@@ -149,6 +168,13 @@ function extraRows(orgId: string, bomId: string, b: BomInput) {
     });
     for (const id of i.allowedSkuIds ?? []) skus.push({ orgId, bomId, primaryItemId: i.itemId, itemId: i.itemId, supplierSkuId: id });
   }
+  // Packaging substitutes, keyed by the packaging item (validateBom guarantees every line of one item agrees).
+  const seenPack = new Set<string>();
+  for (const p of b.packs) {
+    if (seenPack.has(p.itemId)) continue;
+    seenPack.add(p.itemId);
+    (p.substitutes ?? []).forEach((s, n) => subs.push({ orgId, bomId, primaryItemId: p.itemId, itemId: s.itemId, qty: String(s.qty), sortOrder: n }));
+  }
   return { subs, skus };
 }
 async function insertExtras(orgId: string, bomId: string, b: BomInput) {
@@ -159,7 +185,7 @@ async function insertExtras(orgId: string, bomId: string, b: BomInput) {
 const opRows = (orgId: string, bomId: string, b: BomInput) => b.ops.map((o, i) => ({ orgId, bomId, workCentreId: o.workCentreId, hoursPerBatch: String(o.hoursPerBatch), description: o.description, sortOrder: i })) as any[];
 const headerValues = (b: BomInput) => ({
   code: b.code, name: b.name, outputItemId: b.outputItemId as any, outputSkuId: b.outputSkuId as any, status: b.status, batchType: b.batchType,
-  batchSize: String(b.batchSize), expYield: b.expYield == null ? null : String(b.expYield), processingStep: b.processingStep, notes: b.notes,
+  batchSize: String(b.batchSize), batchUom: b.batchUom ?? null, expYield: b.expYield == null ? null : String(b.expYield), processingStep: b.processingStep, notes: b.notes,
 });
 
 /** A unique-index rejection from the 0134 indexes, as a message a person can act on. */
@@ -228,7 +254,7 @@ export async function replaceBom(orgId: string, id: string, raw: BomInput, expec
       if (oldOps.length) await db.insert(bomOperations).values(oldOps);
       if (oldSubs.length) await db.insert(bomLineSubstitutes).values(oldSubs);
       if (oldSkus.length) await db.insert(bomLineAllowedSkus).values(oldSkus);
-      await db.update(boms).set({ code: cur.code, name: cur.name, outputItemId: cur.outputItemId, outputSkuId: cur.outputSkuId, status: cur.status, batchType: cur.batchType, batchSize: cur.batchSize, expYield: cur.expYield, processingStep: cur.processingStep, notes: cur.notes, updatedAt: cur.updatedAt }).where(eq(boms.id, id));
+      await db.update(boms).set({ code: cur.code, name: cur.name, outputItemId: cur.outputItemId, outputSkuId: cur.outputSkuId, status: cur.status, batchType: cur.batchType, batchSize: cur.batchSize, batchUom: cur.batchUom, expYield: cur.expYield, processingStep: cur.processingStep, notes: cur.notes, updatedAt: cur.updatedAt }).where(eq(boms.id, id));
     } catch (err) { console.error("[bom-save] RESTORE FAILED — BOM", id, "may be missing lines", err); }
     friendly(e);
   }
@@ -243,15 +269,20 @@ export async function loadBomFull(orgId: string, id: string) {
   const subRows = await db.select().from(bomLineSubstitutes).where(eq(bomLineSubstitutes.bomId, id)).orderBy(asc(bomLineSubstitutes.sortOrder));
   const skuRows = await db.select().from(bomLineAllowedSkus).where(eq(bomLineAllowedSkus.bomId, id));
   const allowedFor = (primary: string, item: string) => skuRows.filter(r => r.primaryItemId === primary && r.itemId === item).map(r => r.supplierSkuId);
+  const outBase = bom.outputItemId ? (await baseUomOf(orgId, bom.outputItemId)) : null;
+  const inputItemIds = new Set(lines.filter(l => l.role === "input").map(l => l.itemId));
   const input: BomInput = {
     code: bom.code, name: bom.name, outputItemId: bom.outputItemId, outputSkuId: bom.outputSkuId, status: bom.status, batchType: bom.batchType,
-    batchSize: Number(bom.batchSize), expYield: bom.expYield == null ? null : Number(bom.expYield), processingStep: bom.processingStep, notes: bom.notes,
+    batchSize: batchFromBase(Number(bom.batchSize), outBase, bom.batchUom), batchUom: bom.batchUom, expYield: bom.expYield == null ? null : Number(bom.expYield), processingStep: bom.processingStep, notes: bom.notes,
     outputs: lines.filter(l => l.role === "output").map(l => ({ skuId: l.skuId, qty: Number(l.qty), outputPackQty: l.outputPackQty == null ? null : Number(l.outputPackQty), packagingConfig: l.packagingConfig })),
     inputs: lines.filter(l => l.role === "input").map(l => ({
       itemId: l.itemId, qty: Number(l.qty), uom: l.uom, supplierSkuId: l.supplierSkuId, allowedSkuIds: allowedFor(l.itemId, l.itemId),
       substitutes: subRows.filter(r => r.primaryItemId === l.itemId).map(r => ({ itemId: r.itemId, qty: Number(r.qty), allowedSkuIds: allowedFor(l.itemId, r.itemId) })),
     })),
-    packs: lines.filter(l => l.role === "pack").map(l => ({ itemId: l.itemId, qty: Number(l.qty), uom: l.uom, forSkuId: l.packagingForSkuId })),
+    packs: lines.filter(l => l.role === "pack").map(l => ({
+      itemId: l.itemId, qty: Number(l.qty), uom: l.uom, forSkuId: l.packagingForSkuId,
+      substitutes: inputItemIds.has(l.itemId) ? [] : subRows.filter(r => r.primaryItemId === l.itemId).map(r => ({ itemId: r.itemId, qty: Number(r.qty) })),
+    })),
     ops: ops.map(o => ({ workCentreId: o.workCentreId, hoursPerBatch: Number(o.hoursPerBatch), description: o.description })),
   };
   return { id: bom.id, updatedAt: bom.updatedAt.toISOString(), input };
