@@ -37,7 +37,8 @@ export type EventType =
   | "pax_model_saved"          // a user connected or changed their PAX Console model (never logs the key)
   | "pax_model_removed"        // a user removed their PAX Console model and key
   | "pax_policy_saved"         // an admin changed which providers / changes PAX Console allows
-  | "pax_proposal"             // a PAX Console model proposed a change, or the user rejected one (nothing ran)
+  | "mo_expired_lot_used"       // a manufacturing order completion consumed an expired lot (allocated with a reason)
+  | "pax_proposal"            // a PAX Console model proposed a change, or the user rejected one (nothing ran)
   | "pax_consent"            // a user acknowledged that PAX Console sends data to their chosen provider
   // ── Payables / Procurement ───────────────────────────────────────────────
   | "purchase_request_created"

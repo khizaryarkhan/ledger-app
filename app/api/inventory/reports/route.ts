@@ -6,9 +6,10 @@
  *  lots      → every open FIFO cost lot with its item, remaining qty, cost & value
  */
 
+import { remainingExpectedBase } from "@/lib/inventory/allocation";
 import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
-import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations, manufacturingOrders, lotAllocations } from "@/db/schema";
+import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations, manufacturingOrders, lotAllocations, moOutputs } from "@/db/schema";
 import { requireReadScope, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
@@ -24,10 +25,17 @@ const num = (v: any) => Number(v ?? 0);
  */
 async function moExpectedAndAllocated(orgIds: string[]) {
   const expected = new Map<string, number>(), allocated = new Map<string, number>();
-  const mos = await db.select({ itemId: manufacturingOrders.outputItemId, qty: manufacturingOrders.qty })
+  const mos = await db.select({ id: manufacturingOrders.id, itemId: manufacturingOrders.outputItemId, qty: manufacturingOrders.qty })
     .from(manufacturingOrders)
     .where(and(inArray(manufacturingOrders.orgId, orgIds), inArray(manufacturingOrders.status, ["Scheduled", "Released", "InProgress"])));
-  for (const m of mos) if (m.itemId) expected.set(m.itemId, (expected.get(m.itemId) ?? 0) + num(m.qty));
+  // Expected is the REMAINING output: a partial run has already put its packs into stock.
+  const outs = mos.length ? await db.select({ moId: moOutputs.moId, completedQty: moOutputs.completedQty, unitContent: moOutputs.unitContent })
+    .from(moOutputs).where(inArray(moOutputs.moId, mos.map(m => m.id))) : [];
+  for (const m of mos) {
+    if (!m.itemId) continue;
+    const mine = outs.filter(o => o.moId === m.id).map(o => ({ completedQty: num(o.completedQty), unitContent: o.unitContent != null ? num(o.unitContent) : null }));
+    expected.set(m.itemId, (expected.get(m.itemId) ?? 0) + remainingExpectedBase(num(m.qty), mine));
+  }
   const al = await db.select({ itemId: lotAllocations.itemId, qty: lotAllocations.qty }).from(lotAllocations).where(inArray(lotAllocations.orgId, orgIds));
   for (const a of al) allocated.set(a.itemId, (allocated.get(a.itemId) ?? 0) + num(a.qty));
   return { expected, allocated };

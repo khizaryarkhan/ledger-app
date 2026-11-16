@@ -22,7 +22,7 @@ import { db } from "@/db";
 import { manufacturingOrders, moOutputs, moMaterials, moMaterialSubstitutes, moMaterialAllowedSkus, bomLineSubstitutes, bomLineAllowedSkus, moOperations, lotAllocations, productionConsumptions, boms, bomLines, bomOperations, workCentres, apItems, itemSkus, productionRuns } from "@/db/schema";
 import { and, eq, asc, desc, inArray, isNull, sql } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { coverage } from "@/lib/inventory/allocation";
+import { coverage, COMPLETION_LOCK_MESSAGE } from "@/lib/inventory/allocation";
 import { LedgerValidationError } from "@/lib/ledger";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { applyReschedule, readReason, DELAY_REASONS } from "@/lib/inventory/production-performance";
@@ -286,7 +286,7 @@ export async function moDetail(orgId: string, id: string) {
     materialCost: Math.round((num(r.totalInputCost) - num(r.labourCost) - num(r.overheadCost)) * 100) / 100,
     labourCost: num(r.labourCost), overheadCost: num(r.overheadCost), scrapCost: num(r.scrapCost),
   }));
-  return { mo: { ...mo, qty: num(mo.qty), expYield: mo.expYield != null ? num(mo.expYield) : null }, outputItem: item ?? null, outputs, materials, operations, completions };
+  return { mo: { ...mo, completionPendingAt: mo.completionPendingAt ?? null, qty: num(mo.qty), expYield: mo.expYield != null ? num(mo.expYield) : null }, outputItem: item ?? null, outputs, materials, operations, completions };
 }
 
 /** Normalise create/edit output packs from the request body. */
@@ -322,6 +322,10 @@ export async function updateMO(orgId: string, id: string, b: any) {
   if (!mo) err("MO not found.");
   if (mo!.status === "Completed") err("A completed MO can't be edited — void its build first.");
   const changesPlan = Array.isArray(b.outputs) || (b.bomId !== undefined && s(b.bomId, 64) !== mo!.bomId);
+  if (changesPlan && mo!.completionPendingAt) err(COMPLETION_LOCK_MESSAGE);
+  if (changesPlan && await hasPostedProduction(orgId, id)) {
+    err("This order has posted completion runs, so what it makes and the BOM it follows can no longer change. Schedule a new order for what is left.");
+  }
   if (changesPlan && await hasAllocations(orgId, id)) {
     err("Lots are already allocated to this order. Release its allocations before changing what it makes or the BOM it follows.");
   }
@@ -364,8 +368,12 @@ export async function setMoStatus(orgId: string, id: string, status: MoStatus) {
   if (!mo) err("MO not found.");
   if (status === "Completed") err("Use Complete build to finish an MO.");
   if (!(MO_STATUSES as readonly string[]).includes(status)) err("Unknown status.");
+  if (mo!.completionPendingAt) err(COMPLETION_LOCK_MESSAGE);
   const allowed = TRANSITIONS[mo!.status as MoStatus] ?? [];
   if (!allowed.includes(status)) err(`Can't move a ${mo!.status} order to ${status}.`);
+  if (mo!.status === "Cancelled" && status === "Draft" && await hasPostedProduction(orgId, id)) {
+    err("This order has posted completion runs; schedule a new order for what is left.");
+  }
   // Stepping back out of In Progress would leave stock reserved for an order
   // nobody is working on. Cancelling is the explicit way to give it back.
   if (mo!.status === "InProgress" && status === "Released" && await hasAllocations(orgId, id)) {
@@ -377,6 +385,8 @@ export async function setMoStatus(orgId: string, id: string, status: MoStatus) {
   // the latest start, the same way a re-run overwrites, not appends.
   if (status === "InProgress") set.startedAt = new Date();
   await db.update(manufacturingOrders).set(set).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId)));
+  // Cancelling gives back EVERY allocated lot (ingredients, packaging and substitute lots all live in lot_allocations by order).
+  // Posted completion runs stay posted; their lots were already consumed.
   if (status === "Cancelled") await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, id)));
   return { id, status };
 }
@@ -387,6 +397,15 @@ export async function deleteMO(orgId: string, id: string) {
   if (mo!.status === "Completed" || mo!.productionRunId) err("This MO has been built — void the build from Production first.");
   await db.delete(manufacturingOrders).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId))); // mo_outputs cascade
   return { id, deleted: true };
+}
+
+/** Has any completion run posted for this order (a run row, or output already produced)? */
+export async function hasPostedProduction(orgId: string, moId: string): Promise<boolean> {
+  const [[r], [o]] = await Promise.all([
+    db.select({ n: sql<number>`count(*)::int` }).from(productionRuns).where(and(eq(productionRuns.orgId, orgId), eq(productionRuns.moId, moId))),
+    db.select({ n: sql<number>`count(*)::int` }).from(moOutputs).where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), sql`${moOutputs.completedQty} > 0`)),
+  ]);
+  return Number(r?.n ?? 0) > 0 || Number(o?.n ?? 0) > 0;
 }
 
 /** Does this order hold any lot allocations? */

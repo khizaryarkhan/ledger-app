@@ -454,7 +454,8 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
   const lines: any[] = d?.materials?.lines ?? [];
   const stocked = lines.filter(l => l.tracked && l.required > 0);
   const unallocated = stocked.filter(l => !isCovered(l));
-  const canComplete = mo?.status === "InProgress" && stocked.length > 0 && unallocated.length === 0;
+  const pending = !!mo?.completionPendingAt;
+  const canComplete = mo?.status === "InProgress" && stocked.length > 0 && unallocated.length === 0 && !pending;
   useEffect(() => {
     if (!pendingRun || !d) return;
     setPendingRun(false);
@@ -464,6 +465,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
   }, [pendingRun, d]);
 
   async function transition(to: string, msg: string) {
+    if (to === "InProgress") { const q = startPrompt(lines); if (q && !confirm(q)) return; }
     setBusy(true); setErr("");
     const r = await fetch(`/api/production/mos/${moId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
     setBusy(false);
@@ -504,10 +506,12 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
         </div>
       </div>
       <div className="p-5 space-y-4">
-        <StageNote status={mo.status} />
+        <StageNote status={mo.status} runs={(d.completions ?? []).length} />
+        <PendingBanner mo={mo} />
+        <RunList d={d} onChanged={async () => { await load(); onProgressed("Run voided."); }} />
 
         <MoTabs d={d} tab={tab} setTab={setTab} />
-        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onOpen={onOpenLot} onUseSubstitute={useSubstitute} />}
+        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy || pending} onOpen={onOpenLot} onUseSubstitute={useSubstitute} />}
         {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
               onSave={packs => { setProduced(p => { const n = { ...p }; if (packs == null) delete n[openOut]; else n[openOut] = packs; return n; }); setOpenOut(null); }} />
@@ -518,7 +522,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
       </div>
       <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3 flex items-center justify-end gap-2">
         {mo.status === "Scheduled" && (
-          <button onClick={() => transition("Released", "Released for production.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover disabled:opacity-50">
+          <button onClick={() => transition("Released", "Released for production.")} disabled={busy || pending} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover disabled:opacity-50">
             {busy ? <Loader size={14} className="animate-spin" /> : <ChevronRight size={14} />} Release for production
           </button>
         )}
@@ -561,14 +565,14 @@ function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string
   const src = activeId === itemId ? m : (m?.substitutes ?? []).find((x: any) => x.itemId === activeId);
   const srcLine = activeId === itemId || !line ? line : { ...line, name: src?.name ?? line.name, required: src?.planned ?? line.required, baseUom: src?.baseUom ?? line.baseUom };
 
-  async function put(picks: { lotId: string; qty: number; suggested?: boolean }[]) {
+  async function put(picks: LotPick[]) {
     setErr("");
     const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: activeId, picks }) });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
     return true;
   }
-  async function save(picks: { lotId: string; qty: number; suggested?: boolean }[]) { const ok = await put(picks); if (ok) onBack(); return ok; }
-  async function saveAndRun(picks: { lotId: string; qty: number; suggested?: boolean }[]) { const ok = await put(picks); if (ok) onRun(); return ok; }
+  async function save(picks: LotPick[]) { const ok = await put(picks); if (ok) onBack(); return ok; }
+  async function saveAndRun(picks: LotPick[]) { const ok = await put(picks); if (ok) onRun(); return ok; }
 
   return (
     <>
@@ -583,6 +587,7 @@ function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string
         </div>
       </div>
       <div className="p-5">
+        {d?.mo?.completionPendingAt && <div className="mb-3"><PendingBanner mo={d.mo} /></div>}
         {!d || !alloc ? <p className="text-[13px] text-stone-500">Loading…</p> : !m ? (
           <p className="text-[13px] text-rose-400">{err || "This material isn't part of the order."}</p>
         ) : (
@@ -597,7 +602,7 @@ function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string
               </div>
             )}
             {(src?.refused ?? []).length > 0 && <p className="text-[12px] text-amber-400 mb-2">{src.refused.length} lot{src.refused.length === 1 ? "" : "s"} not offered: {src.refused[0].message}</p>}
-            <LotPicker key={activeId} line={srcLine} m={src ?? m} editable={d?.mo?.status === "InProgress"} onSave={save} onSaveAndRun={saveAndRun} />
+            <LotPicker key={activeId} line={srcLine} m={src ?? m} editable={d?.mo?.status === "InProgress"} locked={!!d?.mo?.completionPendingAt} onSave={save} onSaveAndRun={saveAndRun} />
           </>
         )}
         {err && <p className="text-[12px] text-rose-400 mt-2">{err}</p>}
@@ -648,6 +653,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const stocked = lines.filter(l => l.tracked && l.required > 0);
   const unallocated = stocked.filter(l => !isCovered(l));
   const canComplete = mo?.status === "InProgress" && unallocated.length === 0;
+  const pending = !!mo?.completionPendingAt;
+  const hasRuns = (d?.completions ?? []).length > 0;
   // "Save & complete a run" — wait for the reload, then open completion with
   // exactly what was just allocated (or say what is still missing).
   useEffect(() => {
@@ -659,7 +666,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   }, [pendingRun, d]);
 
   async function transition(to: string) {
-    if (to === "Cancelled" && lines.some(l => isCovered(l)) && !confirm("Cancel this order? Its allocated lots are released back to stock.")) return;
+    if (to === "Cancelled") { const q = cancelPrompt(d, lines); if (q && !confirm(q)) return; }
+    if (to === "InProgress") { const q = startPrompt(lines); if (q && !confirm(q)) return; }
     setBusy(true); setErr("");
     const r = await fetch(`/api/production/mos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
     setBusy(false);
@@ -687,17 +695,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
    * completion now). Reuses the DELETE route unchanged — voidProductionRun
    * doesn't care whether the run came from a build or an MO completion.
    */
-  async function voidBuild() {
-    if (!mo?.productionRunId) return;
-    if (!confirm("Void this completion? This reverses the stock and its GL entry, and reopens the order In Progress.")) return;
-    setBusy(true); setErr("");
-    const r = await fetch(`/api/inventory/production/${mo.productionRunId}`, { method: "DELETE" });
-    setBusy(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not void the completion."); return; }
-    await load(); onChanged();
-  }
   /** Save one material's allocation. */
-  async function saveAlloc(itemId: string, picks: { lotId: string; qty: number; suggested?: boolean }[]) {
+  async function saveAlloc(itemId: string, picks: LotPick[]) {
     setErr("");
     const r = await fetch(`/api/production/mos/${id}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, picks }) });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
@@ -714,17 +713,12 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
       {mo.status !== "Completed" && !mo.productionRunId && (
         <button onClick={del} className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete MO"><Trash2 size={14} /></button>
       )}
-      {mo.status === "Completed" && mo.productionRunId && (
-        <button onClick={voidBuild} disabled={busy} className="text-[11px] font-medium text-stone-500 hover:text-rose-400 disabled:opacity-50">
-          Built ✓ — void to undo
-        </button>
-      )}
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        {(NEXT[mo.status] ?? []).map(t => (
-          <button key={t.to} onClick={() => transition(t.to)} disabled={busy} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>
+        {(NEXT[mo.status] ?? []).filter(t => !(mo.status === "Cancelled" && hasRuns)).map(t => (
+          <button key={t.to} onClick={() => transition(t.to)} disabled={busy || (pending && ["Cancelled", "Released"].includes(t.to))} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>
         ))}
         {mo.status === "InProgress" && (
-          <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
+          <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete || pending} title={canComplete ? "" : "Allocate lots for every material first"}
             className="flex items-center gap-1.5 text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50">
             {busy ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Complete…
           </button>
@@ -746,7 +740,9 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
             {mo.priority === "High" && <span className="text-rose-400">· HIGH</span>}
           </div>
 
-          <StageNote status={mo.status} />
+          <StageNote status={mo.status} runs={(d.completions ?? []).length} />
+          <PendingBanner mo={mo} />
+          <RunList d={d} onChanged={async () => { await load(); onChanged(); }} />
 
           <SchedulePanel mo={mo} onSaved={() => { load(); onChanged(); }} />
 
@@ -754,10 +750,10 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
           {tab === "input" && (openItem && lines.some((l: any) => l.itemId === openItem) && alloc?.materials?.some((x: any) => x.itemId === openItem)
             ? <LotPicker key={openItem} line={lines.find((l: any) => l.itemId === openItem)} m={alloc.materials.find((x: any) => x.itemId === openItem)}
-                editable={mo.status === "InProgress"} onBack={() => setOpenItem(null)}
+                editable={mo.status === "InProgress"} locked={pending} onBack={() => setOpenItem(null)}
                 onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }}
                 onSaveAndRun={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) { setOpenItem(null); setPendingRun(true); } return ok; }} />
-            : <InputPanel d={d} alloc={alloc} busy={busy} onOpen={setOpenItem} onUseSubstitute={useSubstitute} />)}
+            : <InputPanel d={d} alloc={alloc} busy={busy || pending} onOpen={setOpenItem} onUseSubstitute={useSubstitute} />)}
 
           {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
           ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
@@ -808,6 +804,20 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
   const allocated: { itemId: string; lotId: string; lotNo: string; mine: number; name: string }[] = (alloc?.materials ?? []).flatMap((m: any) =>
     (m.lots ?? []).filter((l: any) => l.mine > 0).map((l: any) => ({ itemId: m.itemId, lotId: l.lotId, lotNo: l.lotNo, mine: l.mine, name: (d.materials?.lines ?? []).find((x: any) => x.itemId === m.itemId)?.name ?? "" })));
 
+  // Warn only: none of these blocks posting.
+  const warnings: string[] = [];
+  if (final) {
+    for (const l of (d.materials?.lines ?? []).filter((x: any) => x.tracked && x.required > 0 && !x.substitute)) {
+      const used = allocated.filter(a => a.itemId === l.itemId).reduce((s, a) => s + (Number(use[a.lotId]) || 0), 0);
+      if (Math.abs(used - l.required) > 1e-6) warnings.push(`${l.name}: using ${qtyFmt(used)} ${l.baseUom || ""} of ${qtyFmt(l.required)} ${l.baseUom || ""} planned`);
+    }
+  }
+  for (const o of d.outputs ?? []) {
+    const g = Number(good[o.skuId]) || 0, rem = Number(o.remainingQty ?? o.qty);
+    if (g > rem + 1e-6) warnings.push(`Over-production: ${qtyFmt(g)} packs vs ${qtyFmt(rem)} remaining${o.skuName ? ` (${o.skuName})` : ""}`);
+  }
+  if (date > localToday()) warnings.push(`The completion date ${fmt.shortDate(date)} is in the future.`);
+
   const body = () => ({
     date,
     outputs: (d.outputs ?? []).map((o: any) => ({ skuId: o.skuId, goodPacks: Number(good[o.skuId]) || 0 })),
@@ -846,6 +856,12 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
     <Drawer title={`Complete ${d.mo.moNo ?? "order"}`} subtitle="One completion posts one entry. Leave the order open for a partial run." onClose={onClose} size="xl" elevated
       footer={<DrawerFooter saving={saving} onClose={onClose} onSave={post} saveLabel={final ? "Post and complete the order" : "Post partial completion"} err={err} saveDisabled={!pv} />}>
       <div className="space-y-5">
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-amber-900 bg-amber-950/30 px-3 py-2 text-[12px] text-amber-400">
+            <div className="font-semibold mb-1">Check before posting (you can still post)</div>
+            <ul className="list-disc pl-4 space-y-0.5">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           <Field label="Completion date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
           <Field label={`Rejected (${baseUom || "base units"})`} hint="Product that came out unusable in this run.">
@@ -953,14 +969,66 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
 }
 
 /** What this stage means for stock and the books — said once, where the user is. */
-function StageNote({ status }: { status: string }) {
+function cancelPrompt(d: any, lines: any[]): string | null {
+  const runs = (d?.completions ?? []).length;
+  if (d?.mo?.status !== "InProgress" && !lines.some(l => isCovered(l))) return null;
+  return `Cancel this order? Its allocated lots are released back to stock.${runs > 0 ? ` ${runs} completion run${runs === 1 ? "" : "s"} stay posted: their stock and entries are real.` : ""}`;
+}
+
+function startPrompt(lines: any[]): string | null {
+  const short = lines.filter(l => l.tracked && (l.ok === false || l.short > 0));
+  if (!short.length) return null;
+  return `${short.length} material${short.length === 1 ? " is" : "s are"} short: ${short.map(l => l.name).join(", ")}. Start anyway? You will need stock before you can complete.`;
+}
+
+const PENDING_TEXT ="A completion is waiting for approval. Lots, cancel and a second completion are locked until it is approved or rejected.";
+
+function PendingBanner({ mo }: { mo: any }) {
+  if (!mo?.completionPendingAt) return null;
+  return <p className="text-[12px] text-amber-400 bg-amber-950/30 border border-amber-900 rounded-lg px-3 py-2">{PENDING_TEXT}</p>;
+}
+
+/** Posted completion runs, each with its own Void — returns the consumed lots and removes that run's output. */
+function RunList({ d, onChanged }: { d: any; onChanged: () => void | Promise<void> }) {
+  const runs: any[] = d?.completions ?? [];
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const status = d?.mo?.status;
+  if (!runs.length || !["InProgress", "Completed"].includes(status)) return null;
+  async function voidRun(run: any) {
+    if (!confirm(`Void ${run.runNo ?? "this run"}? This returns the consumed lots and removes the output.`)) return;
+    setBusyId(run.id); setErr("");
+    const r = await fetch(`/api/inventory/production/${run.id}`, { method: "DELETE" });
+    setBusyId(null);
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not void the run."); return; }
+    await onChanged();
+  }
+  return (
+    <div className="rounded-lg border border-stone-800">
+      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-stone-500 border-b border-stone-800">Completion runs</div>
+      {runs.map(run => (
+        <div key={run.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] border-b border-stone-800/50 last:border-b-0">
+          <span className="text-stone-300"><span className="font-mono">{run.runNo ?? "Run"}</span> · {run.date ? fmt.shortDate(run.date) : "—"} · {qtyFmt(run.goodQty)} good</span>
+          <button type="button" onClick={() => voidRun(run)} disabled={busyId !== null} className="text-[12px] font-medium text-stone-400 hover:text-rose-400 disabled:opacity-50">
+            {busyId === run.id ? "Voiding…" : "Void"}
+          </button>
+        </div>
+      ))}
+      {err && <p className="px-3 py-1.5 text-[12px] text-rose-400">{err}</p>}
+    </div>
+  );
+}
+
+function StageNote({ status, runs = 0 }: { status: string; runs?: number }) {
   const text: Record<string, string> = {
     Draft: "Draft — nothing is planned or reserved yet.",
     Scheduled: "Scheduled — the output shows as expected stock. No accounting entry.",
     Released: "Released — ready for the floor. Start production to allocate lots. No accounting entry.",
     InProgress: "In progress — pick the lots of each material. Allocated lots are reserved for this order and can't be used elsewhere. No accounting entry until you complete it.",
     Completed: "Completed — the allocated lots were consumed and the output produced; the ledger entry is posted.",
-    Cancelled: "Cancelled — anything allocated was released back to stock.",
+    Cancelled: runs > 0
+      ? `Cancelled — allocated lots were released back to stock. ${runs} completion run${runs === 1 ? "" : "s"} remain posted: their stock and entries are real.`
+      : "Cancelled — anything allocated was released back to stock.",
   };
   return <p className="text-[12px] text-stone-400 rounded-lg border border-stone-800 px-3 py-2">{text[status] ?? status}</p>;
 }
@@ -1289,11 +1357,13 @@ function InputCard({ l, m, inProgress, onOpen, onUseSubstitute }: { l: any; m?: 
  * `consumptionUnits`) and sent to the server in BASE units. It may differ from
  * the plan; the material's status says by how much.
  */
-function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
-  line: any; m: any; editable: boolean; onBack?: () => void;
-  onSave: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean>;
+type LotPick = { lotId: string; qty: number; suggested?: boolean; expiryReason?: string };
+
+function LotPicker({ line, m, editable, locked = false, onBack, onSave, onSaveAndRun }: {
+  line: any; m: any; editable: boolean; locked?: boolean; onBack?: () => void;
+  onSave: (picks: LotPick[]) => Promise<boolean>;
   /** Save, then record a completion run consuming what is allocated — for an order finished over several runs. */
-  onSaveAndRun?: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean>;
+  onSaveAndRun?: (picks: LotPick[]) => Promise<boolean>;
 }) {
   const baseUom = line.baseUom || "";
   const unitsOf = (l: any): { label: string; perUnit: number }[] => (l.units?.length ? l.units : [{ label: `${baseUom || "unit"} — base`, perUnit: 1 }]);
@@ -1312,9 +1382,17 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
   const baseOf = (l: any) => { const r = rows[l.lotId]; return r ? (Number(r.v) || 0) * (unitsOf(l)[r.u]?.perUnit ?? 1) : 0; };
   const total = lots.reduce((sm, l) => sm + baseOf(l), 0);
   const over = lots.filter(l => baseOf(l) > l.available + 1e-6);
-  const picks = lots.map(l => ({ lotId: l.lotId, qty: Number(baseOf(l).toFixed(6)) }))
+  // An expired lot may be used, but only with a reason; it is sent with that lot's pick.
+  const [reasons, setReasons] = useState<Record<string, string>>(() => Object.fromEntries(lots.filter(l => l.expired).map(l => [l.lotId, l.expiryReason ?? ""])));
+  const picks: LotPick[] = lots.map(l => ({ lotId: l.lotId, qty: Number(baseOf(l).toFixed(6)), expired: !!l.expired }))
     .filter(p => p.qty > 0)
-    .map(p => ({ ...p, suggested: Math.abs((planned.get(p.lotId) ?? -1) - p.qty) < 1e-6 }));
+    .map(p => ({
+      lotId: p.lotId, qty: p.qty,
+      suggested: Math.abs((planned.get(p.lotId) ?? -1) - p.qty) < 1e-6,
+      ...(p.expired ? { expiryReason: (reasons[p.lotId] ?? "").trim() } : {}),
+    }));
+  const missingReason = picks.some(p => p.expiryReason !== undefined && !p.expiryReason);
+  const cantSave = locked || missingReason;
 
   /** Switching unit keeps the same physical quantity — 50 kg becomes 2 bags, not 50 bags. */
   function setUnit(l: any, u: number) {
@@ -1367,7 +1445,9 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
             <div key={l.lotId} className={cls}>
               <div className="flex items-start justify-between gap-2">
                 <span className="font-mono text-[13px] text-stone-100">{l.lotNo || "—"}</span>
-                <span className="text-[11px] text-stone-500">{l.expiryDate ? `Exp ${formatDateShort(l.expiryDate)}` : "No expiry"}</span>
+                {l.expired
+                  ? <span className="text-[11px] font-semibold text-amber-400">Expired {l.expiryDate ? formatDateShort(l.expiryDate) : ""}</span>
+                  : <span className="text-[11px] text-stone-500">{l.expiryDate ? `Exp ${formatDateShort(l.expiryDate)}` : "No expiry"}</span>}
               </div>
               {(l.where ?? []).length > 0 && <div className="mt-0.5 flex items-center gap-1 text-[11px] text-stone-500"><MapPin size={10} /> {l.where.join(", ")}</div>}
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1387,19 +1467,27 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="text-[11px] text-stone-500">{base > 0 ? "Selected for this order" : "Not selected"}</span>
                   {base > 0
-                    ? <button type="button" onClick={() => unselect(l)} className="text-[12px] font-semibold text-rose-400 hover:text-rose-300">Unselect</button>
-                    : <button type="button" onClick={() => useLot(l)} disabled={l.available <= 0 || total >= line.required - 1e-6} className="text-[12px] font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-40 disabled:cursor-not-allowed">Use this lot</button>}
+                    ? <button type="button" onClick={() => unselect(l)} disabled={locked} className="text-[12px] font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-40">Unselect</button>
+                    : <button type="button" onClick={() => useLot(l)} disabled={locked || l.available <= 0 || total >= line.required - 1e-6} className="text-[12px] font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-40 disabled:cursor-not-allowed">Use this lot</button>}
                 </div>
               )}
               <div className="mt-2.5">
                 <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Actual</div>
-                <QtyUnitField variant="cell" qtyWidth="w-24" qty={r.v} disabled={!editable}
+                <QtyUnitField variant="cell" qtyWidth="w-24" qty={r.v} disabled={!editable || locked}
                   onQty={v => setRows(x => ({ ...x, [l.lotId]: { ...r, v } }))}
                   unit={String(r.u)} onUnit={u => setUnit(l, Number(u))} unitPlaceholder={null}
                   options={units.map((u, i) => ({ value: String(i), label: u.label }))}
                   qtyLabel={`Quantity used from lot ${l.lotNo ?? ""}`} unitLabel="Counted in" />
                 {r.u > 0 && base > 0 && <div className="mt-1 text-[11px] text-stone-500 tabular-nums">= {qtyFmt(base)} {baseUom}</div>}
                 {tooMuch && <div className="mt-1 text-[11px] text-rose-400">Only {qtyFmt(l.available)} {baseUom} available in this lot.</div>}
+                {l.expired && base > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Reason for using an expired lot</div>
+                    <input className={controlInset} value={reasons[l.lotId] ?? ""} disabled={!editable || locked}
+                      onChange={e => setReasons(x => ({ ...x, [l.lotId]: e.target.value }))} placeholder="Required" aria-label={`Reason for using expired lot ${l.lotNo ?? ""}`} />
+                    {!(reasons[l.lotId] ?? "").trim() && <div className="mt-1 text-[11px] text-amber-400">Give a reason to use this expired lot.</div>}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -1414,18 +1502,19 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
       )}
       {editable && lots.length > 0 && (
         <div className="flex items-center justify-end gap-2 pt-1">
-          {picks.length > 0 && <button onClick={clearAll} className="text-[12px] text-stone-400 hover:text-rose-400 px-2 py-1">Clear all</button>}
-          <button onClick={() => setRows(seed("suggest"))} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Suggest by earliest expiry</button>
+          {missingReason && <span className="text-[12px] text-amber-400 mr-auto">Add a reason for each expired lot to save.</span>}
+          {picks.length > 0 && <button onClick={clearAll} disabled={locked} className="text-[12px] text-stone-400 hover:text-rose-400 px-2 py-1 disabled:opacity-40">Clear all</button>}
+          <button onClick={() => setRows(seed("suggest"))} disabled={locked} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1 disabled:opacity-40">Suggest by earliest expiry</button>
           {picks.length === 0 && !hasMine ? (
             <span className="text-[12px] text-stone-500">Choose the lots this order will use.</span>
           ) : picks.length === 0 ? (
-            <button disabled={saving} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
+            <button disabled={saving || locked} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
               className="text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50">
               {saving ? "Saving…" : "Release"}
             </button>
           ) : (
             <>
-              <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
+              <button disabled={saving || over.length > 0 || cantSave} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
                 title="Reserve these lots for the order. Nothing posts."
                 className={onSaveAndRun
                   ? "text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50"
@@ -1433,7 +1522,7 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
                 {saving ? "Saving…" : "Save for later"}
               </button>
               {onSaveAndRun && (
-                <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSaveAndRun(picks); setSaving(false); }}
+                <button disabled={saving || over.length > 0 || cantSave} onClick={async () => { setSaving(true); await onSaveAndRun(picks); setSaving(false); }}
                   title="Save, then record a completion run that consumes these lots. The order stays open unless every output is done."
                   className="text-[12px] font-semibold bg-primary text-white rounded-lg px-3.5 py-1.5 hover:bg-primary-hover disabled:opacity-50">
                   {saving ? "Saving…" : "Save & complete a run →"}

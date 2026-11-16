@@ -2535,6 +2535,12 @@ export const manufacturingOrders = pgTable("manufacturing_orders", {
   expYield:        numeric("exp_yield", { precision: 9, scale: 4 }),   // copied from the BOM (0099); null = 100%
   notes:           text("notes"),
   productionRunId: uuid("production_run_id"),   // the build that fulfilled it
+  // 0138: a completion is posting right now (claimed atomically, so a double click or a second tab cannot post twice).
+  // A claim older than a few minutes is treated as dead (the process was killed) and may be taken over.
+  completingAt:    timestamp("completing_at"),
+  // 0138: a completion is waiting for approval. While set the order's lots cannot be changed and no second
+  // completion can be staged, so what is approved is what was reviewed.
+  completionPendingAt: timestamp("completion_pending_at"),
   // Real instants (0102), not calendar dates — the Process MO list shows a
   // clock time, unlike scheduledDate/dueDate. startedAt is stamped on every
   // Released → InProgress transition (setMoStatus), so restarting an order
@@ -2673,6 +2679,8 @@ export const lotAllocations = pgTable("lot_allocations", {
   qty:         numeric("qty", { precision: 20, scale: 6 }).notNull(),
   suggested:   boolean("suggested").notNull().default(false),               // accepted as the system proposed it
   allocatedBy: uuid("allocated_by"),
+  // 0138: why an EXPIRED lot was chosen anyway (as at today). Required when the lot is past its expiry; null otherwise.
+  expiryReason: varchar("expiry_reason", { length: 255 }),
   createdAt:   timestamp("created_at").notNull().defaultNow(),
   updatedAt:   timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({

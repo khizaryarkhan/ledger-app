@@ -141,3 +141,43 @@ export function substituteConflict(a: { target: string; primary: string; substit
   const other = a.allocatedItemIds.find(id => id !== a.target && family.has(id));
   return other ? "A material uses one source: its main item or one substitute, never a mix. Release the lots already chosen for the other source first." : null;
 }
+
+// ── Audit fixes (2026-11-16): expiry, quarantine, remaining expected, completion lock ──
+
+export const COMPLETION_LOCK_MESSAGE = "A completion is waiting for approval; lots and status are locked until it is approved or rejected.";
+
+/** An expired lot has an expiry date strictly before today. Both are YYYY-MM-DD, compared literally. */
+export function expiryNeedsReason(expiryDate: string | null | undefined, today: string): boolean {
+  return !!expiryDate && expiryDate < today;
+}
+
+/** Error text when a picked lot is expired and no reason was given, else null. */
+export function expiredPickError(
+  picks: { lotId: string; expiryReason?: string | null }[],
+  lots: Map<string, { lotNo: string | null; expiryDate: string | null }>,
+  today: string,
+): string | null {
+  for (const p of picks) {
+    const l = lots.get(p.lotId);
+    if (l && expiryNeedsReason(l.expiryDate, today) && !String(p.expiryReason ?? "").trim()) {
+      return `Lot ${l.lotNo ?? ""} expired on ${l.expiryDate}. Give a reason to use an expired lot.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * What of a lot's remaining balance may be allocated at all: stock sitting in a
+ * non-issuable location (Quarantine) is excluded. Stock with no placement stays
+ * allocatable (unlocated stock is drawn and flagged elsewhere, never refused).
+ */
+export function issuableRemaining(remaining: number, placements: { qty: number; issuable: boolean }[]): number {
+  const blocked = placements.filter(p => !p.issuable).reduce((s, p) => s + p.qty, 0);
+  return Math.max(0, roundQty(remaining - blocked));
+}
+
+/** Output still expected from an order, in base units: qty less what completion runs produced, floored at 0. */
+export function remainingExpectedBase(qty: number, outputs: { completedQty: number; unitContent: number | null }[]): number {
+  const done = outputs.reduce((s, o) => s + o.completedQty * (o.unitContent == null ? 1 : o.unitContent), 0);
+  return Math.max(0, roundQty(qty - done));
+}

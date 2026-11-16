@@ -26,7 +26,7 @@
 import { db } from "@/db";
 import {
   manufacturingOrders, moOutputs, moMaterials, moOperations, lotAllocations,
-  productionRuns, productionConsumptions, productionOutputs,
+  productionRuns, productionConsumptions, productionOutputs, inventoryLots,
 } from "@/db/schema";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
@@ -37,6 +37,10 @@ import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approval
 import { round2, roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 import { costCompletion, splitPackaging, proportionalHours, type CompletionCost } from "@/lib/inventory/mo-costing";
 
+import { logEvent } from "@/lib/audit";
+import { deleteEntry } from "@/lib/inventory/void";
+import { reverseInventoryByEntry } from "@/lib/inventory/valuation";
+import { defaultConsumeQty, skuRunFractions, dateBeforeLotError, expiredWithoutReasonError, expiredLotAudit, type ConsumedLot } from "@/lib/inventory/mo-rules";
 import { isReason, SCRAP_REASONS } from "@/lib/inventory/production-performance";
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 /**
@@ -103,10 +107,17 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   // — the allocations shrink as earlier runs consume them.
   const remainingBase = roundQty(outRows.reduce((sm, o) => sm + Math.max(0, num(o.qty) - num(o.completedQty)) * num(o.unitContent), 0));
   const share = remainingBase > 0 ? Math.min(1, (goodBase + rejectedBase) / remainingBase) : 1;
+  const skuFraction = skuRunFractions(
+    outRows.map(o => ({ skuId: K(o.skuId), remaining: remaining.get(K(o.skuId)) ?? 0 })),
+    outputs,
+  );
+  const matRowsFor = (itemId: string, forItemId: string | null) =>
+    mats.filter(m => m.itemId === (forItemId ?? itemId)).map(m => ({ kind: m.kind, forSkuId: m.forSkuId ?? null, plannedQty: num(m.plannedQty) }));
   const consume = (input.consume ?? allocs.map(a => ({
     itemId: a.itemId, lotId: a.lotId,
-    // A final run uses everything allocated; a partial run its share of the plan.
-    qty: final ? num(a.qty) : roundQty(num(a.qty) * share),
+    // A final run uses everything allocated; a partial run its share of the plan, except packaging, which
+    // follows the pack it belongs to (a run making only some SKUs must not use the others' packaging).
+    qty: defaultConsumeQty({ allocQty: num(a.qty), rows: matRowsFor(a.itemId, a.forItemId ?? null), share, final, skuFraction }),
   }))).map(c => ({ itemId: String(c.itemId), lotId: String(c.lotId), qty: roundQty(Math.max(0, Number(c.qty) || 0)) })).filter(c => c.qty > 0);
   const seen = new Set<string>();
   for (const c of consume) {
@@ -116,6 +127,20 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
     seen.add(c.lotId);
     if (roundQty(c.qty - num(a!.qty)) > QTY_EPSILON) err(`More is being consumed from a lot than is allocated to this order (${num(a!.qty)}).`);
   }
+
+  // Lots consumed: not before they were received, and an expired one only with the reason recorded on its allocation.
+  const lotRows = consume.length
+    ? await db.select({ id: inventoryLots.id, lotNo: inventoryLots.lotNo, receivedDate: inventoryLots.receivedDate, expiryDate: inventoryLots.expiryDate })
+        .from(inventoryLots).where(and(eq(inventoryLots.orgId, orgId), inArray(inventoryLots.id, consume.map(c => c.lotId))))
+    : [];
+  const consumedLots: ConsumedLot[] = lotRows.map(l => ({
+    lotId: l.id, lotNo: l.lotNo, receivedDate: l.receivedDate ? String(l.receivedDate) : null,
+    expiryDate: l.expiryDate ? String(l.expiryDate) : null, reason: allocByLot.get(l.id)?.expiryReason ?? null,
+  }));
+  const dateErr = dateBeforeLotError(date, consumedLots);
+  if (dateErr) err(dateErr);
+  const expiryErr = expiredWithoutReasonError(date, consumedLots);
+  if (expiryErr) err(expiryErr);
 
   // A material is made from ONE source: its main item or one substitute, never a mix. The same rule
   // setMaterialAllocation enforces, checked again here because completion posts to the ledger.
@@ -141,7 +166,7 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
     if (substituteOf.has(itemId) && (!it || !it.tracked)) err(`${it?.name ?? "A substitute"} is not a stocked item, so it cannot stand in for a material. Release its lots before completing.`);
     if (!it || !it.tracked) continue;
     const plan = await planIssue(orgId, it, roundQty(picks.reduce((sm, x) => sm + x.qty, 0)), { exactPicks: picks, forMoId: moId });
-    if (plan.shortfallQty > 0) err(`${it.name}: the allocated lots no longer hold ${plan.shortfallQty} of what is being consumed — it was issued elsewhere. Re-allocate before completing.`);
+    if (plan.shortfallQty > 0) err(`${it.name}: the allocated lots no longer hold ${plan.shortfallQty} of what is being consumed — it was issued elsewhere, or sits in a location stock cannot be issued from (for example Quarantine). Re-allocate before completing.`);
     plans.push({ itemId, plan, credit: round2(plan.totalCost), assetAcct: it.assetAccountId!, name: it.name });
   }
 
@@ -187,7 +212,7 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   });
   if (goodBase > 0 && cost.total <= 0) err("Nothing with a cost is being consumed or charged — allocate the lots this run used.");
 
-  return { mo: mo!, date, final, outputs, rejectedBase, consume, plans, operations, labourCost, overheadCost, ingredientCost, packagingCostBySku, cost, output: output!, itemMap, substituteOf };
+  return { mo: mo!, date, final, consumedLots, allocs, outputs, rejectedBase, consume, plans, operations, labourCost, overheadCost, ingredientCost, packagingCostBySku, cost, output: output!, itemMap, substituteOf };
 }
 
 /** Preview for the completion drawer: the numbers, no writes. */
@@ -205,8 +230,36 @@ export async function previewCompletion(orgId: string, moId: string, input: Comp
   };
 }
 
+const CLAIM_MINUTES = 5;
+
+/** Atomically take the right to post a completion for this order (a dead claim older than a few minutes is taken over). */
+async function claimCompletion(orgId: string, moId: string): Promise<Date> {
+  const stamp = new Date();
+  const got = await db.update(manufacturingOrders).set({ completingAt: stamp })
+    .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId),
+      sql`(${manufacturingOrders.completingAt} is null or ${manufacturingOrders.completingAt} < now() - interval '${sql.raw(String(CLAIM_MINUTES))} minutes')`))
+    .returning({ id: manufacturingOrders.id });
+  if (!got.length) err("This order is already being completed. Wait for it to finish, then check the order before trying again.");
+  return stamp;
+}
+/** Release only OUR claim: after a stale takeover the slow original must not clear the new owner's claim. */
+async function releaseCompletion(orgId: string, moId: string, stamp: Date): Promise<void> {
+  await db.update(manufacturingOrders).set({ completingAt: null })
+    .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId), eq(manufacturingOrders.completingAt, stamp)))
+    .catch(e => console.error("[mo completion] could not release the completing claim", moId, e));
+}
+
 /** Post one completion. Returns the run, or a pending approval. */
 export async function completeMoRun(orgId: string, moId: string, input: CompletionInput, actorId: string | null, opts?: { skipApprovalCheck?: boolean }) {
+  const stamp = await claimCompletion(orgId, moId);
+  try {
+    return await completeMoRunClaimed(orgId, moId, input, actorId, opts);
+  } finally {
+    await releaseCompletion(orgId, moId, stamp);
+  }
+}
+
+async function completeMoRunClaimed(orgId: string, moId: string, input: CompletionInput, actorId: string | null, opts?: { skipApprovalCheck?: boolean }) {
   const p: Planned = await planCompletion(orgId, moId, input);
   const { mo, cost, output } = p;
   // A reject with no reason can be costed but never analysed — refuse it here
@@ -214,9 +267,29 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
   if (p.rejectedBase > 0 && !isReason(SCRAP_REASONS, input.rejectReason)) err("Choose why the rejected quantity was rejected.");
   if (input.rejectReason && !isReason(SCRAP_REASONS, input.rejectReason)) err("Unknown scrap reason.");
 
-  if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "production_build", cost.total)) {
-    const pending = await stagePendingApproval(orgId, "mo_completion", { moId, ...input }, cost.total, actorId);
-    return { pending: true, id: pending.id, amount: cost.total };
+  if (!opts?.skipApprovalCheck) {
+    if (mo.completionPendingAt) err("A completion of this order is already waiting for approval. Approve or reject it first.");
+    if (await requiresApproval(orgId, "production_build", cost.total)) {
+      // Lock the order first (atomic), so a second completion cannot be staged and lots stay as reviewed.
+      const lock = await db.update(manufacturingOrders).set({ completionPendingAt: new Date() })
+        .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId), isNull(manufacturingOrders.completionPendingAt)))
+        .returning({ id: manufacturingOrders.id });
+      if (!lock.length) err("A completion of this order is already waiting for approval. Approve or reject it first.");
+      try {
+        // Store what was REVIEWED: the resolved consumption, outputs and date, not the raw input.
+        const resolved = {
+          ...input, moId, date: p.date, final: p.final,
+          outputs: p.outputs.map(o => ({ skuId: o.skuId, goodPacks: o.goodPacks })),
+          rejectedBase: p.rejectedBase, consume: p.consume,
+        };
+        const pending = await stagePendingApproval(orgId, "mo_completion", resolved, cost.total, actorId);
+        return { pending: true, id: pending.id, amount: cost.total };
+      } catch (e) {
+        await db.update(manufacturingOrders).set({ completionPendingAt: null })
+          .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
+        throw e;
+      }
+    }
   }
 
   const outputLocationId = await resolveLocationId(orgId, input.outputLocationId ?? null, { label: "Output location" });
@@ -245,61 +318,91 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
   }
   if (lines.length < 2) err("Nothing to post — this run consumed and produced nothing with a cost.");
 
+  // Read BEFORE the entry posts: a failure here must not leave a posted entry with nothing to undo it.
+  const outputsBefore = await db.select({ id: moOutputs.id, completedQty: moOutputs.completedQty }).from(moOutputs).where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId)));
   const entry = await postJournalEntry({
     orgId, entryDate: p.date, memo: input.notes?.trim() || `Completion — ${mo.moNo ?? "MO"} · ${output.name}`,
     series: "Production", sourceType: "Production", createdBy: actorId, reference: mo.moNo ?? null, lines,
   });
   const runNo = entry.docNumber || `BUILD-${p.date.replace(/-/g, "")}`;
 
-  const [run] = await db.insert(productionRuns).values({
-    orgId, bomId: mo.bomId, runNo, outputItemId: mo.outputItemId, moId,
-    qtyToProduce: cost.goodBase.toString(), goodQty: cost.goodBase.toString(), rejectedQty: p.rejectedBase.toString(),
-    totalInputCost: cost.total.toString(), labourCost: p.labourCost.toString(), overheadCost: p.overheadCost.toString(), scrapCost: cost.scrapCost.toString(),
-    status: "Completed", entryId: entry.id, producedDate: p.date, notes: input.notes?.trim() || null, createdBy: actorId,
-    outputLocationId,
-    rejectReason: p.rejectedBase > 0 ? input.rejectReason : null,
-    rejectNote: p.rejectedBase > 0 ? (input.rejectNote?.trim().slice(0, 2000) || null) : null,
-    operationHours: p.operations.map(o => ({ operationId: o.id, name: o.name, hours: o.hours, entered: o.entered })),
-  } as any).returning({ id: productionRuns.id });
+  // neon-http has no transactions: the entry is posted, so any failure below must undo it (and what
+  // was written) before rethrowing, or a retry would double-post.
+  let runId: string | null = null;
+  let orderSideStarted = false;
+  try {
+    const [run] = await db.insert(productionRuns).values({
+      orgId, bomId: mo.bomId, runNo, outputItemId: mo.outputItemId, moId,
+      qtyToProduce: cost.goodBase.toString(), goodQty: cost.goodBase.toString(), rejectedQty: p.rejectedBase.toString(),
+      totalInputCost: cost.total.toString(), labourCost: p.labourCost.toString(), overheadCost: p.overheadCost.toString(), scrapCost: cost.scrapCost.toString(),
+      status: "Completed", entryId: entry.id, producedDate: p.date, notes: input.notes?.trim() || null, createdBy: actorId,
+      outputLocationId,
+      rejectReason: p.rejectedBase > 0 ? input.rejectReason : null,
+      rejectNote: p.rejectedBase > 0 ? (input.rejectNote?.trim().slice(0, 2000) || null) : null,
+      operationHours: p.operations.map(o => ({ operationId: o.id, name: o.name, hours: o.hours, entered: o.entered })),
+    } as any).returning({ id: productionRuns.id });
+    runId = run.id;
 
-  // Stock side. Failures here are loud, not swallowed: the entry has posted,
-  // and a silently missing lot is the GL-vs-stock drift the reconciliation
-  // exists to catch (GAP_REPORT §C, GRN-0035).
-  for (const x of p.plans) {
-    await commitIssue(orgId, { itemId: x.itemId, plan: x.plan, movementType: "issue_production", refType: "ProductionRun", refId: entry.id, entryId: entry.id, date: p.date, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}` });
-    for (const pick of x.plan.picks) if (pick.lotId) {
-      await db.insert(productionConsumptions).values({ orgId, runId: run.id, itemId: x.itemId, forItemId: p.substituteOf.get(x.itemId) ?? null, lotId: pick.lotId, qty: pick.qty.toString(), unitCost: pick.unitCost.toString(), totalCost: round2(pick.qty * pick.unitCost).toString() } as any);
+    for (const x of p.plans) {
+      await commitIssue(orgId, { itemId: x.itemId, plan: x.plan, movementType: "issue_production", refType: "ProductionRun", refId: entry.id, entryId: entry.id, date: p.date, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}` });
+      for (const pick of x.plan.picks) if (pick.lotId) {
+        await db.insert(productionConsumptions).values({ orgId, runId: run.id, itemId: x.itemId, forItemId: p.substituteOf.get(x.itemId) ?? null, lotId: pick.lotId, qty: pick.qty.toString(), unitCost: pick.unitCost.toString(), totalCost: round2(pick.qty * pick.unitCost).toString() } as any);
+      }
     }
-  }
-  for (const o of cost.outputs) {
-    const lotId = await commitReceipt(orgId, {
-      itemId: mo.outputItemId, skuId: skuOf(o.skuId), qty: o.baseQty, unitCost: o.unitCost, productType: output.productType,
-      sourceType: "production", receivedDate: p.date, locationId: outputLocationId,
-      refType: "ProductionRun", refId: entry.id, entryId: entry.id, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}`,
-    });
-    await db.insert(productionOutputs).values({ orgId, runId: run.id, itemId: mo.outputItemId, skuId: skuOf(o.skuId), qtyPacks: o.packs.toString(), qtyBase: o.baseQty.toString(), unitCost: o.unitCost.toString(), amount: o.amount.toString(), lotId } as any);
+    for (const o of cost.outputs) {
+      const lotId = await commitReceipt(orgId, {
+        itemId: mo.outputItemId, skuId: skuOf(o.skuId), qty: o.baseQty, unitCost: o.unitCost, productType: output.productType,
+        sourceType: "production", receivedDate: p.date, locationId: outputLocationId,
+        refType: "ProductionRun", refId: entry.id, entryId: entry.id, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}`,
+      });
+      await db.insert(productionOutputs).values({ orgId, runId: run.id, itemId: mo.outputItemId, skuId: skuOf(o.skuId), qtyPacks: o.packs.toString(), qtyBase: o.baseQty.toString(), unitCost: o.unitCost.toString(), amount: o.amount.toString(), lotId } as any);
+    }
+
+    // Order side: what was consumed leaves the allocation; what was made is done.
+    orderSideStarted = true;
+    for (const c of p.consume) {
+      await db.update(lotAllocations).set({ qty: sql`${lotAllocations.qty} - ${c.qty.toString()}`, updatedAt: new Date() })
+        .where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), eq(lotAllocations.lotId, c.lotId)));
+    }
+    await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), sql`${lotAllocations.qty} <= ${QTY_EPSILON}`));
+    for (const o of p.outputs) if (o.goodPacks > 0) {
+      await db.update(moOutputs).set({ completedQty: sql`${moOutputs.completedQty} + ${o.goodPacks.toString()}` })
+        .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), o.skuId ? eq(moOutputs.skuId, o.skuId) : isNull(moOutputs.skuId)));
+    }
+    if (p.final) {
+      // Whatever is still allocated was not used: it goes back to stock. No
+      // entry — it never left its lot or its account.
+      await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
+      await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: run.id, completedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
+    } else {
+      await db.update(manufacturingOrders).set({ productionRunId: run.id, updatedAt: new Date() })
+        .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
+    }
+  } catch (e) {
+    console.error(`[mo completion] FAILED after posting entry ${entry.id} (run ${runId ?? "not created"}, MO ${moId}); compensating`, e);
+    try {
+      await reverseInventoryByEntry(orgId, entry.id);
+      if (runId) await db.delete(productionRuns).where(and(eq(productionRuns.id, runId), eq(productionRuns.orgId, orgId)));
+      await deleteEntry(orgId, entry.id);
+      if (orderSideStarted) {
+        // Put the order side back exactly as it was.
+        await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
+        if (p.allocs.length) await db.insert(lotAllocations).values(p.allocs as any);
+        for (const o of outputsBefore) await db.update(moOutputs).set({ completedQty: o.completedQty }).where(eq(moOutputs.id, o.id));
+        await db.update(manufacturingOrders).set({ status: "InProgress", productionRunId: mo.productionRunId ?? null, completedAt: null, updatedAt: new Date() })
+          .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
+      }
+    } catch (ce) {
+      console.error(`[mo completion] COMPENSATION FAILED — entry ${entry.id}, run ${runId ?? "none"}, MO ${moId} need manual reconciliation`, ce);
+    }
+    throw e;
   }
 
-  // Order side: what was consumed leaves the allocation; what was made is done.
-  for (const c of p.consume) {
-    await db.update(lotAllocations).set({ qty: sql`${lotAllocations.qty} - ${c.qty.toString()}`, updatedAt: new Date() })
-      .where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), eq(lotAllocations.lotId, c.lotId)));
-  }
-  await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), sql`${lotAllocations.qty} <= ${QTY_EPSILON}`));
-  for (const o of p.outputs) if (o.goodPacks > 0) {
-    await db.update(moOutputs).set({ completedQty: sql`${moOutputs.completedQty} + ${o.goodPacks.toString()}` })
-      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), o.skuId ? eq(moOutputs.skuId, o.skuId) : isNull(moOutputs.skuId)));
-  }
-  if (p.final) {
-    // Whatever is still allocated was not used: it goes back to stock. No
-    // entry — it never left its lot or its account.
-    await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
-    await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: run.id, completedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
-  } else {
-    await db.update(manufacturingOrders).set({ productionRunId: run.id, updatedAt: new Date() })
-      .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
+  const expired = expiredLotAudit(p.date, p.consumedLots.filter(l => p.consume.some(c => c.lotId === l.lotId)));
+  if (expired) {
+    await logEvent({ orgId, eventType: "mo_expired_lot_used", docType: "ledger", docId: entry.id, actorId, meta: { moId, moNo: mo.moNo ?? null, runId, ...expired } });
   }
 
-  return { id: run.id, runNo, entryId: entry.id, final: p.final, total: cost.total, scrap: cost.scrapCost, status: p.final ? "Completed" : "InProgress" };
+  return { id: runId!, runNo, entryId: entry.id, final: p.final, total: cost.total, scrap: cost.scrapCost, status: p.final ? "Completed" : "InProgress" };
 }

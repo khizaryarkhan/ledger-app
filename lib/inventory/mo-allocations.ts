@@ -23,10 +23,11 @@ import { LedgerValidationError } from "@/lib/ledger";
 import { roundQty } from "@/lib/inventory/round";
 import { ensureMoMaterials } from "@/lib/inventory/manufacturing-orders";
 import { allocatedByLot } from "@/lib/inventory/valuation";
+import { today } from "@/lib/format";
 import { placementsForLots } from "@/lib/inventory/locations";
 import { consumptionUnits } from "@/lib/inventory/order-options";
 import {
-  allocationError, availableInLot, fefoOrder, suggestPicks, lotsAllowedBySku, proposeSubstitute, substituteConflict,
+  allocationError, availableInLot, expiredPickError, expiryNeedsReason, issuableRemaining, COMPLETION_LOCK_MESSAGE, fefoOrder, suggestPicks, lotsAllowedBySku, proposeSubstitute, substituteConflict,
   type AllocatableLot,
 } from "@/lib/inventory/allocation";
 
@@ -39,7 +40,7 @@ async function loadMo(orgId: string, moId: string) {
   return mo!;
 }
 
-type MoLot = AllocatableLot & { mine: number; where: string[]; supplierId: string | null; skuId: string | null; supplierSkuId: string | null };
+type MoLot = AllocatableLot & { mine: number; expiryReason: string | null; quarantined: number; where: string[]; supplierId: string | null; skuId: string | null; supplierSkuId: string | null };
 
 /** Open lots of an item, with what THIS order may take from each. */
 async function lotsFor(orgId: string, itemId: string, moId: string): Promise<MoLot[]> {
@@ -49,17 +50,22 @@ async function lotsFor(orgId: string, itemId: string, moId: string): Promise<MoL
   const ids = lots.map(l => l.id);
   const [elsewhere, all, placements] = await Promise.all([
     allocatedByLot(orgId, ids, moId),
-    db.select({ lotId: lotAllocations.lotId, qty: lotAllocations.qty }).from(lotAllocations)
+    db.select({ lotId: lotAllocations.lotId, qty: lotAllocations.qty, expiryReason: lotAllocations.expiryReason }).from(lotAllocations)
       .where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), inArray(lotAllocations.lotId, ids))),
     placementsForLots(orgId, ids),
   ]);
   const mine = new Map(all.map(a => [a.lotId, num(a.qty)]));
+  const reasons = new Map(all.map(a => [a.lotId, a.expiryReason ?? null]));
   // Location codes, so the floor knows which shelf each lot is on.
   const locIds = [...new Set([...placements.values()].flat().map(p => p.locationId))];
   const codes = locIds.length ? new Map((await db.select({ id: stockLocations.id, code: stockLocations.code }).from(stockLocations)
     .where(and(eq(stockLocations.orgId, orgId), inArray(stockLocations.id, locIds)))).map(r => [r.id, r.code])) : new Map<string, string>();
   return fefoOrder(lots.map(l => ({
-    id: l.id, lotNo: l.lotNo, remainingQty: num(l.remainingQty), allocatedElsewhere: elsewhere.get(l.id) ?? 0,
+    id: l.id, lotNo: l.lotNo,
+    // Quarantined stock is on hand but not issuable, so it can never be allocated.
+    remainingQty: issuableRemaining(num(l.remainingQty), placements.get(l.id) ?? []),
+    quarantined: roundQty(num(l.remainingQty) - issuableRemaining(num(l.remainingQty), placements.get(l.id) ?? [])),
+    expiryReason: reasons.get(l.id) ?? null, allocatedElsewhere: elsewhere.get(l.id) ?? 0,
     expiryDate: l.expiryDate ?? null, receivedDate: l.receivedDate ?? null, unitCost: num(l.unitCost),
     mine: mine.get(l.id) ?? 0, supplierId: l.supplierId ?? null, skuId: l.skuId ?? null, supplierSkuId: l.supplierSkuId ?? null,
     where: (placements.get(l.id) ?? []).filter(p => p.qty > 0).map(p => codes.get(p.locationId) ?? "?"),
@@ -106,7 +112,7 @@ export async function allocationView(orgId: string, moId: string) {
       available: roundQty(allowed.reduce((s, l) => s + availableInLot(l), 0)),
       limitSkuIds: fam.limitFor(primary, itemId),
       refused: refused.map(r => ({ lotId: r.lot.id, lotNo: r.lot.lotNo, reason: r.reason, message: refusalText(r.lot.lotNo, r.reason) })),
-      lots: allowed.map(l => ({ lotId: l.id, lotNo: l.lotNo, expiryDate: l.expiryDate, receivedDate: l.receivedDate, unitCost: l.unitCost,
+      lots: allowed.map(l => ({ lotId: l.id, lotNo: l.lotNo, expiryDate: l.expiryDate, expired: expiryNeedsReason(l.expiryDate, today()), expiryReason: l.expiryReason, quarantined: l.quarantined, receivedDate: l.receivedDate, unitCost: l.unitCost,
         remaining: l.remainingQty, allocatedElsewhere: roundQty(l.allocatedElsewhere), available: availableInLot(l), mine: l.mine, where: l.where,
         units: consumptionUnits(base, l, supSkus.filter(x => x.itemId === itemId), ownSkus.filter(x => x.itemId === itemId))
           .map(u => ({ label: u.label, packLevel: u.packLevel, uom: u.orderUom, perUnit: u.unitsPerOrderUnit })) })),
@@ -130,7 +136,7 @@ export async function allocationView(orgId: string, moId: string) {
       : proposeSubstitute({ planned, primaryAvailable: main.available, subs: substitutes.map(s => ({ itemId: s.itemId, planned: s.planned, available: s.available })) });
     out.push({ itemId: m.itemId, kind: m.kind, planned, ...main, substitutes, usingSubstitute: using, proposal });
   }
-  return { status: mo.status, materials: out };
+  return { status: mo.status, completionPendingAt: mo.completionPendingAt ?? null, materials: out };
 }
 
 /**
@@ -138,8 +144,9 @@ export async function allocationView(orgId: string, moId: string) {
  * one of that material's substitutes. Only while In Progress — the stage at which
  * production is working the order. An empty list releases it.
  */
-export async function setMaterialAllocation(orgId: string, moId: string, itemId: string, picks: { lotId: string; qty: number; suggested?: boolean }[], actorId: string | null) {
+export async function setMaterialAllocation(orgId: string, moId: string, itemId: string, picks: { lotId: string; qty: number; suggested?: boolean; expiryReason?: string | null }[], actorId: string | null) {
   const mo = await loadMo(orgId, moId);
+  if (mo.completionPendingAt) err(COMPLETION_LOCK_MESSAGE);
   if (mo.status !== "InProgress") err("Lots can be allocated only while the order is In Progress. Start it first.");
   const mats = await ensureMoMaterials(orgId, mo);
   const fam = await loadFamily(orgId, moId);
@@ -150,7 +157,7 @@ export async function setMaterialAllocation(orgId: string, moId: string, itemId:
     if (!sub) err("That item is not a material of this order or one of its substitutes.");
     primary = sub!.primaryItemId; forItemId = primary;
   }
-  const clean = (picks ?? []).map(p => ({ lotId: String(p.lotId), qty: roundQty(Number(p.qty) || 0), suggested: !!p.suggested })).filter(p => p.qty > 0);
+  const clean = (picks ?? []).map(p => ({ lotId: String(p.lotId), qty: roundQty(Number(p.qty) || 0), suggested: !!p.suggested, expiryReason: String(p.expiryReason ?? "").trim().slice(0, 255) })).filter(p => p.qty > 0);
 
   if (clean.length) {
     const family = [primary!, ...fam.subsOf(primary!).map(s => s.itemId)];
@@ -167,19 +174,44 @@ export async function setMaterialAllocation(orgId: string, moId: string, itemId:
   }
   const why = allocationError(clean, new Map(allowed.map(l => [l.id, l])));
   if (why) err(why);
+  const expiredWhy = expiredPickError(clean, new Map(allowed.map(l => [l.id, l])), today());
+  if (expiredWhy) err(expiredWhy);
 
   await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), eq(lotAllocations.itemId, itemId)));
   if (clean.length) {
     await db.insert(lotAllocations).values(clean.map(p => ({
       orgId, moId, itemId, forItemId, lotId: p.lotId, qty: p.qty.toString(), suggested: p.suggested, allocatedBy: actorId,
+      expiryReason: expiryNeedsReason(allowed.find(l => l.id === p.lotId)?.expiryDate, today()) ? p.expiryReason : null,
     })));
+    await verifyNoOverAllocation(orgId, moId, itemId, clean.map(p => p.lotId));
   }
   return { itemId, allocated: roundQty(clean.reduce((s, p) => s + p.qty, 0)) };
 }
 
+/**
+ * neon-http has no transactions, so the availability check above can race another
+ * order. After inserting, re-read every touched lot across ALL orders; if it is now
+ * over-reserved, give THIS order's rows on it back and refuse.
+ */
+async function verifyNoOverAllocation(orgId: string, moId: string, itemId: string, lotIds: string[]) {
+  const [lots, rows] = await Promise.all([
+    db.select({ id: inventoryLots.id, lotNo: inventoryLots.lotNo, remaining: inventoryLots.remainingQty }).from(inventoryLots)
+      .where(and(eq(inventoryLots.orgId, orgId), inArray(inventoryLots.id, lotIds))),
+    db.select({ lotId: lotAllocations.lotId, qty: lotAllocations.qty }).from(lotAllocations)
+      .where(and(eq(lotAllocations.orgId, orgId), inArray(lotAllocations.lotId, lotIds))),
+  ]);
+  const total = new Map<string, number>();
+  for (const r of rows) total.set(r.lotId, (total.get(r.lotId) ?? 0) + num(r.qty));
+  const over = lots.filter(l => roundQty((total.get(l.id) ?? 0) - num(l.remaining)) > 1e-6);
+  if (!over.length) return;
+  await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), eq(lotAllocations.itemId, itemId), inArray(lotAllocations.lotId, over.map(l => l.id))));
+  err(`Lot ${over.map(l => l.lotNo ?? "").join(", ")}: another order just reserved this lot. Reload and choose again.`);
+}
+
 /** Give back everything an order holds. */
 export async function releaseAllocations(orgId: string, moId: string) {
-  await loadMo(orgId, moId);
+  const mo = await loadMo(orgId, moId);
+  if (mo.completionPendingAt) err(COMPLETION_LOCK_MESSAGE);
   await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
   return { moId, released: true };
 }

@@ -892,6 +892,35 @@ Approved from a prototype walk-through. Migration `0137` (additive `boms.batch_u
   substitutes have no supplier-SKU limits. A packaging item serving two SKUs appears as two material rows on the MO,
   each carrying the same substitute list at the total planned quantity (conservative, pre-existing shape).
 
+## Manufacturing order processing hardened after an audit (2026-11-16)
+
+Migration `0138` (additive): `manufacturing_orders.completing_at` / `completion_pending_at`, `lot_allocations.expiry_reason`.
+Product decisions: **the planner chooses the lots** (nothing is pre-selected; the earliest-expiry plan is only a suggestion
+applied by an explicit button, and the old hub-wide "Allocate the rest" bulk button is GONE: after a partial run it re-reserved
+the FULL planned quantity); an **expired lot** may be allocated only with a reason (`expiry_reason`, audited as `mo_expired_lot_used`
+when a run consumes it); under/over consumption and over-production are **warn only**; **cancelling an In Progress order releases
+every allocated lot** (ingredients and packaging) and stays allowed with posted partial runs, which are real stock movements and
+stay posted; **reopening a Cancelled order that has posted runs is refused**; permissions are unchanged.
+
+- **A completion is claimed before it posts** (`completeMoRun` -> atomic `completing_at`, a 5-minute stale claim may be taken over,
+  released only by its own stamp) and **compensates** if a stock write fails after the journal entry posted (reverse the movements,
+  delete run and entry, restore allocations / `completed_qty` / status, log loudly). Everything it reads for compensation is read
+  BEFORE the entry posts. Pure rules in `lib/inventory/mo-rules.ts` (default consume, date-before-lot, expiry reasons).
+- **Default partial-run consume scales PACKAGING by the SKU's good packs this run / remaining** (not the base share), so packaging of
+  a SKU that was not made is not scrapped as orphan packaging.
+- **Approval path**: staging stores the RESOLVED consume and date and sets `completion_pending_at`, which locks allocations, status
+  changes and plan edits and refuses a second completion. Approve claims `Pending -> Approving` atomically; a failed post returns the
+  request to Pending and the lock STAYS; once the post succeeded nothing can put it back to Pending (the Approved write is retried and
+  a failure is logged, never reverted). A request stuck `Approving` for over 10 minutes can be rejected, which frees the order.
+- **Void**: `voidProductionRun` handles a PARTIAL run of an In Progress order (order stays In Progress) and repoints
+  `production_run_id` at the latest remaining run; the drawer lists every run with its own Void.
+- Allocation: Quarantine is excluded from availability, an over-allocation race is re-checked after the insert, a completion date
+  earlier than a consumed lot's received date is refused, expected stock is the REMAINING output (qty minus produced).
+- **Not changed / known**: `started_at` is still overwritten on every Released -> InProgress (deliberate); the API's default completion
+  date is the UTC date (the UI always sends the local date); any user who may post inventory can still complete, cancel and void.
+  The compensation and approval-claim paths have no automated test (they need a database); the happy path was exercised end to end on
+  the dev branch (`scripts/_e2e_mo_substitutes.ts`). Not clicked through in a browser.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,
