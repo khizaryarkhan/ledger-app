@@ -8,7 +8,36 @@
  * whole batches are a warning, never a refusal.
  */
 
+import { outputCaptureUnits } from "@/lib/inventory/order-options";
+import { UOMS, convert, dimensionOf } from "@/lib/inventory/uom";
+
 export interface MoOutputLine { qty: number; unitContent: number }
+
+export interface OutputUnit { label: string; perPack: number }
+
+/**
+ * Every unit a planner may count one output in, each with how many PACKS one of it is (the stored quantity is
+ * always packs, so costing and completion are untouched): the SKU's own pack and its higher levels (carton,
+ * shrink), the base unit, and any other unit that measures the same thing as the base unit (lb or kg for an oz
+ * item). A base-unit output (no SKU) counts in the base unit and its same-dimension units.
+ */
+export function outputUnitOptions(
+  baseUom: string | null,
+  out: { skuId?: string | null; skuName?: string | null; unitContent?: number | null },
+  sku?: Parameters<typeof outputCaptureUnits>[2],
+): OutputUnit[] {
+  const units = outputCaptureUnits(baseUom, out, sku);
+  const dim = dimensionOf(baseUom);
+  if (!baseUom || !dim) return units;
+  const content = out.skuId ? Number(out.unitContent) || 0 : 1;
+  if (!(content > 0)) return units;
+  for (const u of UOMS) {
+    if (u.dimension !== dim || u.code.toLowerCase() === baseUom.toLowerCase()) continue;
+    const r = convert(1, u.code, baseUom);
+    if (r.ok && r.qty > 0) units.push({ label: u.code, perPack: r.qty / content });
+  }
+  return units;
+}
 
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 const pos = (n: number) => Number.isFinite(n) && n > 0;

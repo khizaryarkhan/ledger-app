@@ -16,7 +16,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField, CalcInput } from "@/components/form-kit";
 import { batchFromBase } from "@/lib/inventory/batch-unit";
-import { totalBase, batchesFromOutputs, scaleOutputsToBatches, batchWarnings } from "@/lib/inventory/mo-batches";
+import { totalBase, batchesFromOutputs, scaleOutputsToBatches, batchWarnings, outputUnitOptions } from "@/lib/inventory/mo-batches";
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
 import { outputCaptureUnits } from "@/lib/inventory/order-options";
 import { SCRAP_REASONS, DELAY_REASONS } from "@/lib/inventory/production-performance";
@@ -171,7 +171,9 @@ export function MoConsole() {
 function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: any[]; items: any[]; salesOrders: any[]; onClose: () => void; onCreated: () => void }) {
   const [bomId, setBomId] = useState("");
   const [bom, setBom] = useState<any>(null);          // { outputItem, outputs:[{skuId, item, qty(unitContent)}] }
-  const [packQty, setPackQty] = useState<Record<string, string>>({});  // skuId -> qty
+  // What the planner typed per output and the unit it was counted in (an index into that output's unit list).
+  // The stored truth is PACKS, derived below, so costing and completion never see the unit.
+  const [entry, setEntry] = useState<Record<string, { v: string; u: number }>>({});
   // What the user typed into "# of batches", or null while it is simply derived from the SKU quantities.
   // The SKU quantities are the truth: typing batches scales them, typing a SKU quantity clears this.
   const [batchTyped, setBatchTyped] = useState<string | null>(null);
@@ -181,7 +183,7 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
   const setM = (k: string, v: string) => setMeta(p => ({ ...p, [k]: v }));
 
   async function onBom(id: string) {
-    setBomId(id); setBom(null); setPackQty({}); setBatchTyped(null);
+    setBomId(id); setBom(null); setEntry({}); setBatchTyped(null);
     if (!id) return;
     const d = await fetch(`/api/inventory/boms/${id}`).then(r => r.json()).catch(() => null);
     if (d?.bom) setBom(d);
@@ -193,6 +195,11 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
   // planned as an MO.
   const outs = (bom?.outputs ?? []).length ? bom.outputs
     : bom ? [{ skuId: null, qty: 1, item: { name: `${bom.outputItem?.name ?? "Output"} (${baseUom || "base unit"})` }, base: true }] : [];
+  const skuRows: any[] = bom?.outputSkus ?? [];
+  const unitsFor = (o: any) => outputUnitOptions(baseUom || null, { skuId: o.skuId, skuName: o.item?.name ?? null, unitContent: Number(o.qty) }, skuRows.find(s => s.id === o.skuId) ?? null);
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+  const packsOf = (o: any) => { const e = entry[String(o.skuId)]; return e ? (Number(e.v) || 0) * (unitsFor(o)[e.u]?.perPack ?? 1) : 0; };
+  const packQty: Record<string, string> = Object.fromEntries(outs.map((o: any) => [String(o.skuId), String(r6(packsOf(o)))]));
   const baseTotal = useMemo(() => outs.reduce((s: number, o: any) => s + (Number(packQty[String(o.skuId)]) || 0) * Number(o.qty), 0), [outs, packQty]);
 
   // The BOM's batch (stored in the item's base unit; shown in the unit its author counted it in) and what the
@@ -209,11 +216,19 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
     return boms.filter(b => b.status !== "Archived" && (!q || `${b.code ?? ""} ${b.name ?? ""} ${b.outputItemName ?? ""}`.toLowerCase().includes(q))).slice(0, 12);
   }, [boms, bomQuery]);
   const pickedBom = boms.find(b => b.id === bomId);
-  function onSkuQty(key: string, v: string) { setBatchTyped(null); setPackQty(p => ({ ...p, [key]: v })); }
+  function onSkuQty(key: string, v: string) { setBatchTyped(null); setEntry(p => ({ ...p, [key]: { v, u: p[key]?.u ?? 0 } })); }
+  // Changing the unit keeps the same physical quantity: the number shown is re-expressed in the new unit.
+  function onUnit(o: any, u: number) {
+    const key = String(o.skuId), packs = packsOf(o), per = unitsFor(o)[u]?.perPack ?? 1;
+    setEntry(p => ({ ...p, [key]: { u, v: packs > 0 ? String(r6(packs / per)) : (p[key]?.v ?? "") } }));
+  }
   function onBatches(v: string) {
     setBatchTyped(v);
     const scaled = scaleOutputsToBatches(lines, Number(v.replace(",", ".")), batchSizeBase);
-    if (scaled) setPackQty(Object.fromEntries(outs.map((o: any, i: number) => [String(o.skuId), scaled[i] > 0 ? String(scaled[i]) : (packQty[String(o.skuId)] ?? "")])));
+    if (scaled) setEntry(p => Object.fromEntries(outs.map((o: any, i: number) => {
+      const key = String(o.skuId), u = p[key]?.u ?? 0;
+      return [key, scaled[i] > 0 ? { u, v: String(r6(scaled[i] / (unitsFor(o)[u]?.perPack ?? 1))) } : (p[key] ?? { v: "", u: 0 })];
+    })));
   }
 
   async function save() {
@@ -270,19 +285,21 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
                 <Field label="Expected output qty"><div className={`${controlInset} flex items-center opacity-70 tabular-nums`}>{qtyFmt(expectedOut)} {batchUom}</div></Field>
               </div>
 
-              <Field label="Expected qty per output" hint="How much of each SKU to make, in packs of that SKU. The SKU quantities decide the number of batches.">
+              <Field label="Expected qty per output" hint="How much of each SKU to make, counted in the unit you plan in: its pack, a larger pack, or a weight or volume unit. The SKU quantities decide the number of batches.">
                 {outs.length === 0 ? <p className="text-[12px] text-amber-400">This BOM has no output — set its output item first.</p> : (
                   <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/60">
                     {outs.map((o: any) => {
-                      const q = Number(packQty[String(o.skuId)]) || 0;
+                      const key = String(o.skuId), q = Number(packQty[key]) || 0, units = unitsFor(o), u = entry[key]?.u ?? 0;
                       return (
-                        <div key={String(o.skuId)} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
+                        <div key={key} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
                           <div className="flex-1 min-w-0">
                             <div className="text-[13px] text-stone-100 truncate">{o.item?.name ?? "Pack"}</div>
-                            <div className="text-[11px] text-stone-500">{o.base ? "no output packs on this BOM, produced in its base unit" : `${qtyFmt(o.qty)} ${baseUom} per pack`}{q > 0 ? ` · ${qtyFmt(q * Number(o.qty))} ${baseUom} in total` : ""}</div>
+                            <div className="text-[11px] text-stone-500">{o.base ? "no output packs on this BOM, produced in its base unit" : `${qtyFmt(o.qty)} ${baseUom} per pack`}{q > 0 ? ` · ${qtyFmt(q * Number(o.qty))} ${baseUom} in total` : ""}{q > 0 && u !== 0 && !o.base ? ` · ${qtyFmt(q)} packs` : ""}</div>
                           </div>
-                          <CalcInput className={`${controlInset} !h-8 !w-28 text-right tabular-nums`} value={packQty[String(o.skuId)] ?? ""} onChange={v => onSkuQty(String(o.skuId), v)} placeholder="0" aria-label={`Quantity of ${o.item?.name ?? "pack"}`} />
-                          <span className="text-[12px] text-stone-500 w-12">{o.base ? baseUom || "units" : "packs"}</span>
+                          <div className="w-64 flex-shrink-0">
+                            <QtyUnitField variant="cell" qtyWidth="w-20" qty={entry[key]?.v ?? ""} onQty={v => onSkuQty(key, v)} unit={String(u)} onUnit={x => onUnit(o, Number(x))} unitPlaceholder={null}
+                              options={units.map((x, i) => ({ value: String(i), label: x.label }))} qtyLabel={`Quantity of ${o.item?.name ?? "pack"}`} unitLabel="Counted in" />
+                          </div>
                         </div>
                       );
                     })}
