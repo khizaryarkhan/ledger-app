@@ -861,6 +861,37 @@ native number-input spin buttons on the New Document form's Rate field) —
   onChange={...} className={...} />`, dropping the now-inert `step`/`min`/
   `max` attributes), not a new feature to design.
 
+## BOM batch unit, SKU-only outputs, packaging substitutes, two-way MO quantities (2026-11-16)
+
+Approved from a prototype walk-through. Migration `0137` (additive `boms.batch_uom`; `batch_size` widened to
+`numeric(20,6)` like 0088, because a batch typed in lb/oz converts to many decimals of kg).
+
+- **Batch unit.** Any unit measuring the same thing as the output item's base unit (`lib/inventory/uom.ts`'s
+  dimensions: mass, volume, count, length). `boms.batch_size` is STILL stored in the item's BASE unit, so MOs and
+  costing read what they always did; `batch_uom` only remembers the unit typed and the API shows it back
+  (`lib/inventory/batch-unit.ts`: `batchToBase` / `batchFromBase` / `batchUnitError`). A unit of another
+  dimension is refused: there is no honest kg-to-pieces factor. The legacy `PATCH /api/inventory/boms/[id]` speaks
+  base units and clears `batch_uom` when it sets a size.
+- **No product-first step.** The builder opens straight on the form. Output lines are SKUs only (no quantity): content
+  per pack comes from `item_skus.inner_unit_pack_size` when not sent, and the product is the SKUs' item. SKUs of
+  DIFFERENT products on one BOM are refused (release 2: MO completion, genealogy and expected stock handle one item per BOM).
+- **Packaging substitutes.** Stored in `bom_line_substitutes` keyed by the PACKAGING item, `qty` = a RATIO per one unit
+  of the main packaging item (one item can serve several SKUs at different quantities). Every pack line of one item must
+  carry the same list (`validateBom`). `snapshotMaterials` plans a substitute as ratio x the main item's planned total
+  across all packs; allocation and completion already treat any substitute generically (`substituteOf`).
+  Rules: not ingredient and packaging at once when substitutes are set; no overlap either way.
+- **MO quantities are two-way** (`lib/inventory/mo-batches.ts`, `ScheduleMoDrawer`): SKU quantities are the truth and
+  "# of batches" is derived (fractions allowed). Typing batches scales the quantities in proportion (ratio kept); with
+  nothing allocated yet it only warns, no invented split. Part batches and nothing-allocated warn, never block.
+  Ingredient cost was ALREADY shared across SKUs by their share of the good base and packaging charged to its own SKU
+  (`costCompletion`), so the costing rule needed no change. The BOM is picked by ID or name.
+- **A removed output SKU never re-tags its packaging** onto the survivor (`syncPackTags`): the line stays untagged and
+  Save is blocked until the user chooses.
+- **Not built / not verified**: the UI was typechecked and unit-tested but not clicked through (dev server cannot reach
+  Neon). `/api/inventory/skus` has no GET, so the builder fetches each producible item's SKUs on open. Packaging
+  substitutes have no supplier-SKU limits. A packaging item serving two SKUs appears as two material rows on the MO,
+  each carrying the same substitute list at the total planned quantity (conservative, pre-existing shape).
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,
@@ -1497,7 +1528,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0136` at `when` `1794400000000`;
+  this silently dropped a table in prod once). Latest is `0137` at `when` `1794500000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

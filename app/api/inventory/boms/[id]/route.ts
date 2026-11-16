@@ -66,7 +66,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.outputSkuId !== undefined) set.outputSkuId = s(b.outputSkuId, 64);
   if (b.status !== undefined) set.status = s(b.status, 16);
   if (b.batchType !== undefined) set.batchType = b.batchType === "Input" ? "Input" : "Output";
-  if (b.batchSize !== undefined) set.batchSize = numStr(b.batchSize) ?? "1";
+  // This legacy route speaks BASE units, so a size set here must not keep a stale display unit (it would be read back converted twice).
+  if (b.batchSize !== undefined) { set.batchSize = numStr(b.batchSize) ?? "1"; set.batchUom = null; }
   if (b.expYield !== undefined) set.expYield = numStr(b.expYield);
   if (b.processingStep !== undefined) set.processingStep = s(b.processingStep, 64);
   if (b.notes !== undefined) set.notes = s(b.notes, 2000);

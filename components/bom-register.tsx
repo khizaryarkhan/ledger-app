@@ -10,6 +10,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { controlInset } from "@/components/form-kit";
+import { fmt } from "@/lib/format";
+import { batchFromBase } from "@/lib/inventory/batch-unit";
 import { BomBuilderDrawer } from "@/components/bom-builder";
 import type { ItemLite } from "@/components/bom-builder/draft";
 import {
@@ -47,6 +49,12 @@ export function BomRegister() {
     if (s) list = list.filter(r => (r.name || "").toLowerCase().includes(s) || (r.code || "").toLowerCase().includes(s) || (r.outputItemName || "").toLowerCase().includes(s));
     return list;
   }, [rows, q]);
+
+  /** The batch as the author typed it: stored in the output item's base unit, shown in the unit chosen. */
+  const batchText = (r: any) => {
+    const baseUom = items.find(i => i.id === r.outputItemId)?.baseUom ?? null, unit = r.batchUom || baseUom || "";
+    return `${fmt.qty(batchFromBase(Number(r.batchSize ?? 1), baseUom, r.batchUom || null))}${unit ? ` ${unit}` : ""}`;
+  };
 
   const BOM_COLS = useMemo<ListColumn<any>[]>(() => [
     { key: "code", label: "BOM ID", sort: r => r.code, filter: { kind: "text", value: r => r.code } },
@@ -89,7 +97,7 @@ export function BomRegister() {
                     <td className="px-4 py-2.5"><span className="text-stone-200 font-mono text-[12px]">{r.code || r.id.slice(0, 8)}</span></td>
                     <td className="px-4 py-2.5"><span className="text-stone-100 font-medium">{r.outputItemName || r.name}</span></td>
                     <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{r.inputCount}</td>
-                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{Number(r.batchSize ?? 1).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{batchText(r)}</td>
                     <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{r.expYield != null ? `${Number(r.expYield)}%` : "—"}</td>
                     <td className="px-4 py-2.5"><StatusBadge s={r.status} /></td>
                   </tr>

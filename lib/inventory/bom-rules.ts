@@ -93,6 +93,7 @@ export function validateBom(b: BomInput): string[] {
     if (subs.some(s => s.itemId === i.itemId)) e.push("An ingredient cannot be its own substitute.");
     if (new Set(subs.map(s => s.itemId)).size !== subs.length) e.push("The same substitute is listed twice for one ingredient.");
     if (subs.some(s => s.itemId !== i.itemId && primaries.has(s.itemId))) e.push("An item cannot be both an ingredient and a substitute in the same BOM.");
+    if (subs.some(s => b.packs.some(p => p.itemId === s.itemId))) e.push("An item cannot be both an ingredient substitute and a packaging line in the same BOM.");
   }
   // Packaging substitutes (0137 era). Keyed by the packaging item, so they must agree on every line of it.
   const ingredientItems = new Set(b.inputs.map(i => i.itemId));

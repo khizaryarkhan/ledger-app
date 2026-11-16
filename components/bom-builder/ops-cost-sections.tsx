@@ -37,12 +37,12 @@ export function OperationsSection({ draft, set, centres }: { draft: Draft; set: 
   );
 }
 
-export function CostSection({ draft, byId, centres, unit }: { draft: Draft; byId: Map<string, ItemLite>; centres: WorkCentreLite[] | null; unit: string }) {
-  const batch = parseNum(draft.batchSize), cmap = new Map((centres ?? []).map(c => [c.id, c]));
+export function CostSection({ draft, byId, centres, unit, batch, contentOf }: { draft: Draft; byId: Map<string, ItemLite>; centres: WorkCentreLite[] | null; unit: string; batch: number; contentOf: (skuId: string) => number }) {
+  const cmap = new Map((centres ?? []).map(c => [c.id, c]));
   const lines = [
-    ...draft.inputs.map(l => ({ qty: parseNum(l.qty) || 0, unitCost: unitCostOf(byId.get(l.itemId)), isPack: false })),
-    ...draft.packs.map(p => {
-      const content = p.forSkuId ? parseNum(draft.outputs.find(o => o.skuId === p.forSkuId)?.qty) : 1;
+    ...draft.inputs.filter(l => l.itemId).map(l => ({ qty: parseNum(l.qty) || 0, unitCost: unitCostOf(byId.get(l.itemId)), isPack: false })),
+    ...draft.packs.filter(p => p.itemId).map(p => {
+      const content = p.forSkuId ? contentOf(p.forSkuId) : 1;
       return { qty: suggestPackQty({ batchBase: batch, contentPerPack: content, perPack: parseNum(p.qty) }) ?? 0, unitCost: unitCostOf(byId.get(p.itemId)), isPack: true };
     }),
   ];

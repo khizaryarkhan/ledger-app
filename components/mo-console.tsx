@@ -14,7 +14,9 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
-import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField, CalcInput } from "@/components/form-kit";
+import { batchFromBase } from "@/lib/inventory/batch-unit";
+import { totalBase, batchesFromOutputs, scaleOutputsToBatches, batchWarnings } from "@/lib/inventory/mo-batches";
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
 import { outputCaptureUnits } from "@/lib/inventory/order-options";
 import { SCRAP_REASONS, DELAY_REASONS } from "@/lib/inventory/production-performance";
@@ -170,12 +172,16 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
   const [bomId, setBomId] = useState("");
   const [bom, setBom] = useState<any>(null);          // { outputItem, outputs:[{skuId, item, qty(unitContent)}] }
   const [packQty, setPackQty] = useState<Record<string, string>>({});  // skuId -> qty
+  // What the user typed into "# of batches", or null while it is simply derived from the SKU quantities.
+  // The SKU quantities are the truth: typing batches scales them, typing a SKU quantity clears this.
+  const [batchTyped, setBatchTyped] = useState<string | null>(null);
+  const [bomQuery, setBomQuery] = useState(""); const [bomOpen, setBomOpen] = useState(false);
   const [meta, setMeta] = useState<Record<string, string>>({ scheduledDate: localToday(), dueDate: "", priority: "Normal", notes: "", status: "Scheduled", salesOrderId: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const setM = (k: string, v: string) => setMeta(p => ({ ...p, [k]: v }));
 
   async function onBom(id: string) {
-    setBomId(id); setBom(null); setPackQty({});
+    setBomId(id); setBom(null); setPackQty({}); setBatchTyped(null);
     if (!id) return;
     const d = await fetch(`/api/inventory/boms/${id}`).then(r => r.json()).catch(() => null);
     if (d?.bom) setBom(d);
@@ -188,6 +194,27 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
   const outs = (bom?.outputs ?? []).length ? bom.outputs
     : bom ? [{ skuId: null, qty: 1, item: { name: `${bom.outputItem?.name ?? "Output"} (${baseUom || "base unit"})` }, base: true }] : [];
   const baseTotal = useMemo(() => outs.reduce((s: number, o: any) => s + (Number(packQty[String(o.skuId)]) || 0) * Number(o.qty), 0), [outs, packQty]);
+
+  // The BOM's batch (stored in the item's base unit; shown in the unit its author counted it in) and what the
+  // SKU quantities add up to. Batches are DERIVED (fractions allowed); part batches and nothing-allocated only warn.
+  const batchSizeBase = Number(bom?.batch?.baseSize ?? bom?.bom?.batchSize ?? 0);
+  const batchUom: string = bom?.batch?.uom || baseUom;
+  const lines = outs.map((o: any) => ({ qty: Number(packQty[String(o.skuId)]) || 0, unitContent: Number(o.qty) }));
+  const derivedBatches = batchesFromOutputs(lines, batchSizeBase);
+  const warnings = batchWarnings(lines, batchSizeBase);
+  const expectedOut = batchFromBase(totalBase(lines), baseUom, batchUom);
+  const batchesShown = batchTyped ?? (derivedBatches > 0 ? String(derivedBatches) : "");
+  const bomMatches = useMemo(() => {
+    const q = bomQuery.trim().toLowerCase();
+    return boms.filter(b => b.status !== "Archived" && (!q || `${b.code ?? ""} ${b.name ?? ""} ${b.outputItemName ?? ""}`.toLowerCase().includes(q))).slice(0, 12);
+  }, [boms, bomQuery]);
+  const pickedBom = boms.find(b => b.id === bomId);
+  function onSkuQty(key: string, v: string) { setBatchTyped(null); setPackQty(p => ({ ...p, [key]: v })); }
+  function onBatches(v: string) {
+    setBatchTyped(v);
+    const scaled = scaleOutputsToBatches(lines, Number(v.replace(",", ".")), batchSizeBase);
+    if (scaled) setPackQty(Object.fromEntries(outs.map((o: any, i: number) => [String(o.skuId), scaled[i] > 0 ? String(scaled[i]) : (packQty[String(o.skuId)] ?? "")])));
+  }
 
   async function save() {
     if (!bomId || !bom) { setErr("Choose a BOM."); return; }
@@ -205,31 +232,67 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
     <Drawer title="Schedule a manufacturing order" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Schedule MO" />}>
       <div className="space-y-6">
         <Section title="Order">
-          <Field label="Recipe (BOM)" required>
-            <SelectField inset value={bomId} onChange={e => onBom(e.target.value)}>
-              <option value="">Select a BOM…</option>
-              {boms.map(b => <option key={b.id} value={b.id}>{b.code ? `${b.code} · ` : ""}{b.outputItemName || b.name}</option>)}
-            </SelectField>
+          <Field label="Recipe (BOM)" required hint="Search by BOM ID or name.">
+            {pickedBom ? (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0 text-[13px] text-stone-100 truncate"><span className="font-mono text-sky-400 mr-2">{pickedBom.code || "—"}</span>{pickedBom.name}</div>
+                <button type="button" onClick={() => onBom("")} className="text-[13px] font-semibold text-sky-400 hover:underline">Change</button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input className={controlInset} value={bomQuery} autoComplete="off" placeholder="Type a BOM ID or name" aria-label="Recipe (BOM)"
+                  onChange={e => { setBomQuery(e.target.value); setBomOpen(true); }} onFocus={() => setBomOpen(true)} onBlur={() => setTimeout(() => setBomOpen(false), 150)} />
+                {bomOpen && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 max-h-64 overflow-auto rounded-lg border border-stone-700 bg-stone-900 shadow-lg">
+                    {bomMatches.length === 0 && <div className="px-3 py-2 text-[12px] text-stone-500">No BOM matches.</div>}
+                    {bomMatches.map(b => (
+                      <button key={b.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBomOpen(false); setBomQuery(""); onBom(b.id); }}
+                        className="w-full text-left px-3 py-2 hover:bg-stone-800 flex items-baseline gap-2 min-w-0">
+                        <span className="text-[12px] font-mono text-sky-400 flex-shrink-0">{b.code || "—"}</span>
+                        <span className="text-[13px] text-stone-100 truncate">{b.name}</span>
+                        {b.outputItemName && <span className="text-[11px] text-stone-500 truncate">{b.outputItemName}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </Field>
 
           {bom && (
-            <Field label="Output packs — qty to produce">
-              {outs.length === 0 ? <p className="text-[12px] text-amber-400">This BOM has no output — set its output item first.</p> : (
-                <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/60">
-                  {outs.map((o: any) => (
-                    <div key={String(o.skuId)} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[12.5px] text-stone-100 truncate">{o.item?.name ?? "Pack"}</div>
-                        <div className="text-[11px] text-stone-500">{o.base ? "no output packs on this BOM — produced in its base unit" : `${Number(o.qty)} ${baseUom}/pack`}</div>
-                      </div>
-                      <input type="number" value={packQty[String(o.skuId)] ?? ""} onChange={e => setPackQty(p => ({ ...p, [String(o.skuId)]: e.target.value }))} placeholder="0" className={`${controlInset} !h-8 w-24 text-right tabular-nums`} />
-                      <span className="text-[11px] text-stone-500 w-16">{o.base ? baseUom || "units" : "packs"}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {baseTotal > 0 && <p className="text-[11px] text-stone-400 mt-1.5">→ produces <span className="text-stone-200 font-medium">{baseTotal.toLocaleString()} {baseUom}</span> of {bom.outputItem?.name} in total.</p>}
-            </Field>
+            <>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                <Field label="BOM batch type" hint="Always the potential output."><div className={`${controlInset} flex items-center opacity-70`}>Output</div></Field>
+                <Field label="BOM batch size"><div className={`${controlInset} flex items-center opacity-70 tabular-nums`}>{qtyFmt(bom.batch?.size ?? batchSizeBase)} {batchUom}</div></Field>
+                <Field label="# of batches" hint="Calculated from the quantities below. Type a number to scale them in proportion.">
+                  <CalcInput className={`${controlInset} text-right tabular-nums`} value={batchesShown} onChange={onBatches} placeholder="0" aria-label="Number of batches" />
+                </Field>
+                <Field label="Expected output qty"><div className={`${controlInset} flex items-center opacity-70 tabular-nums`}>{qtyFmt(expectedOut)} {batchUom}</div></Field>
+              </div>
+
+              <Field label="Expected qty per output" hint="How much of each SKU to make, in packs of that SKU. The SKU quantities decide the number of batches.">
+                {outs.length === 0 ? <p className="text-[12px] text-amber-400">This BOM has no output — set its output item first.</p> : (
+                  <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/60">
+                    {outs.map((o: any) => {
+                      const q = Number(packQty[String(o.skuId)]) || 0;
+                      return (
+                        <div key={String(o.skuId)} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] text-stone-100 truncate">{o.item?.name ?? "Pack"}</div>
+                            <div className="text-[11px] text-stone-500">{o.base ? "no output packs on this BOM, produced in its base unit" : `${qtyFmt(o.qty)} ${baseUom} per pack`}{q > 0 ? ` · ${qtyFmt(q * Number(o.qty))} ${baseUom} in total` : ""}</div>
+                          </div>
+                          <CalcInput className={`${controlInset} !h-8 !w-28 text-right tabular-nums`} value={packQty[String(o.skuId)] ?? ""} onChange={v => onSkuQty(String(o.skuId), v)} placeholder="0" aria-label={`Quantity of ${o.item?.name ?? "pack"}`} />
+                          <span className="text-[12px] text-stone-500 w-12">{o.base ? baseUom || "units" : "packs"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {warnings.includes("none-allocated") && <p className="text-[12px] text-amber-400 mt-1.5">Nothing is allocated yet. Enter a quantity for at least one SKU.</p>}
+                {warnings.includes("part-batch") && <p className="text-[12px] text-amber-400 mt-1.5">This makes {qtyFmt(derivedBatches)} batches, not a whole number. Ingredients are planned in proportion.</p>}
+                {baseTotal > 0 && <p className="text-[11px] text-stone-400 mt-1.5">Produces <span className="text-stone-200 font-medium">{qtyFmt(expectedOut)} {batchUom}</span> of {bom.outputItem?.name} in total. Ingredient cost is shared between the SKUs in proportion to these quantities; packaging is charged to its own SKU.</p>}
+              </Field>
+            </>
           )}
         </Section>
 
