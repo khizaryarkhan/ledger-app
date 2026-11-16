@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { kindOf } from "@/lib/inventory/item-kinds";
 import { validateBom, weightBalance, nextCopyCode, type BomInput } from "@/lib/inventory/bom-rules";
 import { batchToBase, batchUnitError } from "@/lib/inventory/batch-unit";
 import { convert, dimensionOf, uom as uomOf } from "@/lib/inventory/uom";
@@ -56,7 +55,6 @@ export function BomBuilderDrawer({ bomId, items, onClose, onSaved, onItemCreated
   const [skusByItem, setSkusByItem] = useState<Record<string, SupplierSkuLite[] | undefined>>({});
   const [scaleInputs, setScaleInputs] = useState(true);
   const asked = useRef<Set<string>>(new Set());
-  const skuAsked = useRef<Set<string>>(new Set());
   /** The batch (in base units) the input amounts currently correspond to; null until known. */
   const committedBase = useRef<number | null>(null);
 
@@ -92,18 +90,13 @@ export function BomBuilderDrawer({ bomId, items, onClose, onSaved, onItemCreated
   useEffect(() => { getJson("/api/production/work-centres").then(d => setCentres(Array.isArray(d) ? d.filter((c: any) => c.status === "Active") : [])); }, []);
   useEffect(() => { getJson("/api/inventory/boms").then(d => setBoms(Array.isArray(d) ? d.filter((b: any) => b.id !== bomId).map((b: any) => ({ id: b.id, code: b.code, name: b.name, outputItemName: b.outputItemName })) : [])); }, [bomId]);
 
-  // Every packaged SKU of every producible item: the output grid offers them all until one is chosen.
+  // Every packaged SKU of every producible item, in ONE call: the output grid offers them all until one is chosen.
   useEffect(() => {
-    for (const i of all) {
-      if (!kindOf(i.productType).producible || skuAsked.current.has(i.id)) continue;
-      skuAsked.current.add(i.id);
-      getJson(`/api/inventory/items/${i.id}`).then(d => {
-        const rows: any[] = Array.isArray(d?.skus) ? d.skus : [];
-        if (!rows.length) return;
-        setAllSkus(prev => [...prev, ...rows.filter(r => !prev.some(p => p.id === r.id)).map(r => ({ id: r.id, name: r.skuName || r.skuCode || "SKU", code: r.skuCode ?? null, itemId: i.id, content: Number(r.innerUnitPackSize) || 0 }))]);
-      });
-    }
-  }, [all]);
+    getJson("/api/inventory/skus").then(rows => {
+      if (!Array.isArray(rows)) return;
+      setAllSkus(rows.map((r: any) => ({ id: r.id, name: r.skuName || r.skuCode || "SKU", code: r.skuCode ?? null, itemId: r.itemId, content: Number(r.innerUnitPackSize) || 0 })));
+    });
+  }, []);
 
   useEffect(() => {
     if (!bomId) return;

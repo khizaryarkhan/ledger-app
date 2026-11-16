@@ -888,7 +888,7 @@ Approved from a prototype walk-through. Migration `0137` (additive `boms.batch_u
 - **A removed output SKU never re-tags its packaging** onto the survivor (`syncPackTags`): the line stays untagged and
   Save is blocked until the user chooses.
 - **Not built / not verified**: the UI was typechecked and unit-tested but not clicked through (dev server cannot reach
-  Neon). `/api/inventory/skus` has no GET, so the builder fetches each producible item's SKUs on open. Packaging
+  Neon). The builder loads every producible item's SKUs in ONE call (`GET /api/inventory/skus`). The MO detail drawer has no UI for editing planned outputs (only capturing actual output, which already takes any pack level or base unit), so the per-SKU unit picker lives on the schedule drawer only. Packaging
   substitutes have no supplier-SKU limits. A packaging item serving two SKUs appears as two material rows on the MO,
   each carrying the same substitute list at the total planned quantity (conservative, pre-existing shape).
 
@@ -5847,6 +5847,6 @@ a planner accepts it by allocating its lots, never automatically.
   and left the main lot alone, `for_item_id` recorded, MO detail names it, void restored the lot, unknown
   and other-SKU lots refused, allowed lot allocated, nothing left behind. **Not clicked through in a
   browser** (dev server cannot reach Neon).
-- **Not built**: a substitute for PACKAGING (the BOM builder only offers them for ingredients); a
-  stock count or opening balance that records a supplier SKU; "units" for a lot's supplier SKU in
-  `consumptionUnits` (still keyed on supplier id).
+- **Packaging substitutes were built later (2026-11-16, see "BOM batch unit, SKU-only outputs...")**: ratio per
+  one main unit, same allocation/completion path. **Still not built**: a stock count or opening balance that
+  records a supplier SKU; "units" for a lot's supplier SKU in `consumptionUnits` (still keyed on supplier id).

@@ -1,7 +1,8 @@
-/** POST /api/inventory/skus (finished-product SKU) · PATCH ?id= · DELETE ?id= */
+/** GET /api/inventory/skus (every SKU of a producible item) · POST (finished-product SKU) · PATCH ?id= · DELETE ?id= */
 
 import { db } from "@/db";
 import { itemSkus, apItems } from "@/db/schema";
+import { kindOf } from "@/lib/inventory/item-kinds";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { skuReferences, blockerMessage } from "@/lib/inventory/references";
@@ -32,6 +33,21 @@ function skuValues(b: any) {
  *  pack counts and every shipped/received quantity are derived from them. */
 const QUANTITY_FIELDS = ["innerUnitPackSize", "unitsInAddlInnerPack", "unitsInOuterPack"] as const;
 const norm = (x: any) => (x == null || String(x).trim() === "" ? null : Number(x));
+
+/**
+ * Every packaged SKU of every PRODUCIBLE item, in one call. The BOM builder offers them all as output lines
+ * until one is chosen; it used to fetch each item's detail separately (one request per producible item).
+ * Read-only and org-scoped; any org user may read it, like the items they belong to.
+ */
+export async function GET() {
+  const { error, orgId } = await requireOrg();
+  if (error) return error;
+  const rows = await db.select({
+    id: itemSkus.id, itemId: itemSkus.itemId, skuName: itemSkus.skuName, skuCode: itemSkus.skuCode,
+    innerUnitPackSize: itemSkus.innerUnitPackSize, productType: apItems.productType,
+  }).from(itemSkus).innerJoin(apItems, eq(apItems.id, itemSkus.itemId)).where(eq(itemSkus.orgId, orgId!));
+  return ok(rows.filter(r => kindOf(r.productType).producible).map(({ productType: _t, ...r }) => r));
+}
 
 export async function POST(req: Request) {
   const { error, orgId, role } = await requireOrg();

@@ -280,7 +280,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/inventory/shipping", methods: ["GET","POST"] },
   { path: "/api/inventory/shipping/[id]", methods: ["DELETE","GET","PATCH"], body: ["carrier","deliveredDate","trackingNo"] },
   { path: "/api/inventory/shipping/invoice", methods: ["POST"] },
-  { path: "/api/inventory/skus", methods: ["DELETE","PATCH","POST"], params: ["id"] },
+  { path: "/api/inventory/skus", methods: ["DELETE","GET","PATCH","POST"], params: ["id"] },
   { path: "/api/inventory/so-open", methods: ["GET"], params: ["customerId"] },
   { path: "/api/inventory/supplier-skus", methods: ["DELETE","GET","PATCH","POST"], params: ["id","supplierId"], body: ["isPreferred","leadTimeDays","priceBasis"] },
   { path: "/api/inventory/transfers", methods: ["GET","POST"], params: ["limit","locationId"] },
