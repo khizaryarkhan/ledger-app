@@ -163,7 +163,8 @@ function css(): string {
     .findings li:before{content:"";position:absolute;left:0;top:9px;width:6px;height:6px;border-radius:50%;background:#9ca3af}
     .findings li.good:before{background:#15803d}.findings li.watch:before{background:#b45309}.findings li.bad:before{background:#b91c1c}
     table.lines{width:100%;border-collapse:collapse;margin-top:4px;font-size:10px}
-    table.lines th{font-size:8px;letter-spacing:.07em;text-transform:uppercase;color:#8a8f99;text-align:left;padding:5px 8px;border-bottom:1px solid #e3e3e0}
+    table.lines th{font-size:8px;letter-spacing:.07em;text-transform:uppercase;color:#8a8f99;text-align:left;padding:5px 8px;border-bottom:1px solid #e3e3e0;white-space:nowrap}
+    table.lines td.nw{white-space:nowrap}
     table.lines td{padding:4.5px 8px;border-bottom:1px solid #eceeec}
     table.lines tr{break-inside:avoid;page-break-inside:avoid}
     table.lines th.r,table.lines td.r{text-align:right}
@@ -208,9 +209,9 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
   const outputRows = d.outputs.map(o => {
     const diff = o.producedPacks - o.plannedPacks;
     const perPack = o.producedPacks > 0 ? o.cost / o.producedPacks : o.unitCost * o.unitContent;
-    return `<tr><td>${esc(o.label)}<div class="muted" style="font-size:9px">${fmt.qty(o.unitContent)} ${esc(o.baseUom)} per pack</div></td><td class="r num">${fmt.qty(o.plannedPacks)}</td><td class="r num">${fmt.qty(o.producedPacks)}</td>
+    return `<tr><td>${esc(o.label)}</td><td class="nw">Pack of ${fmt.qty(o.unitContent)} ${esc(o.baseUom)}</td><td class="r num">${fmt.qty(o.plannedPacks)}</td><td class="r num">${fmt.qty(o.producedPacks)}</td>
       <td class="r num ${Math.abs(diff) < 1e-6 ? "" : diff < 0 ? "bad" : "flag"}">${Math.abs(diff) < 1e-6 ? "—" : sign(diff) + fmt.qty(diff)}</td>
-      <td>${esc(o.lotNo ?? "—")}</td><td>${dateOrDash(o.bestBefore ?? o.expiryDate)}</td>
+      <td class="nw">${esc(o.lotNo ?? "—")}</td><td class="nw">${dateOrDash(o.bestBefore ?? o.expiryDate)}</td>
       <td class="r num">${perPack > 0 ? fmt.num2(perPack) : "—"}</td><td class="r num">${o.cost > 0 ? fmt.num2(o.cost) : "—"}</td></tr>`;
   });
   const outputTotal = sum(d.outputs.map(o => o.cost));
@@ -271,8 +272,8 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     <div class="facts">${facts.map(([k, v]) => `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
     <div class="kpis">${kpis}</div>
     ${section("What stood out", findingsHtml)}
-    ${section("Output", table([["Pack"], ["Planned (packs)", true], ["Produced (packs)", true], ["Difference", true], ["Lot"], ["Best before"], ["Cost per pack", true], ["Total cost", true]], outputRows,
-      `<tr class="tot"><td colspan="7">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`))}
+    ${section("Output", table([["Pack"], ["Unit"], ["Planned", true], ["Produced", true], ["Difference", true], ["Lot"], ["Best before"], ["Unit cost", true], ["Cost", true]], outputRows,
+      `<tr class="tot"><td colspan="8">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`))}
     ${section("Materials: planned vs used", table([["Material"], ["Unit"], ["Planned", true], ["Used", true], ["Variance", true], ["Unit cost", true], ["Cost", true]], materialRows,
       `<tr class="tot"><td colspan="6">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`))}
     ${section("Cost build-up", costHtml)}

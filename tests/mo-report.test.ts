@@ -88,7 +88,8 @@ describe("MO report HTML", () => {
     expect(html).toContain("Packaging for 4 oz bottle [011]");
     expect(html).toContain("0.05 / g");
     expect(html).toContain("Total output cost");
-    expect(html).toContain("Cost per pack");
+    expect(html).toContain("Pack of 4 oz");
+    expect(html).not.toContain("Planned (packs)");
     expect(html).toContain("production run number");
     expect(html).toContain("100 × 4 oz bottle [011]");
   });
