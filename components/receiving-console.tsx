@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
+import { suggestLot } from "@/lib/inventory/lot-suggestion-client";
 import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes, Pencil, Search, Clock } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
@@ -416,6 +417,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
           <LotCapture
             po={selectedPo} line={selectedLine} items={items}
             draft={drafts[selectedLine.lineId]} onStage={stageLine}
+            usedLots={Object.entries(drafts).filter(([id]) => id !== selectedLine.lineId).flatMap(([, d]) => d.lines.map((l: any) => l.lotNo || "")).filter(Boolean)}
             onBack={() => setView({ v: "items", poId: selectedPo.id })}
           />
         )}
@@ -849,8 +851,10 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
 
 /* ----------------------------- Item: lot capture -------------------------- */
 
-function LotCapture({ po, line, items, draft, onStage, onBack }: {
+function LotCapture({ po, line, items, draft, usedLots, onStage, onBack }: {
   po: OpenPo; line: PoLine; items: any[];
+  /** Lot numbers already staged on OTHER lines of this receipt. */
+  usedLots: string[];
   draft?: DraftLine; onStage: (lineId: string, draft: DraftLine) => void; onBack: () => void;
 }) {
   const item = items.find(i => i.id === line.itemId);
@@ -903,9 +907,9 @@ function LotCapture({ po, line, items, draft, onStage, onBack }: {
     // suggestion here would silently overwrite what was staged.
     if (fpwip || draft?.lines?.length) return;
     // One suggestion for the single starting row — accept it or overwrite.
-    fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).then(s => {
-      if (s?.code) setRows(rs => rs.map((r, i) => i === 0 ? { ...r, lotNo: s.code } : r));
-    }).catch(() => {});
+    suggestLot(usedLots).then(code => {
+      if (code) setRows(rs => rs.map((r, i) => i === 0 ? { ...r, lotNo: code } : r));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.lineId]);
 
@@ -916,8 +920,8 @@ function LotCapture({ po, line, items, draft, onStage, onBack }: {
     const row = newLotRow(remaining > 0 ? String(remaining) : "", unitIdx);
     setRows(rs => [...rs, row]);
     if (!fpwip) {
-      const s = await fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).catch(() => null);
-      if (s?.code) update(row.key, { lotNo: s.code });
+      const code = await suggestLot([...usedLots, ...rows.map(r => r.lotNo)]);
+      if (code) update(row.key, { lotNo: code });
     }
   }
   function removeRow(key: string) { setRows(rs => rs.filter(r => r.key !== key)); }
@@ -1095,8 +1099,8 @@ function AdhocReceive({ suppliers: baseSuppliers, items: baseItems, locationId, 
     const it = created ?? items.find(x => x.id === itemId);
     setLine(key, { itemId, itemName: it?.name ?? "", baseUom: it?.baseUom ?? null, unitCost: it?.unitCost != null ? String(it.unitCost) : "", lotNo: "" });
     if (it && !isFPWIP(it)) {
-      const s = await fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).catch(() => null);
-      if (s?.code) setLine(key, { lotNo: s.code });
+      const code = await suggestLot(lines.filter(l => l.key !== key).map(l => l.lotNo));
+      if (code) setLine(key, { lotNo: code });
     }
   }
 

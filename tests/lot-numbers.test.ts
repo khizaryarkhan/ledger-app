@@ -21,6 +21,17 @@ describe("lot numbers within one receipt", () => {
   });
 });
 
+describe("no screen pre-fills every row with the same lot number", () => {
+  it("asks for a suggestion that steps past the numbers other rows already hold", () => {
+    for (const f of ["components/receiving-console.tsx", "components/new-document-form.tsx"]) {
+      const src = readFileSync(f, "utf8");
+      expect(src, f).not.toMatch(/fetch\(`\/api\/inventory\/lot-suggestion`\)/);
+      expect(src, f).toMatch(/lot-suggestion-client/);
+    }
+    expect(readFileSync("app/api/inventory/lot-suggestion/route.ts", "utf8")).toContain("peekDocNumberSkipping");
+  });
+});
+
 describe("posting a goods receipt never leaves the ledger ahead of the stock", () => {
   const src = readFileSync("lib/inventory/receiving.ts", "utf8");
   const post = src.slice(src.indexOf("export async function postGoodsReceipt"), src.indexOf("async function preflightReceipt"));

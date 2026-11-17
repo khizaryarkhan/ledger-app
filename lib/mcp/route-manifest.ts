@@ -261,7 +261,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/inventory/locations", methods: ["GET","POST"] },
   { path: "/api/inventory/locations/[id]", methods: ["DELETE","PATCH"] },
   { path: "/api/inventory/locations/[id]/stock", methods: ["GET"] },
-  { path: "/api/inventory/lot-suggestion", methods: ["GET"] },
+  { path: "/api/inventory/lot-suggestion", methods: ["GET"], params: ["skip"] },
   { path: "/api/inventory/lots", methods: ["GET"], params: ["q"] },
   { path: "/api/inventory/lots/[id]/genealogy", methods: ["GET"] },
   { path: "/api/inventory/lots/[id]/trace-report", methods: ["GET"] },

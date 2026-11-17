@@ -22,6 +22,7 @@ import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
 import { sourcingViolations, SOURCING_ENFORCED_TYPES, allowsAnySupplier } from "@/lib/inventory/sourcing";
 import { calcLineTax, type TaxCodeRates } from "@/lib/accounting/tax-engine";
+import { suggestLot as suggestLotNo } from "@/lib/inventory/lot-suggestion-client";
 
 // Finished Product / Work in Progress lots are always system-generated at
 // commit time — never a user-editable field here (see the "Receive to lot"
@@ -767,7 +768,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
       const ls = linksFor(it.id);
       setLineSku(i, it, (ls.find((x: any) => x.isPreferred) ?? ls[0])?.id ?? null);
       if (it.lotTracked && !isFPWIP(it) && !cfg.trade) {
-        fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).then(s => { if (s?.code) setLine(i, { lotNo: s.code }); }).catch(() => {});
+        suggestLotNo(lines.filter((_, j) => j !== i).map(l => l.lotNo)).then(code => { if (code) setLine(i, { lotNo: code }); });
       }
       return;
     }
@@ -782,7 +783,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
     // Pre-fill a suggested lot code for Stock Item / Raw Material purchases —
     // FP/WIP items never get an editable suggestion (see isFPWIP above).
     if (cfg.side === "purchase" && it.lotTracked && !isFPWIP(it)) {
-      fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).then(s => { if (s?.code) setLine(i, { lotNo: s.code }); }).catch(() => {});
+      suggestLotNo(lines.filter((_, j) => j !== i).map(l => l.lotNo)).then(code => { if (code) setLine(i, { lotNo: code }); });
     }
   }
   // On a purchase order, load the item's packaging so the line can be ordered

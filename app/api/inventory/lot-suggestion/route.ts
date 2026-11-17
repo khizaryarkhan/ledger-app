@@ -12,13 +12,15 @@
 
 import { requireOrg, ok } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { peekDocNumber } from "@/lib/accounting/numbering";
+import { peekDocNumberSkipping } from "@/lib/accounting/numbering";
 
-export async function GET() {
+/** `?skip=A,B` = lot numbers already used by other rows of the same unposted visit; the suggestion steps past them. */
+export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "manufacturing");
   if (modErr) return modErr;
-  const code = await peekDocNumber(orgId!, "LotSIRM");
+  const skip = (new URL(req.url).searchParams.get("skip") ?? "").split(",").map(s => s.trim().slice(0, 64)).filter(Boolean).slice(0, 200);
+  const code = await peekDocNumberSkipping(orgId!, "LotSIRM", skip);
   return ok({ code });
 }

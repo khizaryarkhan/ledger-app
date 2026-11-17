@@ -107,6 +107,25 @@ export async function peekDocNumber(orgId: string, type: DocType): Promise<strin
   return formatDocNumber(row.prefix, row.nextNo, row.padding);
 }
 
+/**
+ * The first number at or after the next one that is NOT in `taken`, without consuming anything. The Receiving
+ * screen suggests lot numbers per row while earlier rows of the same visit are still unposted, so a plain peek
+ * handed every row the same number (lot numbers are unique, so all but the first failed — see
+ * lib/inventory/lot-numbers.ts).
+ */
+export async function peekDocNumberSkipping(orgId: string, type: DocType, taken: string[] = []): Promise<string> {
+  const d = DEFAULTS.get(type)!;
+  await ensureSequence(orgId, type, d.prefix, d.padding);
+  const [row] = await db.select().from(documentSequences)
+    .where(and(eq(documentSequences.orgId, orgId), eq(documentSequences.docType, type)));
+  const used = new Set(taken.map(t => t.trim().toLowerCase()).filter(Boolean));
+  for (let i = 0; i < 200; i++) {
+    const code = formatDocNumber(row.prefix, row.nextNo + i, row.padding);
+    if (!used.has(code.toLowerCase())) return code;
+  }
+  return formatDocNumber(row.prefix, row.nextNo + 200, row.padding);
+}
+
 /** Atomically consume and return the next document number. */
 export async function nextDocNumber(orgId: string, type: DocType): Promise<string> {
   const d = DEFAULTS.get(type)!;

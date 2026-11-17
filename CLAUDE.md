@@ -955,12 +955,16 @@ failure was swallowed, and the entry kept the full debit. Lost: chicken 464 oz (
   exists in stock is refused BY NAME before anything posts; a lot that still fails to create now voids the whole
   receipt and says so, instead of being swallowed. `goods_receipt_lines.lot_no` records the number the lot
   really got. `tests/lot-numbers.test.ts` pins the rule and, at source level, that the swallow is gone.
-- **Not repaired**: GRN-0004 on the Test Organization still has the gap, and its salt consumption (5,000 g
-  against 1.2 g planned, at zero cost) came from working around the missing salt lot. A repair is a decision for
-  the owner of that data; it must add the missing lots WITHOUT touching the GL.
-- **Still open, found not fixed**: the Receiving screen still pre-fills identical suggestions (harmless now, the
-  server renumbers); completion warns but never stops a material used 400,000% over plan; a PO header stays
-  `Open` after every line is closed or received; no unit-price sanity check (salt entered at 2.00 per gram).
+- **Root cause also fixed at the screen**: `lib/inventory/lot-suggestion-client.ts` (`suggestLot`) asks
+  `GET /api/inventory/lot-suggestion?skip=…`, which steps past numbers other unposted rows already hold
+  (`peekDocNumberSkipping`). Used by the Receiving screen (per-line, per-row, ad hoc) and the Bill/Expense form.
+- **Repaired on production (2026-11-17, with the owner's approval)**: GRN-0004's three lot-less lines (chicken 80
+  oz and 384 oz, salt 250 g) got lots LOT-S-000008..10 through `commitReceipt`; the GL was not touched.
+  `inventory_vs_gl` now passes for the Test Organization. Its MO-0001 salt consumption (5,000 g against 1.2 g
+  planned, at zero cost, a workaround for the missing lot) is NOT redone: that is a void-and-redo of a posted run.
+- **Still open, found not fixed**: completion warns but never stops a material used 400,000% over plan; a PO
+  header stays `Open` after every line is closed or received; no unit-price sanity check (salt entered at 2.00 per
+  gram); the bill-from-receipt path had no bill to test.
 
 ## Module information architecture (Phase 1a, 2026-09-06)
 
