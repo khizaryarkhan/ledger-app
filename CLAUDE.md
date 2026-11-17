@@ -941,6 +941,11 @@ lot-level traceability.
   (ingredients, then packaging per output pack) with the unit and a unit cost on every row; a packaging item that serves
   several packs stays ONE shared row because consumptions carry no pack. Output shows cost per pack and total cost per pack
   (plus a total). Completions label the BUILD- number as the production run reference and show the packs behind "good output".
+- **Lot trace of a multi-pack run (2026-11-17)**: a run that makes several output lots consumes its materials once, and the
+  trace charged EVERY lot with all of them, so each read "REVIEW · off by 49.20" against its own 49.20 value. `lotAncestors`
+  now scales a production lot's consumption edges by its share of the run's output value (`lib/inventory/lot-share.ts`).
+  Each lot's rolled-up cost now equals its own value; the quantities shown are that lot's attributable share (salt 0.6 g, not
+  1.2 g). A SKU's own packaging is spread by that same value share, not charged exactly to its pack (consumptions carry no pack).
 - **Not built / not verified**: no company address or phone (no org field carries one), no reviewer sign-off storage
   (the page prints blank signature lines), and it was rendered locally from synthetic data only, never against a real
   order or on Vercel's Chromium.

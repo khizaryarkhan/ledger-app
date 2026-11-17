@@ -20,6 +20,7 @@
  */
 
 import { QTY_EPSILON } from "@/lib/inventory/round";
+import { lotShareOfRun } from "@/lib/inventory/lot-share";
 import { db } from "@/db";
 import {
   inventoryLots, inventoryMovements, apItems, users,
@@ -122,11 +123,17 @@ export async function lotAncestors(orgId: string, lotId: string, depth = 0): Pro
     if (!run) return [];
     const by = await userName(orgId, run.createdBy);
     const consumptions = await db.select().from(productionConsumptions).where(and(eq(productionConsumptions.orgId, orgId), eq(productionConsumptions.runId, run.id)));
+    // A run with several output lots consumed its materials once: this lot carries only its share, or its
+    // rolled-up cost is the whole run's and never agrees with the lot's own value.
+    const runOuts = await db.select({ lotId: productionOutputs.lotId, amount: productionOutputs.amount }).from(productionOutputs)
+      .where(and(eq(productionOutputs.orgId, orgId), eq(productionOutputs.runId, run.id)));
+    const mine = runOuts.filter(o => o.lotId === lotId).reduce((s, o) => s + Number(o.amount ?? 0), 0);
+    const share = lotShareOfRun(mine, runOuts.map(o => Number(o.amount ?? 0)));
     const edges: AncestorEdge[] = [];
     for (const c of consumptions) {
       const consumedLot = await getLotSummary(orgId, c.lotId);
       if (!consumedLot) continue;
-      const qtyConsumed = Number(c.qty);
+      const qtyConsumed = Number(c.qty) * share;
       edges.push({
         lot: consumedLot, qtyConsumed, costContribution: round2(qtyConsumed * consumedLot.unitCost),
         via: { kind: "production", label: `Production ${run.runNo ?? ""}`, refId: run.id, date: run.producedDate, by, notes: run.notes ?? null },
