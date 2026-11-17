@@ -24,14 +24,16 @@ export type MoReportOutput = {
   label: string; plannedPacks: number; producedPacks: number; unitContent: number; baseUom: string;
   lotNo: string | null; bestBefore: string | null; expiryDate: string | null; cost: number; unitCost: number;
 };
-export type MoReportMaterial = { name: string; kind: "ingredient" | "packaging"; uom: string; planned: number; used: number; cost: number; substitutes: string[] };
+/** `forPack` = the output pack a packaging material is for; null = shared by every pack (all ingredients, shared packaging). */
+export type MoReportMaterial = { name: string; kind: "ingredient" | "packaging"; uom: string; planned: number; used: number; cost: number; substitutes: string[]; forPack?: string | null };
 export type MoReportOperation = { name: string; plannedHours: number; actualHours: number | null; plannedCost: number };
-export type MoReportRun = { runNo: string | null; date: string | null; good: number; rejected: number; materialCost: number; labourCost: number; overheadCost: number; scrapCost: number; rejectReason: string | null };
+/** `packs` = what the good output was, in packs ("24 × 4oz, 12 × 8oz"). */
+export type MoReportRun = { runNo: string | null; date: string | null; good: number; rejected: number; materialCost: number; labourCost: number; overheadCost: number; scrapCost: number; rejectReason: string | null; packs?: string };
 
 export type MoReportData = {
   orgName: string; logoUrl: string | null;
   mo: {
-    moNo: string; status: string; productName: string; baseUom: string; priority: string;
+    moNo: string; status: string; productName: string; bomCode?: string | null; bomName?: string | null; baseUom: string; priority: string;
     scheduledDate: string | null; dueDate: string | null; originalDueDate: string | null; rescheduleCount: number;
     delayReason: string | null; delayNote: string | null;
     startedAt: string | null; completedAt: string | null; createdBy: string | null; notes: string | null; expYield: number | null;
@@ -195,7 +197,7 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
   ].join("");
 
   const facts: [string, string][] = [
-    ["Product", m.productName], ["Priority", m.priority], ["Scheduled", dateOrDash(m.scheduledDate)], ["Due", dateOrDash(m.dueDate)],
+    ["BOM", m.bomCode || m.bomName ? [m.bomCode, m.bomName].filter(Boolean).join(" · ") : m.productName], ["Priority", m.priority], ["Scheduled", dateOrDash(m.scheduledDate)], ["Due", dateOrDash(m.dueDate)],
     ["Started", instant(m.startedAt)], ["Finished", instant(m.completedAt)], ["Created by", m.createdBy ?? "—"], ["Completions", String(d.runs.length)],
   ];
 
@@ -205,19 +207,37 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
 
   const outputRows = d.outputs.map(o => {
     const diff = o.producedPacks - o.plannedPacks;
-    return `<tr><td>${esc(o.label)}</td><td class="r num">${fmt.qty(o.plannedPacks)}</td><td class="r num">${fmt.qty(o.producedPacks)}</td>
+    const perPack = o.producedPacks > 0 ? o.cost / o.producedPacks : o.unitCost * o.unitContent;
+    return `<tr><td>${esc(o.label)}<div class="muted" style="font-size:9px">${fmt.qty(o.unitContent)} ${esc(o.baseUom)} per pack</div></td><td class="r num">${fmt.qty(o.plannedPacks)}</td><td class="r num">${fmt.qty(o.producedPacks)}</td>
       <td class="r num ${Math.abs(diff) < 1e-6 ? "" : diff < 0 ? "bad" : "flag"}">${Math.abs(diff) < 1e-6 ? "—" : sign(diff) + fmt.qty(diff)}</td>
-      <td>${esc(o.lotNo ?? "—")}</td><td>${dateOrDash(o.bestBefore ?? o.expiryDate)}</td><td class="r num">${o.unitCost > 0 ? fmt.num2(o.unitCost) : "—"}</td></tr>`;
+      <td>${esc(o.lotNo ?? "—")}</td><td>${dateOrDash(o.bestBefore ?? o.expiryDate)}</td>
+      <td class="r num">${perPack > 0 ? fmt.num2(perPack) : "—"}</td><td class="r num">${o.cost > 0 ? fmt.num2(o.cost) : "—"}</td></tr>`;
   });
+  const outputTotal = sum(d.outputs.map(o => o.cost));
 
-  const materialRows = ins.materialVariances.map((v, i) => {
-    const mat = d.materials[i];
+  // Materials grouped by what they are for: ingredients (shared by every pack), then packaging per output pack.
+  // Each row says what unit its numbers are in and what one unit cost.
+  const matRow = (i: number) => {
+    const v = ins.materialVariances[i]; const mat = d.materials[i];
     const subs = mat.substitutes.length ? `<div class="muted" style="font-size:9px">Substituted with ${esc(mat.substitutes.join(", "))}</div>` : "";
-    return `<tr><td>${esc(v.name)}${subs}</td><td>${mat.kind === "packaging" ? "Packaging" : "Ingredient"}</td>
-      <td class="r num">${fmt.qty(v.planned)} ${esc(v.uom)}</td><td class="r num">${fmt.qty(v.used)} ${esc(v.uom)}</td>
+    const unitCost = v.used > 0 ? mat.cost / v.used : null;
+    return `<tr><td>${esc(v.name)}${subs}</td><td>${esc(v.uom || "—")}</td>
+      <td class="r num">${fmt.qty(v.planned)}</td><td class="r num">${fmt.qty(v.used)}</td>
       <td class="r num ${v.flagged ? "flag" : ""}">${v.variance === 0 ? "—" : `${sign(v.variance)}${fmt.qty(v.variance)}${v.pct != null ? ` (${sign(v.pct)}${v.pct}%)` : ""}`}</td>
+      <td class="r num">${unitCost != null && unitCost > 0 ? `${fmt.num2(unitCost)} / ${esc(v.uom)}` : "—"}</td>
       <td class="r num">${mat.cost > 0 ? fmt.num2(mat.cost) : "—"}</td></tr>`;
-  });
+  };
+  const groupRow = (title: string, cost: number) =>
+    `<tr><td colspan="6" style="background:#fafaf9;font-weight:700;font-size:9.5px">${esc(title)}</td><td class="r num" style="background:#fafaf9;font-weight:700">${fmt.num2(cost)}</td></tr>`;
+  const idx = d.materials.map((_, i) => i);
+  const groups: { title: string; ids: number[] }[] = [];
+  const ing = idx.filter(i => d.materials[i].kind === "ingredient");
+  if (ing.length) groups.push({ title: "Ingredients (used across every pack)", ids: ing });
+  const packLabels = [...new Set(idx.filter(i => d.materials[i].kind === "packaging" && d.materials[i].forPack).map(i => d.materials[i].forPack as string))];
+  for (const p of packLabels) groups.push({ title: `Packaging for ${p}`, ids: idx.filter(i => d.materials[i].kind === "packaging" && d.materials[i].forPack === p) });
+  const sharedPack = idx.filter(i => d.materials[i].kind === "packaging" && !d.materials[i].forPack);
+  if (sharedPack.length) groups.push({ title: "Packaging (shared across packs)", ids: sharedPack });
+  const materialRows = groups.flatMap(g => [groupRow(g.title, sum(g.ids.map(i => d.materials[i].cost))), ...g.ids.map(matRow)]);
 
   const c = ins.costs; const base = Math.max(c.total, 0.0001);
   const seg = (v: number, col: string) => `<span style="width:${Math.max(0, (v / base) * 100).toFixed(2)}%;background:${col}"></span>`;
@@ -234,7 +254,8 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     <td>${esc(l.lotNo ?? "—")}${l.supplierBatchNo ? `<div class="muted" style="font-size:9px">supplier batch ${esc(l.supplierBatchNo)}</div>` : ""}</td>
     <td>${dateOrDash(l.expiryDate)}</td><td class="r num">${fmt.qty(l.qty)} ${esc(l.uom)}</td><td class="r num">${fmt.num2(l.unitCost)}</td><td class="r num">${fmt.num2(l.cost)}</td></tr>`);
 
-  const runRows = d.runs.map(r => `<tr><td>${esc(r.runNo ?? "—")}</td><td>${dateOrDash(r.date)}</td><td class="r num">${fmt.qty(r.good)}</td>
+  const runRows = d.runs.map(r => `<tr><td>${esc(r.runNo ?? "—")}</td><td>${dateOrDash(r.date)}</td>
+    <td class="r num">${fmt.qty(r.good)} ${esc(m.baseUom)}${r.packs ? `<div class="muted" style="font-size:9px">${esc(r.packs)}</div>` : ""}</td>
     <td class="r num ${r.rejected > 0 ? "flag" : ""}">${r.rejected > 0 ? fmt.qty(r.rejected) : "—"}</td><td>${esc(r.rejectReason ?? (r.rejected > 0 ? "Not recorded" : "—"))}</td>
     <td class="r num">${fmt.num2(r.materialCost + r.labourCost + r.overheadCost)}</td></tr>`);
 
@@ -250,12 +271,14 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     <div class="facts">${facts.map(([k, v]) => `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
     <div class="kpis">${kpis}</div>
     ${section("What stood out", findingsHtml)}
-    ${section("Output", table([["Pack"], ["Planned", true], ["Produced", true], ["Difference", true], ["Lot"], ["Best before"], ["Unit cost", true]], outputRows))}
-    ${section("Materials: planned vs used", table([["Material"], ["Type"], ["Planned", true], ["Used", true], ["Variance", true], ["Cost", true]], materialRows,
-      `<tr class="tot"><td colspan="5">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`))}
+    ${section("Output", table([["Pack"], ["Planned (packs)", true], ["Produced (packs)", true], ["Difference", true], ["Lot"], ["Best before"], ["Cost per pack", true], ["Total cost", true]], outputRows,
+      `<tr class="tot"><td colspan="7">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`))}
+    ${section("Materials: planned vs used", table([["Material"], ["Unit"], ["Planned", true], ["Used", true], ["Variance", true], ["Unit cost", true], ["Cost", true]], materialRows,
+      `<tr class="tot"><td colspan="6">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`))}
     ${section("Cost build-up", costHtml)}
     ${d.operations.length ? section("Operations: planned vs actual hours", table([["Operation"], ["Planned", true], ["Actual", true], ["Efficiency", true]], opRows)) : ""}
-    ${d.runs.length ? section("Completions", table([["Run"], ["Date"], ["Good", true], ["Rejected", true], ["Reject reason"], ["Cost", true]], runRows)) : ""}
+    ${d.runs.length ? section("Completions", `<div class="muted" style="padding:2px 2px 0;font-size:9.5px">Each completion is one posting of finished stock against this order. The production run number (BUILD-…) is its reference in the stock and ledger records.</div>`
+      + table([["Production run"], ["Date"], ["Good output", true], ["Rejected", true], ["Reject reason"], ["Cost", true]], runRows)) : ""}
     ${d.lots.length ? section("Lot traceability: what went into this order", table([["Item"], ["Lot"], ["Expiry"], ["Quantity", true], ["Unit cost", true], ["Cost", true]], lotRows)) : ""}
     ${m.notes ? section("Notes", `<div style="padding:4px 2px">${esc(m.notes)}</div>`) : ""}
     <div class="sign"><div>Prepared by</div><div>Reviewed by</div><div>Date</div></div>

@@ -72,6 +72,27 @@ describe("MO report HTML", () => {
     expect(footerTemplate).toContain("pageNumber");
   });
 
+  it("leads with the BOM, groups materials by what they are for with a unit cost, and totals each output pack", () => {
+    const d = data({
+      mo: { ...data().mo, bomCode: "BOM-EMP-01", bomName: "Empanada dough" },
+      materials: [
+        { name: "Aloe", kind: "ingredient", uom: "g", planned: 1000, used: 1000, cost: 50, substitutes: [] },
+        { name: "Bottle", kind: "packaging", uom: "bottle", planned: 100, used: 100, cost: 25, substitutes: [], forPack: "4 oz bottle [011]" },
+      ],
+      runs: [{ ...data().runs[0], packs: "100 × 4 oz bottle [011]" }],
+    });
+    const { html } = buildMoReportHtml(d);
+    expect(html).toContain("BOM-EMP-01 · Empanada dough");
+    expect(html).not.toContain(">Soothing Spray<");
+    expect(html).toContain("Ingredients (used across every pack)");
+    expect(html).toContain("Packaging for 4 oz bottle [011]");
+    expect(html).toContain("0.05 / g");
+    expect(html).toContain("Total output cost");
+    expect(html).toContain("Cost per pack");
+    expect(html).toContain("production run number");
+    expect(html).toContain("100 × 4 oz bottle [011]");
+  });
+
   it("refuses an unsafe logo and shows each section the order has data for", () => {
     const { html } = buildMoReportHtml(data({ logoUrl: "javascript:alert(1)" }));
     expect(html).not.toContain("javascript:");

@@ -937,6 +937,10 @@ lot-level traceability.
 - A material a substitute replaced shows as the substitute against ITS planned amount, not -100% on the original.
 - Instants (started/finished) are shown in UTC and labelled, since the server has no viewer; due and scheduled
   dates go through `formatDateShort`.
+- **Layout after review (2026-11-17)**: the header names the BOM (code · name), not the product. Materials are grouped
+  (ingredients, then packaging per output pack) with the unit and a unit cost on every row; a packaging item that serves
+  several packs stays ONE shared row because consumptions carry no pack. Output shows cost per pack and total cost per pack
+  (plus a total). Completions label the BUILD- number as the production run reference and show the packs behind "good output".
 - **Not built / not verified**: no company address or phone (no org field carries one), no reviewer sign-off storage
   (the page prints blank signature lines), and it was rendered locally from synthetic data only, never against a real
   order or on Vercel's Chromium.

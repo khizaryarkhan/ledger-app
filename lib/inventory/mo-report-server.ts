@@ -6,14 +6,16 @@
 import { db } from "@/db";
 import {
   manufacturingOrders, moOutputs, moMaterials, moMaterialSubstitutes, moOperations, productionRuns, productionConsumptions,
-  productionOutputs, inventoryLots, apItems, itemSkus, organisations, users,
+  productionOutputs, inventoryLots, apItems, itemSkus, organisations, users, boms,
 } from "@/db/schema";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { fmt } from "@/lib/format";
 import { DELAY_REASONS, SCRAP_REASONS, reasonLabel } from "@/lib/inventory/production-performance";
 import type { MoReportData, MoReportLot, MoReportMaterial, MoReportOperation, MoReportOutput, MoReportRun } from "@/lib/inventory/mo-report";
 
 const num = (v: any) => Number(v ?? 0);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+const fmtN = (n: number) => fmt.qty(n);
 
 export async function loadMoReport(orgId: string, moId: string): Promise<MoReportData | null> {
   const [mo] = await db.select().from(manufacturingOrders).where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId))).limit(1);
@@ -22,6 +24,7 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
   const [org] = await db.select({ name: organisations.name, displayName: organisations.displayName, logoUrl: organisations.logoUrl })
     .from(organisations).where(eq(organisations.id, orgId)).limit(1);
   const [product] = mo.outputItemId ? await db.select({ name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(eq(apItems.id, mo.outputItemId)).limit(1) : [null];
+  const [bom] = mo.bomId ? await db.select({ code: boms.code, name: boms.name }).from(boms).where(and(eq(boms.id, mo.bomId), eq(boms.orgId, orgId))).limit(1) : [null];
   const [creator] = mo.createdBy ? await db.select({ name: users.name }).from(users).where(eq(users.id, mo.createdBy)).limit(1) : [null];
 
   const runs = await db.select().from(productionRuns).where(and(eq(productionRuns.orgId, orgId), eq(productionRuns.moId, moId))).orderBy(asc(productionRuns.createdAt));
@@ -48,6 +51,10 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
   const sku = new Map(skus.map(s => [s.id, s]));
 
   const baseUom = product?.baseUom ?? "";
+  const packLabel = (skuId: string | null) => {
+    const s = skuId ? sku.get(skuId) : null;
+    return s ? `${s.skuName ?? product?.name ?? "Pack"}${s.skuCode ? ` [${s.skuCode}]` : ""}` : `${product?.name ?? "Item"} (base unit)`;
+  };
   const outputs: MoReportOutput[] = outs.map(o => {
     const made = prodOuts.filter(p => (p.skuId ?? null) === (o.skuId ?? null));
     const amount = made.reduce((s, p) => s + num(p.amount), 0);
@@ -56,7 +63,7 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
     const first = outLots[0];
     const s = o.skuId ? sku.get(o.skuId) : null;
     return {
-      label: s ? `${s.skuName ?? product?.name ?? "Pack"}${s.skuCode ? ` [${s.skuCode}]` : ""}` : `${product?.name ?? "Item"} (base unit)`,
+      label: packLabel(o.skuId ?? null),
       plannedPacks: num(o.qty), producedPacks: num(o.completedQty), unitContent: num(o.unitContent) || 1, baseUom,
       lotNo: outLots.length ? [...new Set(outLots.map(l => l.lotNo).filter(Boolean))].join(", ") || null : null,
       bestBefore: first?.bestBeforeDate ?? null, expiryDate: first?.expiryDate ?? null,
@@ -67,10 +74,16 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
   // One row per planned material. Where a substitute stood in for it, the row IS the substitute (its own
   // planned amount and unit), so the variance compares like with like instead of reading -100% against an
   // ingredient that was deliberately not used.
-  const planned = new Map<string, { kind: "ingredient" | "packaging"; planned: number }>();
+  const planned = new Map<string, { kind: "ingredient" | "packaging"; planned: number; forPack: string | null }>();
+  // A packaging item belongs to ONE pack only when exactly one pack names it; consumptions carry no pack, so an item
+  // serving several packs stays one shared row rather than being split by a guess.
+  const packsOf = new Map<string, Set<string>>();
+  for (const m of mats) if (m.kind === "packaging" && m.forSkuId) packsOf.set(m.itemId, (packsOf.get(m.itemId) ?? new Set()).add(m.forSkuId));
   for (const m of mats) {
-    const cur = planned.get(m.itemId) ?? { kind: m.kind === "packaging" ? "packaging" as const : "ingredient" as const, planned: 0 };
+    const cur = planned.get(m.itemId) ?? { kind: m.kind === "packaging" ? "packaging" as const : "ingredient" as const, planned: 0, forPack: null as string | null };
     cur.planned += num(m.plannedQty); if (m.kind === "ingredient") cur.kind = "ingredient";
+    const ps = packsOf.get(m.itemId);
+    if (cur.kind === "packaging" && ps?.size === 1) cur.forPack = packLabel([...ps][0]);
     planned.set(m.itemId, cur);
   }
   const materials: MoReportMaterial[] = [];
@@ -82,10 +95,10 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
       for (const subId of new Set(stoodIn.map(c => c.itemId))) {
         const rows = stoodIn.filter(c => c.itemId === subId);
         const sp = subs.find(s => s.primaryItemId === itemId && s.itemId === subId);
-        materials.push({ name: `${item.get(subId)?.name ?? "Item"} (in place of ${name})`, kind: p.kind, uom: item.get(subId)?.baseUom ?? "", planned: num(sp?.plannedQty), used: rows.reduce((s, c) => s + num(c.qty), 0), cost: rows.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [] });
+        materials.push({ name: `${item.get(subId)?.name ?? "Item"} (in place of ${name})`, kind: p.kind, uom: item.get(subId)?.baseUom ?? "", planned: num(sp?.plannedQty), used: rows.reduce((s, c) => s + num(c.qty), 0), cost: rows.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack });
       }
     } else {
-      materials.push({ name, kind: p.kind, uom: item.get(itemId)?.baseUom ?? "", planned: p.planned, used: own.reduce((s, c) => s + num(c.qty), 0), cost: own.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [] });
+      materials.push({ name, kind: p.kind, uom: item.get(itemId)?.baseUom ?? "", planned: p.planned, used: own.reduce((s, c) => s + num(c.qty), 0), cost: own.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack });
     }
   }
 
@@ -108,7 +121,13 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
     plannedCost: num(o.plannedHours) * (num(o.labourRate) + num(o.overheadRate)),
   }));
 
+  const packsOfRun = (runId: string) => {
+    const bySku = new Map<string, number>();
+    for (const p of prodOuts.filter(x => x.runId === runId)) bySku.set(p.skuId ?? "", (bySku.get(p.skuId ?? "") ?? 0) + num(p.qtyPacks));
+    return [...bySku].map(([k, n]) => `${fmtN(n)} × ${packLabel(k || null)}`).join(", ");
+  };
   const runRows: MoReportRun[] = runs.map(r => ({
+    packs: packsOfRun(r.id),
     runNo: r.runNo, date: r.producedDate, good: num(r.goodQty), rejected: num(r.rejectedQty),
     materialCost: num(r.totalInputCost) - num(r.labourCost) - num(r.overheadCost), labourCost: num(r.labourCost), overheadCost: num(r.overheadCost), scrapCost: num(r.scrapCost),
     rejectReason: r.rejectReason ? reasonLabel(SCRAP_REASONS, r.rejectReason) : null,
@@ -117,7 +136,7 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
   return {
     orgName: org?.displayName || org?.name || "Your Company", logoUrl: org?.logoUrl ?? null,
     mo: {
-      moNo: mo.moNo ?? "—", status: mo.status, productName: product?.name ?? "—", baseUom, priority: mo.priority,
+      moNo: mo.moNo ?? "—", status: mo.status, productName: product?.name ?? "—", bomCode: bom?.code ?? null, bomName: bom?.name ?? null, baseUom, priority: mo.priority,
       scheduledDate: mo.scheduledDate, dueDate: mo.dueDate, originalDueDate: mo.originalDueDate, rescheduleCount: mo.rescheduleCount,
       delayReason: mo.delayReason ? reasonLabel(DELAY_REASONS, mo.delayReason) : null, delayNote: mo.delayNote,
       startedAt: iso(mo.startedAt), completedAt: iso(mo.completedAt), createdBy: creator?.name ?? null, notes: mo.notes, expYield: mo.expYield != null ? num(mo.expYield) : null,
