@@ -25,7 +25,7 @@ import { db } from "@/db";
 import {
   inventoryLots, inventoryMovements, apItems, users,
   jobWorkOrders, jobWorkReceipts, productionRuns, productionOutputs, productionConsumptions,
-  salesShipments, shipmentLines, goodsReceipts, goodsReceiptLines, tradeDocuments, customers,
+  salesShipments, shipmentLines, goodsReceipts, goodsReceiptLines, tradeDocuments, customers, itemSkus,
 } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { linksFor } from "@/lib/accounting/links";
@@ -44,6 +44,10 @@ export type OriginInfo = {
 export type LotSummary = {
   id: string; itemId: string; itemName: string; lotNo: string | null;
   origQty: number; remainingQty: number; unitCost: number; sourceType: string;
+  /** The item's base unit — what origQty / remainingQty are counted in. */
+  baseUom?: string | null;
+  /** For a produced lot: the pack it was made in, e.g. 24 × "Chicken Empanada 4oz". */
+  packs?: { qty: number; label: string } | null;
   origin?: OriginInfo | null; // set whenever sourceType === "purchase"
 };
 
@@ -99,12 +103,19 @@ async function getLotSummary(orgId: string, lotId: string): Promise<LotSummary |
   const [row] = await db.select({
     id: inventoryLots.id, itemId: inventoryLots.itemId, itemName: apItems.name,
     lotNo: inventoryLots.lotNo, origQty: inventoryLots.origQty, remainingQty: inventoryLots.remainingQty,
-    unitCost: inventoryLots.unitCost, sourceType: inventoryLots.sourceType,
+    unitCost: inventoryLots.unitCost, sourceType: inventoryLots.sourceType, baseUom: apItems.baseUom,
   }).from(inventoryLots).innerJoin(apItems, eq(apItems.id, inventoryLots.itemId))
     .where(and(eq(inventoryLots.id, lotId), eq(inventoryLots.orgId, orgId))).limit(1);
   if (!row) return null;
   const origin = row.sourceType === "purchase" ? await getOrigin(orgId, lotId) : null;
-  return { ...row, origQty: Number(row.origQty), remainingQty: Number(row.remainingQty), unitCost: Number(row.unitCost), origin };
+  let packs: LotSummary["packs"] = null;
+  if (row.sourceType === "production") {
+    const [out] = await db.select({ packs: productionOutputs.qtyPacks, skuName: itemSkus.skuName }).from(productionOutputs)
+      .leftJoin(itemSkus, eq(itemSkus.id, productionOutputs.skuId))
+      .where(and(eq(productionOutputs.orgId, orgId), eq(productionOutputs.lotId, lotId))).limit(1);
+    if (out?.skuName) packs = { qty: Number(out.packs ?? 0), label: out.skuName };
+  }
+  return { ...row, origQty: Number(row.origQty), remainingQty: Number(row.remainingQty), unitCost: Number(row.unitCost), origin, packs };
 }
 
 /** What this lot was made from — recurses back to the originating purchase(s). */

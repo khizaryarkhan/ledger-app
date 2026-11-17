@@ -180,7 +180,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
 
         <div className="metabar">
           <div className="cell"><div className="cap">Lot / Batch</div><div className="v">{lot.lotNo ?? lot.id.slice(0, 8)}</div></div>
-          <div className="cell"><div className="cap">Total Quantity</div><div className="v num">{qtyFmt(lot.origQty)}</div></div>
+          <div className="cell"><div className="cap">Total Quantity</div><div className="v num">{qtyFmt(lot.origQty)} {lot.baseUom ?? ""}</div>{lot.packs && <div style={{ fontSize: 10, color: "#6a6a66" }}>{qtyFmt(lot.packs.qty)} × {lot.packs.label}</div>}</div>
           <div className="cell"><div className="cap">Unit Cost</div><div className="v num">{money(lot.unitCost)}</div></div>
           <div className="cell"><div className="cap">Total Valuation</div><div className="v num">{money(declaredValue)}</div></div>
           <div className="cell"><div className="cap">Operator</div><div className="v">{operator ?? "—"}</div></div>
