@@ -112,7 +112,9 @@ export function ItemLedgerReport() {
                   <td className={`${listCell} font-mono text-[12px] whitespace-nowrap`}>
                     {m.entryId && m.docNo
                       ? <Link href={`/accounting/transactions/${m.entryId}`} className="text-emerald-400 hover:underline">{m.docNo}</Link>
-                      : <span className="text-amber-300" title="This stock moved with no ledger entry behind it, so the books do not know about it.">No ledger entry</span>}
+                      : Math.abs(m.totalCost) > 0.005
+                        ? <span className="text-amber-300" title="This stock carries value but has no ledger entry behind it, so the books do not know about it.">No ledger entry</span>
+                        : <span className="text-stone-300" title="Received at no value, so there was nothing to post to the ledger.">{m.docNo ?? "—"}</span>}
                   </td>
                   <td className={`${listCell} font-mono text-[12px] text-stone-400 whitespace-nowrap`}>{m.lotNo ?? "—"}</td>
                   <td className={`${listNumCell} text-stone-200`}>{m.qtyIn ? fmt.qty(m.qtyIn) : ""}</td>

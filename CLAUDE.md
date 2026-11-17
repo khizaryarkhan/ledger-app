@@ -936,8 +936,10 @@ same-account lines per document"): the GL is an account-level summary with no qu
   excluded** (they change where, never how much or cost), and the date is `coalesce(movement_date, created_at::date)`.
 - **The banner ties the org's total stock to the books** (the same `stockVsGl` totals), so the two cannot part quietly.
   Checked on the Test Organization on 2026-11-17: chicken 840.00 + empanada 98.40 + salt 497.60 = 1,436.00 = the ledger.
-- **A movement with no `entry_id` reads "No ledger entry"** (amber, counted in the item's closing row): stock the books
-  do not know about. On the Test Organization that is the 5,000 g zero-cost salt lot LOT-S-000007.
+- **A movement that carries VALUE but has no `entry_id` reads "No ledger entry"** (amber, counted in the item's closing
+  row): value the books do not know about. A zero-value receipt has nothing to post, so it is NOT flagged — it shows its
+  GRN number plain (the first version flagged these wrongly: the Test Organization's GRN-0006, 5,000 g of salt at no
+  value, read as "stock the books do not know about" when it was only a free receipt).
 - A request is capped at 5,000 movements and says so (`truncated`) instead of showing a partial balance as whole.
 - Not built: export, a lot filter, per-location balances, a "this financial year" preset. Not clicked through in a
   browser (the loader was run against production read-only).

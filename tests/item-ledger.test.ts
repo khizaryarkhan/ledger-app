@@ -51,9 +51,14 @@ describe("item ledger", () => {
     expect(l.lines.map(x => x.id)).toEqual(["early", "late"]);
   });
 
-  it("counts stock that moved with no ledger entry behind it (the books do not know about it)", () => {
-    const [l] = buildItemLedgers([salt], new Map(), [mv({ itemId: "s", qty: 5000, unitCost: 0, totalCost: 0, entryId: null, docNo: null, docType: null })]);
+  it("counts value that moved with no ledger entry behind it (the books do not know about it)", () => {
+    const [l] = buildItemLedgers([salt], new Map(), [mv({ itemId: "s", qty: 500, unitCost: 2, totalCost: 1000, entryId: null, docNo: null, docType: null })]);
     expect(l.unposted).toBe(1);
+  });
+
+  it("does not call a zero-value receipt missing — there is nothing to post", () => {
+    const [l] = buildItemLedgers([salt], new Map(), [mv({ itemId: "s", qty: 5000, unitCost: 0, totalCost: 0, entryId: null, docNo: "GRN-0006", docType: null })]);
+    expect(l.unposted).toBe(0);
   });
 
   it("does not drift on repeating decimals", () => {

@@ -18,7 +18,7 @@ export type LedgerMovement = {
   /** Signed: + into stock, - out. */
   qty: number; unitCost: number | null; totalCost: number;
   lotNo: string | null; docNo: string | null; docType: string | null;
-  /** The journal entry this movement posted; null = it never reached the ledger (stock the books do not know about). */
+  /** The journal entry this movement posted. null with a value = it never reached the ledger; null at zero value = nothing to post. */
   entryId: string | null;
 };
 export type LedgerItem = { id: string; name: string; uom: string | null };
@@ -64,7 +64,8 @@ export function buildItemLedgers(items: LedgerItem[], opening: Map<string, Openi
     const lines: LedgerLine[] = ms.map(m => {
       q = r6(q + m.qty); v = r4(v + m.totalCost);
       if (m.qty >= 0) { inQty = r6(inQty + m.qty); inValue = r4(inValue + m.totalCost); } else { outQty = r6(outQty + -m.qty); outValue = r4(outValue + -m.totalCost); }
-      if (!m.entryId) unposted++;
+      // Only stock that CARRIES value can be missing from the books; a zero-value receipt has nothing to post.
+      if (!m.entryId && Math.abs(m.totalCost) > 0.005) unposted++;
       return { ...m, label: movementLabel(m.movementType), qtyIn: m.qty >= 0 ? m.qty : 0, qtyOut: m.qty < 0 ? -m.qty : 0, balanceQty: q, balanceValue: v };
     });
     out.push({ item, openingQty: r6(op.qty), openingValue: r4(op.value), lines, inQty, outQty, inValue, outValue, closingQty: q, closingValue: v, unposted });

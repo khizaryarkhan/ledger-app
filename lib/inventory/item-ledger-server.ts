@@ -39,10 +39,11 @@ export async function loadItemLedger(orgId: string, opts: { from: string | null;
       group by m.item_id`) : Promise.resolve([]),
     db.execute(sql`
       select m.id, m.item_id, to_char(coalesce(m.movement_date, m.created_at::date), 'YYYY-MM-DD') as d, m.created_at,
-             m.movement_type, m.qty, m.unit_cost, m.total_cost, l.lot_no, je.doc_number, je.source_type, m.entry_id
+             m.movement_type, m.qty, m.unit_cost, m.total_cost, l.lot_no, coalesce(je.doc_number, gr.receipt_no) as doc_number, je.source_type, m.entry_id
       from inventory_movements m
       left join inventory_lots l on l.id = m.lot_id
       left join journal_entries je on je.id = m.entry_id
+      left join goods_receipts gr on gr.id = m.ref_id and m.ref_type = 'GoodsReceipt'
       where m.org_id = ${orgId} and m.movement_type <> 'transfer'
         and coalesce(m.movement_date, m.created_at::date) <= ${to}
         ${from ? sql`and coalesce(m.movement_date, m.created_at::date) >= ${from}` : sql``} ${onItem}
