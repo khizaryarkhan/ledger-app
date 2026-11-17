@@ -24,6 +24,8 @@ import { createLink } from "@/lib/accounting/links";
 import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 import { voidGoodsReceipt } from "@/lib/inventory/void";
+import { kindOf } from "@/lib/inventory/item-kinds";
+import { repeatedLotLines, requestedLotNumbers } from "@/lib/inventory/lot-numbers";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
@@ -88,6 +90,21 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     lineLocation.set(i, override ? await resolveLocationId(orgId, override, { label: "Line receiving location" }) : headerLocationId);
   }
 
+  // Lot numbers are settled UP FRONT too, for the same reason: a lot that cannot be created must fail while
+  // nothing is in the ledger. Lot numbers are unique across the org, and the Receiving screen pre-fills every
+  // row of a visit with the same peeked number, so a REPEAT inside this receipt gets a fresh number (blank =
+  // assigned at commit); a number that already exists in stock is refused by name. Finished/WIP lots ignore
+  // any requested number (always system-assigned), so they are not checked.
+  const takesLotNo = (ri: number) => !["FinishedProduct", "WorkInProgress"].includes(kindOf(itemMap.get(rows[ri].itemId)?.productType).kind);
+  const requestedLots = rows.map((r, ri) => (takesLotNo(ri) ? r.lotNo : null));
+  const repeatedLots = repeatedLotLines(requestedLots);
+  const wanted = requestedLotNumbers(requestedLots, repeatedLots);
+  if (wanted.length) {
+    const taken = await db.select({ lotNo: inventoryLots.lotNo }).from(inventoryLots)
+      .where(and(eq(inventoryLots.orgId, orgId), inArray(inventoryLots.lotNo, wanted)));
+    if (taken.length) err(`Lot number ${taken.map(t => t.lotNo).join(", ")} already exists in stock. Lot numbers are unique, so use a different number or leave it blank to have one assigned. Nothing was posted.`);
+  }
+
   // Build the balanced entry: Dr each item's inventory asset (home), Cr GR/IR.
   const lines: PostLine[] = [];
   let grirTotal = 0;
@@ -113,7 +130,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
       grirTotal = round2(grirTotal + round2(amount));
       grniBy.set(grniAcct, round2((grniBy.get(grniAcct) ?? 0) + round2(amount)));
     }
-    commits.push({ r, homeUnit, amount, assetAcct: assetAcct!, locationId: lineLocation.get(ri)! });
+    commits.push({ r: repeatedLots.has(ri) ? { ...r, lotNo: null } : r, homeUnit, amount, assetAcct: assetAcct!, locationId: lineLocation.get(ri)! });
   }
   if (!commits.length) err("Nothing to receive — check quantities.");
   for (const [acct, amt] of grniBy) if (amt > 0) lines.push({ accountId: acct, credit: amt, description: "Goods received not invoiced" });
@@ -143,6 +160,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
 
   // Create lots + subledger movements, receipt lines, and advance PO progress.
   const poAmounts = new Map<string, number>();
+  const lotFailures: string[] = [];
   // The supplier SKU each PO line was raised against, so the lot records what it was bought as.
   const poLineIds = [...new Set(commits.map(c => c.r.poLineId).filter(Boolean) as string[])];
   const skuByPoLine = new Map<string, string | null>();
@@ -159,11 +177,17 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
       supplierId: input.supplierId ?? null, supplierSkuId: c.r.poLineId ? skuByPoLine.get(c.r.poLineId) ?? null : null, sourceType: "purchase", receivedDate: date,
       locationId: c.locationId,
       refType: "GoodsReceipt", refId, entryId: entry?.id ?? null, createdBy: actorId, note: c.r.description ?? null,
-    }).catch(e => { console.error("[receiving lot]", e); return null; });
+    }).catch(e => { console.error("[receiving lot]", e); lotFailures.push(`${item.name} (${e?.message ?? "unknown error"})`); return null; });
+    // Record the lot number the lot REALLY got (a blank or repeated request is assigned at commit).
+    let finalLotNo = c.r.lotNo ?? null;
+    if (lotId) {
+      const [lotRow] = await db.select({ n: inventoryLots.lotNo }).from(inventoryLots).where(eq(inventoryLots.id, lotId)).limit(1);
+      finalLotNo = lotRow?.n ?? finalLotNo;
+    }
     await db.insert(goodsReceiptLines).values({
       orgId, receiptId, itemId: item.id, skuId: c.r.skuId ?? null, poId: c.r.poId ?? null, poLineId: c.r.poLineId ?? null,
       description: c.r.description ?? item.name, qtyBase: qty.toString(), unitCost: c.homeUnit.toString(),
-      amount: c.amount.toString(), lotId: lotId ?? null, lotNo: c.r.lotNo ?? null, expiryDate: c.r.expiryDate ?? null,
+      amount: c.amount.toString(), lotId: lotId ?? null, lotNo: finalLotNo, expiryDate: c.r.expiryDate ?? null,
     } as any);
     if (c.r.poLineId) {
       await db.update(tradeDocumentLines)
@@ -171,6 +195,17 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
         .where(and(eq(tradeDocumentLines.id, c.r.poLineId), eq(tradeDocumentLines.orgId, orgId)));
     }
     if (c.r.poId) poAmounts.set(c.r.poId, round2((poAmounts.get(c.r.poId) ?? 0) + c.amount));
+  }
+
+  // A lot that could not be created used to be swallowed here, leaving the entry above carrying stock the lots
+  // did not (the books and the stock report then disagree for good). Undo the whole receipt instead and say so.
+  if (lotFailures.length) {
+    try { await voidGoodsReceipt(orgId, receiptId); }
+    catch (e: any) {
+      console.error("[receiving] lots failed AND the receipt could not be undone — void it by hand", receiptNo, receiptId, e);
+      err(`Receipt ${receiptNo} was posted but stock could not be created for ${lotFailures.join("; ")}, and it could not be undone automatically. Void ${receiptNo} from Receiving and post it again.`);
+    }
+    err(`The receipt was not posted: stock could not be created for ${lotFailures.join("; ")}. Nothing was recorded.`);
   }
 
   // Link each source PO to this receipt, so the PO's "Related transactions"

@@ -941,6 +941,27 @@ lot-level traceability.
   (the page prints blank signature lines), and it was rendered locally from synthetic data only, never against a real
   order or on Vercel's Chromium.
 
+## A receipt can no longer post stock the lots do not hold (2026-11-17)
+
+Found by a CFO-style audit of the Test Organization on production (read-only): Raw Materials GL 1,340.00 vs
+stock 608.00 (`inventory_vs_gl` failed). Cause, in `postGoodsReceipt`: the journal entry posted FIRST, then lots
+were created with `.catch(... return null)`. Lot numbers are unique org-wide and `GET /api/inventory/lot-suggestion`
+only PEEKS the next number, so every row staged in one visit was pre-filled with the same code
+(`LOT-S-000005` on all four lines of GRN-0004). The first line made a lot; the rest hit the unique index, the
+failure was swallowed, and the entry kept the full debit. Lost: chicken 464 oz (232.00) and salt 250 g (500.00).
+
+- **Fixed in `lib/inventory/receiving.ts`**: a lot number that REPEATS an earlier line of the same receipt is
+  given a fresh one (blank = assigned at commit; `lib/inventory/lot-numbers.ts`, pure); a number that already
+  exists in stock is refused BY NAME before anything posts; a lot that still fails to create now voids the whole
+  receipt and says so, instead of being swallowed. `goods_receipt_lines.lot_no` records the number the lot
+  really got. `tests/lot-numbers.test.ts` pins the rule and, at source level, that the swallow is gone.
+- **Not repaired**: GRN-0004 on the Test Organization still has the gap, and its salt consumption (5,000 g
+  against 1.2 g planned, at zero cost) came from working around the missing salt lot. A repair is a decision for
+  the owner of that data; it must add the missing lots WITHOUT touching the GL.
+- **Still open, found not fixed**: the Receiving screen still pre-fills identical suggestions (harmless now, the
+  server renumbers); completion warns but never stops a material used 400,000% over plan; a PO header stays
+  `Open` after every line is closed or received; no unit-price sanity check (salt entered at 2.00 per gram).
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,
