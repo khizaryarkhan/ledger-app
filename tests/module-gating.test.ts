@@ -259,6 +259,7 @@ const UNOWNED_PAGES: readonly AllowEntry[] = [
   { path: "/accounting/reports/stock-status", why: "Supply Chain's Inventory report, hosted in the shared reports hub" },
   { path: "/accounting/reports/stock-valuation", why: "Supply Chain's Inventory report, hosted in the shared reports hub" },
   { path: "/accounting/reports/stock-vs-gl", why: "Supply Chain/Accounting reconciliation report, hosted in the shared reports hub" },
+  { path: "/accounting/reports/item-ledger", why: "Supply Chain's Inventory report (the stock card), hosted in the shared reports hub" },
   { path: "/accounting/trade/[kind]", why: "dynamic PO/SO/Estimates list dispatcher — estimates is owned concretely at runtime above, PO/SO stay shared (Supply Chain's documents, hosted under /accounting)" },
   { path: "/accounting/trade/sales-orders/[id]", why: "the Order Production Tracker — Supply Chain's screen, hosted under /accounting (CLAUDE.md)" },
   { path: "/accounting/transactions/[id]", why: "shared document detail page, linked from Supply Chain reports too (CLAUDE.md)" },

@@ -51,6 +51,7 @@ const MANUFACTURING_GROUPS: Group[] = [
     reports: [
       { href: "/accounting/reports/stock-valuation", title: "Stock Valuation Summary", sub: "On-hand quantity, average cost and total value per item.", icon: Boxes },
       { href: "/accounting/reports/stock-valuation?view=lots", title: "Stock Valuation Detail", sub: "Every open FIFO cost lot with its remaining qty and value.", icon: PackageSearch },
+      { href: "/accounting/reports/item-ledger", title: "Item Ledger", sub: "Every movement of each item with its document and lot, and the running quantity and value.", icon: BookOpen },
       { href: "/accounting/reports/stock-vs-gl", title: "Stock vs GL", sub: "Stock value against each inventory account's ledger balance, as at a date.", icon: Scale },
       { href: "/accounting/reports/stock-status", title: "Stock Status", sub: "On-hand & expected (on PO) vs minimum reorder level.", icon: ClipboardList },
       { href: "/accounting/reports/lot-traceability", title: "Lot Traceability", sub: "A lot's complete history — what it was made from and what it became.", icon: GitBranch },

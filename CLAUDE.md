@@ -921,6 +921,27 @@ stay posted; **reopening a Cancelled order that has posted runs is refused**; pe
   The compensation and approval-claim paths have no automated test (they need a database); the happy path was exercised end to end on
   the dev branch (`scripts/_e2e_mo_substitutes.ts`). Not clicked through in a browser.
 
+## Item Ledger — the stock card (2026-11-17)
+
+Asked after the General Ledger showed one Raw Materials line per document: "if you are not crediting Raw Materials
+separately we will not be able to run a ledger of an individual item". Right, and by design (see "The GL nets
+same-account lines per document"): the GL is an account-level summary with no quantities. The item-level truth is
+`inventory_movements`, so the item ledger reads that, and the GL posting is left as it is.
+
+- `/accounting/reports/item-ledger`, `GET /api/inventory/item-ledger?to&from&itemId` (Manufacturing-owned like the rest
+  of `/api/inventory`). Rules pure in `lib/inventory/item-ledger.ts` (`buildItemLedgers`), db half
+  `item-ledger-server.ts`, screen `components/item-ledger-report.tsx`, hub link under Stock & inventory.
+- Per item: opening qty/value (summed in SQL, never loaded), each movement with date, type, document (links to the
+  entry), lot, in/out, unit cost, value, running balance, closing. **Same inclusion rule as Stock vs GL: transfers are
+  excluded** (they change where, never how much or cost), and the date is `coalesce(movement_date, created_at::date)`.
+- **The banner ties the org's total stock to the books** (the same `stockVsGl` totals), so the two cannot part quietly.
+  Checked on the Test Organization on 2026-11-17: chicken 840.00 + empanada 98.40 + salt 497.60 = 1,436.00 = the ledger.
+- **A movement with no `entry_id` reads "No ledger entry"** (amber, counted in the item's closing row): stock the books
+  do not know about. On the Test Organization that is the 5,000 g zero-cost salt lot LOT-S-000007.
+- A request is capped at 5,000 movements and says so (`truncated`) instead of showing a partial balance as whole.
+- Not built: export, a lot filter, per-location balances, a "this financial year" preset. Not clicked through in a
+  browser (the loader was run against production read-only).
+
 ## Manufacturing order report (2026-11-16)
 
 `GET /api/production/mos/[id]/report` returns a PDF, opened by the **Report** button in the MO drawer footer. It is
