@@ -175,7 +175,8 @@ function css(): string {
     .bar span{display:block;height:100%}
     .legend{display:flex;gap:14px;font-size:9.5px;color:#454540}
     .legend i{display:inline-block;width:8px;height:8px;margin-right:4px;border-radius:1px}
-    .sign{display:flex;gap:30px;margin-top:26px}.sign div{flex:1;border-top:1px solid #141414;padding-top:3px;font-size:9px;color:#6a6a66}
+    .sign{display:flex;gap:30px;margin-top:64px;break-inside:avoid;page-break-inside:avoid}.sign div{flex:1;border-top:1px solid #141414;padding-top:4px;font-size:9px;color:#6a6a66}
+    .sign .who{flex:none;border-top:none;padding-top:0;margin-top:3px;color:#a3a39e}
   `;
 }
 
@@ -272,7 +273,7 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     <div class="facts">${facts.map(([k, v]) => `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
     <div class="kpis">${kpis}</div>
     ${section("What stood out", findingsHtml)}
-    ${section("Output", table([["Pack"], ["Unit"], ["Planned", true], ["Produced", true], ["Difference", true], ["Lot"], ["Best before"], ["Unit cost", true], ["Cost", true]], outputRows,
+    ${section("Output", table([["Product"], ["Unit"], ["Planned", true], ["Produced", true], ["Difference", true], ["Lot"], ["Best before"], ["Unit cost", true], ["Cost", true]], outputRows,
       `<tr class="tot"><td colspan="8">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`))}
     ${section("Materials: planned vs used", table([["Material"], ["Unit"], ["Planned", true], ["Used", true], ["Variance", true], ["Unit cost", true], ["Cost", true]], materialRows,
       `<tr class="tot"><td colspan="6">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`))}
@@ -282,7 +283,7 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
       + table([["Production run"], ["Date"], ["Good output", true], ["Rejected", true], ["Reject reason"], ["Cost", true]], runRows)) : ""}
     ${d.lots.length ? section("Lot traceability: what went into this order", table([["Item"], ["Lot"], ["Expiry"], ["Quantity", true], ["Unit cost", true], ["Cost", true]], lotRows)) : ""}
     ${m.notes ? section("Notes", `<div style="padding:4px 2px">${esc(m.notes)}</div>`) : ""}
-    <div class="sign"><div>Prepared by</div><div>Reviewed by</div><div>Date</div></div>
+    <div class="sign"><div>Prepared by (signature)<div class="who">Name:</div></div><div>Reviewed by (signature)<div class="who">Name:</div></div><div>Date</div></div>
   </body></html>`;
 
   const footerTemplate = `<div style="width:100%;font-size:7.5px;color:#8a8f99;padding:0 14mm;display:flex;justify-content:space-between;font-family:Arial,sans-serif">
