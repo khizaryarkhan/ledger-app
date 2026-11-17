@@ -13,7 +13,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin, FileText } from "lucide-react";
+import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin, FileText, Download } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField, CalcInput } from "@/components/form-kit";
 import { useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, listTable, listRow, listCell, listNumCell, type ListColumn } from "@/components/list-view";
 import { batchFromBase } from "@/lib/inventory/batch-unit";
@@ -52,6 +52,7 @@ const MO_COLS: ListColumn<any>[] = [
   { key: "scheduled", label: "Scheduled", sort: m => m.scheduledDate ?? null },
   { key: "started", label: "Started", sort: m => m.startedAt ?? null },
   { key: "done", label: "Manufactured", sort: m => m.completedAt ?? null },
+  { key: "report", label: "", align: "right" },
 ];
 
 export function MoConsole() {
@@ -133,6 +134,12 @@ export function MoConsole() {
                 <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.scheduledDate ? fmt.shortDate(m.scheduledDate) : "—"}</td>
                 <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.startedAt ? fmt.dateTime(m.startedAt) : "—"}</td>
                 <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{m.completedAt ? fmt.dateTime(m.completedAt) : "—"}</td>
+                <td className={`${listCell} text-right w-10`}>
+                  {m.completedBase > 0 && (
+                    <a href={`/api/production/mos/${m.id}/report?download=1`} onClick={e => e.stopPropagation()} title="Download the order report (PDF)" aria-label={`Download the report for ${m.moNo ?? "this order"}`}
+                      className="inline-flex items-center justify-center rounded-md p-1.5 text-stone-400 hover:text-white hover:bg-stone-800"><Download size={14} /></a>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

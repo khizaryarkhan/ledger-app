@@ -12,7 +12,8 @@ import { buildMoReportPdf } from "@/lib/inventory/mo-report";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+/** `?download=1` saves the file (the list's download icon); without it the PDF opens inline. */
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "manufacturing");
@@ -26,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return new Response(pdf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${file}.pdf"`,
+        "Content-Disposition": `${new URL(req.url).searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="${file}.pdf"`,
         "Cache-Control": "private, no-store",
       },
     });

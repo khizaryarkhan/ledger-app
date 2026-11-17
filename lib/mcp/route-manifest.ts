@@ -407,7 +407,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/production/mos/[id]", methods: ["DELETE","GET","PATCH"] },
   { path: "/api/production/mos/[id]/allocations", methods: ["DELETE","GET","PUT"], body: ["itemId","picks"] },
   { path: "/api/production/mos/[id]/complete", methods: ["POST"], params: ["preview"] },
-  { path: "/api/production/mos/[id]/report", methods: ["GET"] },
+  { path: "/api/production/mos/[id]/report", methods: ["GET"], params: ["download"] },
   { path: "/api/production/performance", methods: ["GET"], params: ["asOf","from","to"] },
   { path: "/api/production/work-centres", methods: ["GET","POST"] },
   { path: "/api/production/work-centres/[id]", methods: ["DELETE","PATCH"], body: ["code","name"] },

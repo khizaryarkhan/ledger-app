@@ -25,7 +25,7 @@ export type MoReportOutput = {
   lotNo: string | null; bestBefore: string | null; expiryDate: string | null; cost: number; unitCost: number;
 };
 /** `forPack` = the output pack a packaging material is for; null = shared by every pack (all ingredients, shared packaging). */
-export type MoReportMaterial = { name: string; kind: "ingredient" | "packaging"; uom: string; planned: number; used: number; cost: number; substitutes: string[]; forPack?: string | null };
+export type MoReportMaterial = { name: string; kind: "ingredient" | "packaging"; uom: string; planned: number; used: number; cost: number; substitutes: string[]; forPack?: string | null; lots?: string[]; expiry?: string | null };
 export type MoReportOperation = { name: string; plannedHours: number; actualHours: number | null; plannedCost: number };
 /** `packs` = what the good output was, in packs ("24 × 4oz, 12 × 8oz"). */
 export type MoReportRun = { runNo: string | null; date: string | null; good: number; rejected: number; materialCost: number; labourCost: number; overheadCost: number; scrapCost: number; rejectReason: string | null; packs?: string };
@@ -165,6 +165,7 @@ function css(): string {
     table.lines{width:100%;border-collapse:collapse;margin-top:4px;font-size:10px}
     table.lines th{font-size:8px;letter-spacing:.07em;text-transform:uppercase;color:#8a8f99;text-align:left;padding:5px 8px;border-bottom:1px solid #e3e3e0;white-space:nowrap}
     table.lines td.nw{white-space:nowrap}
+    table.lines.fixed{table-layout:fixed}
     table.lines td{padding:4.5px 8px;border-bottom:1px solid #eceeec}
     table.lines tr{break-inside:avoid;page-break-inside:avoid}
     table.lines th.r,table.lines td.r{text-align:right}
@@ -180,8 +181,11 @@ function css(): string {
   `;
 }
 
-const table = (head: [string, boolean?][], rows: string[], foot = "") =>
-  `<table class="lines"><thead><tr>${head.map(([h, r]) => `<th${r ? ' class="r"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}${foot}</tbody></table>`;
+const table = (head: [string, boolean?][], rows: string[], foot = "", widths?: number[]) =>
+  `<table class="lines${widths ? " fixed" : ""}">${widths ? `<colgroup>${widths.map(w => `<col style="width:${w}%">`).join("")}</colgroup>` : ""}<thead><tr>${head.map(([h, r]) => `<th${r ? ' class="r"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}${foot}</tbody></table>`;
+
+/** Output and Materials share ONE column grid so their headings line up down the page. */
+const GRID = [22, 11, 8, 8, 10, 14, 10, 9, 8];
 
 /** The report as HTML — pure, so it can be tested without a browser. */
 export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { html: string; footerTemplate: string } {
@@ -226,11 +230,12 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     return `<tr><td>${esc(v.name)}${subs}</td><td>${esc(v.uom || "—")}</td>
       <td class="r num">${fmt.qty(v.planned)}</td><td class="r num">${fmt.qty(v.used)}</td>
       <td class="r num ${v.flagged ? "flag" : ""}">${v.variance === 0 ? "—" : `${sign(v.variance)}${fmt.qty(v.variance)}${v.pct != null ? ` (${sign(v.pct)}${v.pct}%)` : ""}`}</td>
+      <td>${esc(mat.lots?.length ? mat.lots.join(", ") : "—")}</td><td class="nw">${dateOrDash(mat.expiry)}</td>
       <td class="r num">${unitCost != null && unitCost > 0 ? `${fmt.num2(unitCost)} / ${esc(v.uom)}` : "—"}</td>
       <td class="r num">${mat.cost > 0 ? fmt.num2(mat.cost) : "—"}</td></tr>`;
   };
   const groupRow = (title: string, cost: number) =>
-    `<tr><td colspan="6" style="background:#fafaf9;font-weight:700;font-size:9.5px">${esc(title)}</td><td class="r num" style="background:#fafaf9;font-weight:700">${fmt.num2(cost)}</td></tr>`;
+    `<tr><td colspan="8" style="background:#fafaf9;font-weight:700;font-size:9.5px">${esc(title)}</td><td class="r num" style="background:#fafaf9;font-weight:700">${fmt.num2(cost)}</td></tr>`;
   const idx = d.materials.map((_, i) => i);
   const groups: { title: string; ids: number[] }[] = [];
   const ing = idx.filter(i => d.materials[i].kind === "ingredient");
@@ -273,10 +278,10 @@ export function buildMoReportHtml(d: MoReportData, now: Date = new Date()): { ht
     <div class="facts">${facts.map(([k, v]) => `<div><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
     <div class="kpis">${kpis}</div>
     ${section("What stood out", findingsHtml)}
-    ${section("Output", table([["Product"], ["Unit"], ["Planned", true], ["Produced", true], ["Difference", true], ["Lot"], ["Best before"], ["Unit cost", true], ["Cost", true]], outputRows,
-      `<tr class="tot"><td colspan="8">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`))}
-    ${section("Materials: planned vs used", table([["Material"], ["Unit"], ["Planned", true], ["Used", true], ["Variance", true], ["Unit cost", true], ["Cost", true]], materialRows,
-      `<tr class="tot"><td colspan="6">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`))}
+    ${section("Output", table([["Product"], ["Unit"], ["Planned", true], ["Produced", true], ["Variance", true], ["Lot"], ["Best before"], ["Unit cost", true], ["Cost", true]], outputRows,
+      `<tr class="tot"><td colspan="8">Total output cost</td><td class="r num">${fmt.num2(outputTotal)}</td></tr>`, GRID))}
+    ${section("Materials: planned vs used", table([["Material"], ["Unit"], ["Planned", true], ["Used", true], ["Variance", true], ["Lot"], ["Expiry"], ["Unit cost", true], ["Cost", true]], materialRows,
+      `<tr class="tot"><td colspan="8">Total material cost</td><td class="r num">${fmt.num2(c.material)}</td></tr>`, GRID))}
     ${section("Cost build-up", costHtml)}
     ${d.operations.length ? section("Operations: planned vs actual hours", table([["Operation"], ["Planned", true], ["Actual", true], ["Efficiency", true]], opRows)) : ""}
     ${d.runs.length ? section("Completions", `<div class="muted" style="padding:2px 2px 0;font-size:9.5px">Each completion is one posting of finished stock against this order. The production run number (BUILD-…) is its reference in the stock and ledger records.</div>`

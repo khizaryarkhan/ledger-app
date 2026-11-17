@@ -86,6 +86,11 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
     if (cur.kind === "packaging" && ps?.size === 1) cur.forPack = packLabel([...ps][0]);
     planned.set(m.itemId, cur);
   }
+  const lotInfo = (rows: (typeof cons)) => {
+    const ls = rows.map(c => lot.get(c.lotId)).filter(Boolean) as (typeof lots)[number][];
+    const expiries = ls.map(l => l.expiryDate).filter(Boolean).sort() as string[];
+    return { lots: [...new Set(ls.map(l => l.lotNo).filter(Boolean) as string[])], expiry: expiries[0] ?? null };
+  };
   const materials: MoReportMaterial[] = [];
   for (const [itemId, p] of planned) {
     const own = cons.filter(c => c.itemId === itemId && !c.forItemId);
@@ -95,10 +100,10 @@ export async function loadMoReport(orgId: string, moId: string): Promise<MoRepor
       for (const subId of new Set(stoodIn.map(c => c.itemId))) {
         const rows = stoodIn.filter(c => c.itemId === subId);
         const sp = subs.find(s => s.primaryItemId === itemId && s.itemId === subId);
-        materials.push({ name: `${item.get(subId)?.name ?? "Item"} (in place of ${name})`, kind: p.kind, uom: item.get(subId)?.baseUom ?? "", planned: num(sp?.plannedQty), used: rows.reduce((s, c) => s + num(c.qty), 0), cost: rows.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack });
+        materials.push({ name: `${item.get(subId)?.name ?? "Item"} (in place of ${name})`, kind: p.kind, uom: item.get(subId)?.baseUom ?? "", planned: num(sp?.plannedQty), used: rows.reduce((s, c) => s + num(c.qty), 0), cost: rows.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack, ...lotInfo(rows) });
       }
     } else {
-      materials.push({ name, kind: p.kind, uom: item.get(itemId)?.baseUom ?? "", planned: p.planned, used: own.reduce((s, c) => s + num(c.qty), 0), cost: own.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack });
+      materials.push({ name, kind: p.kind, uom: item.get(itemId)?.baseUom ?? "", planned: p.planned, used: own.reduce((s, c) => s + num(c.qty), 0), cost: own.reduce((s, c) => s + num(c.totalCost), 0), substitutes: [], forPack: p.forPack, ...lotInfo(own) });
     }
   }
 

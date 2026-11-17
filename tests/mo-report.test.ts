@@ -89,6 +89,12 @@ describe("MO report HTML", () => {
     expect(html).toContain("0.05 / g");
     expect(html).toContain("Total output cost");
     expect(html).toContain("Pack of 4 oz");
+    expect(html).not.toContain("Difference");
+    expect(html).toContain("<th>Expiry</th>");
+    expect(html).toContain("<th>Product</th>");
+    // Output and Materials share one column grid so their headings line up.
+    expect((html.match(/<colgroup>.*?<\/colgroup>/g) ?? []).length).toBe(2);
+    expect(new Set(html.match(/<colgroup>.*?<\/colgroup>/g)).size).toBe(1);
     expect(html).not.toContain("Planned (packs)");
     expect(html).toContain("production run number");
     expect(html).toContain("100 × 4 oz bottle [011]");
