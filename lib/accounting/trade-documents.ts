@@ -22,6 +22,7 @@ import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
+import { canonicalOrderUnit } from "@/lib/inventory/uom";
 import { resolveLeadTimeDays, defaultRequestedDate, applyPromise, confirmationStatus, isIsoDate } from "@/lib/inventory/delivery-performance";
 import { derivePoStage, type PoLineFacts } from "@/lib/accounting/po-workflow";
 import { pendingResponseDocIds } from "@/lib/accounting/po-workflow-server";
@@ -87,6 +88,12 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   const raw = (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0);
   if (raw.length === 0) err("Add at least one line with an account (or a product/service) and amount.");
   if (!input.partyId && !input.partyLabel) err(kind === "PurchaseOrder" ? "Select a supplier." : "Select a customer.");
+  // Every order unit must be one of our units or pack types: that is what makes
+  // it translatable into an EDI unit code, and what stops "10 of something"
+  // being booked with nothing to say what the something is. The form only ever
+  // offers known values; this stops a direct API call.
+  const unknownUnit = raw.findIndex(l => l.orderUom && !canonicalOrderUnit(l.orderUom));
+  if (unknownUnit >= 0) err(`Line ${unknownUnit + 1}: "${raw[unknownUnit].orderUom}" is not a known unit or pack type.`);
 
   // A Purchase Order commits to buying, so the sourcing decision has to exist
   // before the commitment does — not later, at the Bill, when the goods are
@@ -165,7 +172,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
         accountId: l.accountId || null, itemId: l.itemId ?? null, description: l.description ?? null,
         qty: l.qty != null ? String(l.qty) : null, rate: l.rate != null ? String(l.rate) : null,
         amount: priced[i].net.toFixed(2), taxRateId: l.taxRateId ?? null, taxAmount: priced[i].tax.toFixed(2),
-        orderUom: l.orderUom ?? null, packLevel: l.packLevel ?? null,
+        orderUom: canonicalOrderUnit(l.orderUom) ?? null, packLevel: l.packLevel ?? null,
         unitsPerOrderUnit: String(upo), supplierSkuId: l.supplierSkuId ?? null, skuId: l.skuId ?? null,
         priceLevel: l.priceLevel ?? null, priceUom: l.priceUom ?? null,
         unitsPerPriceUnit: l.unitsPerPriceUnit != null && Number(l.unitsPerPriceUnit) > 0 ? String(l.unitsPerPriceUnit) : null,

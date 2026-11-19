@@ -15,7 +15,23 @@
  * supplier scoping.
  */
 
-import { uom } from "@/lib/inventory/uom";
+import { uom, normalisePackType } from "@/lib/inventory/uom";
+
+/**
+ * The order unit stored for a pack level. A named container is stored as that
+ * pack type ("case"); a level whose container was never named is stored as the
+ * generic "pack", which is itself a pack type with an EDI code (X12 PH, UN/ECE
+ * XPK).
+ *
+ * It used to store the literal "inner" / "outer" for an unnamed level. Those
+ * describe a POSITION in the pack hierarchy, not a container, so no EDI unit
+ * code exists for them and a document carrying one could not be sent. The
+ * quantity is unaffected either way: unitsPerOrderUnit carries the size.
+ * Production held no such row when this changed (scripts/_scan_edi_unit_values.ts).
+ */
+export function orderUnitFor(packType: string | null | undefined): string {
+  return normalisePackType(packType) ?? "pack";
+}
 import { basePriceOf } from "@/lib/inventory/sourcing";
 
 export type OrderOption = {
@@ -109,11 +125,11 @@ export function orderOptions(baseUom: string | null, supplierSkus: any[], suppli
     }
     const inner = Number(s.innerUnitPackSize) || 0;
     if (inner > 0) {
-      push({ label: `${s.innerPackType || "inner pack"} (${inner} ${s.supplierUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner * per, supplierSkuId: s.id });
+      push({ label: `${s.innerPackType || "inner pack"} (${inner} ${s.supplierUom || ""})`, packLevel: "inner", orderUom: orderUnitFor(s.innerPackType), unitsPerOrderUnit: inner * per, supplierSkuId: s.id });
     }
     const outer = Number(s.unitsInOuterPack) || 0;
     if (inner > 0 && outer > 0) {
-      push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${s.innerPackType || "inner"})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: outer * inner * per, supplierSkuId: s.id });
+      push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${s.innerPackType || "inner"})`, packLevel: "outer", orderUom: orderUnitFor(s.outerPackType), unitsPerOrderUnit: outer * inner * per, supplierSkuId: s.id });
     }
   }
   return opts;
@@ -130,15 +146,15 @@ export function salesOrderOptions(baseUom: string | null, itemSkus: any[]): Orde
   for (const s of itemSkus || []) {
     const inner = Number(s.innerUnitPackSize) || 0;
     if (inner <= 0) continue;
-    opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${baseUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner, supplierSkuId: s.id, unitPrice: null, currency: null });
+    opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${baseUom || ""})`, packLevel: "inner", orderUom: orderUnitFor(s.innerPackType), unitsPerOrderUnit: inner, supplierSkuId: s.id, unitPrice: null, currency: null });
     const addl = Number(s.unitsInAddlInnerPack) || 0;
     const perAddl = addl > 0 ? inner * addl : inner;
     if (addl > 0) {
-      opts.push({ label: `${s.addlInnerPackType || "pack"} (${addl} × ${s.innerPackType || "inner"})`, packLevel: "addl", orderUom: s.addlInnerPackType || "pack", unitsPerOrderUnit: perAddl, supplierSkuId: s.id, unitPrice: null, currency: null });
+      opts.push({ label: `${s.addlInnerPackType || "pack"} (${addl} × ${s.innerPackType || "inner"})`, packLevel: "addl", orderUom: orderUnitFor(s.addlInnerPackType), unitsPerOrderUnit: perAddl, supplierSkuId: s.id, unitPrice: null, currency: null });
     }
     const outer = Number(s.unitsInOuterPack) || 0;
     if (outer > 0) {
-      opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (s.addlInnerPackType || "pack") : (s.innerPackType || "inner")})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: perAddl * outer, supplierSkuId: s.id, unitPrice: null, currency: null });
+      opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (s.addlInnerPackType || "pack") : (s.innerPackType || "inner")})`, packLevel: "outer", orderUom: orderUnitFor(s.outerPackType), unitsPerOrderUnit: perAddl * outer, supplierSkuId: s.id, unitPrice: null, currency: null });
     }
   }
   return opts;

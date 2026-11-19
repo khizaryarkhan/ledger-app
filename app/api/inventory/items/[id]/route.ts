@@ -17,6 +17,7 @@ import { prepareItemAccounting, effectiveInventoryAccount } from "@/lib/accounti
 import { onHandBySku } from "@/lib/inventory/valuation";
 import { itemReferences, itemHasStockHistory, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
+import { uom, uomError } from "@/lib/inventory/uom";
 
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
@@ -68,7 +69,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!existing) return bad("Item not found", 404);
   // Base UoM & kind are the costing basis — lock them once the item has stock
   // history, or the whole valuation would be inconsistent.
-  const changingBase = b.baseUom !== undefined && s(b.baseUom, 16) !== existing.baseUom;
+  // The edit drawer resends every field, so the base unit is only checked when it
+  // actually CHANGES: an item whose stored unit predates this rule stays editable.
+  const sentBase = b.baseUom === undefined ? undefined : (uom(b.baseUom)?.code ?? s(b.baseUom, 16));
+  const changingBase = sentBase !== undefined && sentBase !== existing.baseUom;
+  if (changingBase) { const e = uomError(sentBase, "Base unit"); if (e) return bad(e); }
   const changingKind = b.productType !== undefined && kindOf(b.productType).kind !== existing.productType;
   if (changingBase || changingKind) {
     if (await itemHasStockHistory(orgId!, params.id)) return bad("This item already has stock movements — its base UoM and type are locked. Create a new item instead.", 409);
@@ -84,7 +89,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (renamed && await itemNameTaken(orgId!, set.name, params.id)) return bad(duplicateNameMessage(set.name), 409);
   }
   if (b.category !== undefined) set.category = s(b.category, 128);
-  if (b.baseUom !== undefined) set.baseUom = s(b.baseUom, 16);
+  if (sentBase !== undefined) set.baseUom = sentBase;
   if (b.code !== undefined) set.code = s(b.code, 64);
   if (b.status !== undefined) set.status = s(b.status, 32);
   if (b.productType !== undefined) { const m = kindOf(b.productType); set.productType = m.kind; set.itemType = qboItemType(m.kind); }

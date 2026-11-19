@@ -11,6 +11,7 @@ import { kindOf, qboItemType, defaultTradeFlags } from "@/lib/inventory/item-kin
 import { sourcingOf, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { prepareItemAccounting } from "@/lib/accounting/account-roles-server";
+import { uom, uomError } from "@/lib/inventory/uom";
 
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
@@ -74,6 +75,10 @@ export async function POST(req: Request) {
     canBeSold, canBePurchased,
   });
   if ("error" in acc) return bad(acc.error);
+  // The base unit must be one we know: stock is counted in it, and an EDI line
+  // translates it into a unit code. Stored in canonical form ("KG" -> "kg").
+  const baseErr = uomError(b?.baseUom, "Base unit");
+  if (baseErr) return bad(baseErr);
   const lotTracked = b?.lotTracked === undefined ? meta.lotTrackedDefault : !!b.lotTracked;
   // Chosen in the New item drawer; otherwise the kind's default. Never left to
   // the column default, which is `restricted` for every kind.
@@ -81,7 +86,7 @@ export async function POST(req: Request) {
 
   const [row] = await db.insert(apItems).values({
     orgId: orgId!, source: "native", name,
-    productType, baseUom: s(b?.baseUom, 16), category: s(b?.category, 128), code: s(b?.code, 64),
+    productType, baseUom: uom(b?.baseUom)?.code ?? null, category: s(b?.category, 128), code: s(b?.code, 64),
     minOhQty: (numOrNull(b?.minOhQty) ?? 0).toString(),
     itemType: qboItemType(productType),
     unitPrice: numOrNull(b?.unitPrice) as any, unitCost: numOrNull(b?.unitCost) as any,

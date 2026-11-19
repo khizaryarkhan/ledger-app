@@ -9,6 +9,11 @@ import { skuReferences, blockerMessage } from "@/lib/inventory/references";
 import { prepareIdentifiers, writeIdentifiers, identifierErrorMessage } from "@/lib/inventory/identifiers-server";
 import type { PackLevel } from "@/lib/inventory/identifiers";
 import { NextResponse } from "next/server";
+import { normalisePackType, packTypeError } from "@/lib/inventory/uom";
+
+/** Why the pack types in a SKU body cannot be stored, or null. Shared by POST and PATCH. */
+const skuPackError = (b: any): string | null =>
+  packTypeError(b?.innerPackType, "Inner pack type") ?? packTypeError(b?.addlInnerPackType, "Additional pack type") ?? packTypeError(b?.outerPackType, "Outer pack type");
 
 const s = (v: any, n = 64) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v).toString());
@@ -17,9 +22,9 @@ const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null 
 function skuValues(b: any) {
   const values = {
     skuName: s(b?.skuName, 255), skuCode: s(b?.skuCode),
-    innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: s(b?.innerPackType, 32),
-    unitsInAddlInnerPack: numOrNull(b?.unitsInAddlInnerPack), addlInnerPackType: s(b?.addlInnerPackType, 32),
-    unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: s(b?.outerPackType, 32),
+    innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: normalisePackType(b?.innerPackType),
+    unitsInAddlInnerPack: numOrNull(b?.unitsInAddlInnerPack), addlInnerPackType: normalisePackType(b?.addlInnerPackType),
+    unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: normalisePackType(b?.outerPackType),
   };
   // "inner" is the SKU's own consumer unit (the 750ml bottle) and always
   // exists; the other two only when this SKU is packed that way.
@@ -56,6 +61,8 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const [item] = await db.select({ id: apItems.id }).from(apItems).where(and(eq(apItems.id, String(b?.itemId)), eq(apItems.orgId, orgId!))).limit(1);
   if (!item) return bad("Item not found", 404);
+  const packErr = skuPackError(b);
+  if (packErr) return bad(packErr);
   const { values, levels } = skuValues(b);
   let ids;
   try { ids = await prepareIdentifiers(orgId!, item.id, b?.identifiers, levels); }
@@ -74,6 +81,8 @@ export async function PATCH(req: Request) {
   const b = await req.json().catch(() => ({}));
   const [existing] = await db.select().from(itemSkus).where(and(eq(itemSkus.id, id), eq(itemSkus.orgId, orgId!))).limit(1);
   if (!existing) return bad("SKU not found", 404);
+  const packErr = skuPackError(b);
+  if (packErr) return bad(packErr);
   const { values, levels } = skuValues(b);
 
   // Stock already held in this SKU was counted in its current pack sizes;

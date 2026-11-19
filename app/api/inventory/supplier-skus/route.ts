@@ -18,7 +18,7 @@ import { db } from "@/db";
 import { itemSupplierSkus, apItems, apSuppliers } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, ne } from "drizzle-orm";
-import { needsConversionFactor } from "@/lib/inventory/uom";
+import { needsConversionFactor, normalisePackType, packTypeError, uomError, uom } from "@/lib/inventory/uom";
 import { allowsPackConfiguration, sourcingOf, SOURCING_POLICIES, PRICE_BASES, supplierUnitsIn, unitPriceFromQuote } from "@/lib/inventory/sourcing";
 import { supplierSkuReferences, blockerMessage } from "@/lib/inventory/references";
 import { prepareIdentifiers, writeIdentifiers, identifierErrorMessage } from "@/lib/inventory/identifiers-server";
@@ -32,7 +32,12 @@ type ItemRow = { id: string; baseUom: string | null; sourcingPolicy: string | nu
 
 /** Validate a link body and build its column values. Returns an error message instead of throwing. */
 function linkValues(item: ItemRow, b: any, supplierCurrency: string | null): { error: string } | { values: Record<string, any>; levels: PackLevel[] } {
-  const supplierUom = s(b?.supplierUom, 16);
+  // Units and pack types must be ones we know: they are what an EDI document
+  // translates into a unit code, and a free-text "Bagz" can never be.
+  const unitErr = uomError(b?.supplierUom, "Supplier unit")
+    ?? packTypeError(b?.innerPackType, "Inner pack type") ?? packTypeError(b?.outerPackType, "Outer pack type");
+  if (unitErr) return { error: unitErr };
+  const supplierUom = uom(b?.supplierUom)?.code ?? null;
   // Cross-dimension packaging (e.g. item Lt ↔ supplier Lb) requires an explicit factor.
   const factorRequired = !!(item.baseUom && supplierUom && needsConversionFactor(item.baseUom, supplierUom));
   const factor = numOrNull(b?.conversionFactor);
@@ -64,8 +69,8 @@ function linkValues(item: ItemRow, b: any, supplierCurrency: string | null): { e
     supplierUom,
     skuName: s(b?.skuName, 255), supplierProductName: s(b?.supplierProductName, 255), supplierSku: s(b?.supplierSku),
     itemCodeBySupplier: s(b?.itemCodeBySupplier),
-    innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: s(b?.innerPackType, 32),
-    unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: s(b?.outerPackType, 32),
+    innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: normalisePackType(b?.innerPackType),
+    unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: normalisePackType(b?.outerPackType),
     conversionFactor: factor,
     // Commercial terms: the quote as given, at its level; unitPrice is its per-supplier-UoM equivalent.
     quotedPrice: quoted, priceBasis,
