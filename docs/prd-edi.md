@@ -1,6 +1,8 @@
 # EDI and trade standards — PRD (whole trade cycle, both directions)
 
 Status: **research done, nothing built.** Rewritten 2026-11-19 against `main` at `f39332e`.
+Every code reference in §4 was re-checked against `db/schema.ts` and `lib/` on 2026-11-19
+(table columns, function names and locations); four corrections from that pass are marked **(verified)**.
 Supersedes the earlier "EDI for purchase orders" brief, which was framed as a PO feature.
 Audience: the agent picking this up. Read `CLAUDE.md` first (conventions, neon-http has no
 transactions, migration rules, module gating, "a date is a date").
@@ -150,14 +152,16 @@ Legend: ✅ have · 🟡 partly · ❌ missing.
 |---|---|---|
 | Document number, date, currency | ✅ | `trade_documents.doc_number`, `issue_date`, `currency` |
 | Our address, phone, tax no. | ✅ | `organisations.address*`, `phone`, `email`, `tax_number` |
-| Partner address | ✅ | `parties.address*` |
+| Partner address | 🟡 | `parties.address_street/line2/city/state/postcode` are structured, but parties have **no `address_country` column** (verified); see country row |
+| **ISO country code** (ISO 3166) | ❌ | (verified) `parties.country` is a free-text name, `countries` is an org-defined list of NAMES with no code, `organisations.address_country` is free varchar(64). EDI addresses need the 2-letter code |
 | Line number echoed back | ✅ | `trade_document_lines.line_no` (needed to match 855/856/860) |
 | Qty, price, amount, pack size, line dates | ✅ | `qty`, `rate` (per ORDER unit), `amount`, `units_per_order_unit`, `pack_level`, `requested_date`/`promised_date` |
 | GTIN per pack level | ✅ | `item_identifiers`, normalised to 14 digits, `lib/gs1.ts` |
+| Identifier owner for a CUSTOMER code | ❌ | (verified) `item_identifiers` owners are `item_sku_id` or `supplier_sku_id` only; `scheme` is varchar(**8**) (`GTIN`/`OTHER`), so `SUPPLIER`/`CUSTOMER` fit exactly but nothing longer |
 | **GLN** (org, locations, parties) | ❌ | none anywhere (listed "next" in CLAUDE.md GS1 section) |
 | **Structured ship-to / bill-to** | ❌ | `stock_locations.address` is free text; PO/SO carry no ship-to; no customer ship-to locations |
 | **EDI interchange IDs + qualifiers** | ❌ | nothing on org or party |
-| **EDI unit codes** | ❌ | `lib/inventory/uom.ts` `UOMS`/`PACK_TYPES` have no EDI codes; `lib/inventory/order-options.ts` (~L112-141) writes `order_uom` = pack type or the literal `"inner"`/`"outer"`/`"pack"` (uncodeable); pack type is a UI dropdown only, not enforced server-side |
+| **EDI unit codes** | ❌ | `lib/inventory/uom.ts` `UOMS`/`PACK_TYPES` have no EDI codes; `lib/inventory/order-options.ts` (~L112-141) writes `order_uom` = pack type or the literal `"inner"`/`"outer"`/`"pack"` (uncodeable; verified at lines 112, 116, 133, 137, 141); pack type is a UI dropdown only, not enforced server-side. (verified) `PACK_TYPES` includes `"pallet"`, so a pallet can be an ORDER unit today; EDI normally treats it as a shipping unit (SSCC), so each partner's guide decides whether `PL` is allowed on an order line |
 | **SSCC** (pallet/carton IDs) | ❌ | not stored on shipments or receipts (logistic units are SSCC per CLAUDE.md) |
 | Payment terms, discount terms, Incoterms | 🟡 | `parties.payment_terms` is integer days only (default 30); no discount terms; not copied onto documents; no Incoterms |
 | Party contacts | 🟡 | `contacts` is **customers only** (`customer_id` NOT NULL); suppliers have none |
@@ -200,8 +204,9 @@ validators, review queue, module key.
 
 ### Phase 0: shared data foundation (valuable without EDI; do first)
 Every item serves BOTH sides; build once.
-1. **Structured addresses + GLN**: structured address and optional GLN on `stock_locations`, on
-   `parties`, and on the org; **customer ship-to locations**; PO/SO header `ship_to` (default:
+1. **Structured addresses + GLN + ISO country**: structured address and optional GLN on
+   `stock_locations`, on `parties` (add `address_country`), and on the org; an ISO 3166 country
+   code wherever an address is stored, kept beside the existing country name; **customer ship-to locations**; PO/SO header `ship_to` (default:
    org default location for POs, the customer's default ship-to for SOs).
 2. **Part-number cross-references, per pack level**: decide the meaning of `supplier_sku` vs
    `item_code_by_supplier` (proposal: `supplier_sku` = their part number, the other = alternate);
