@@ -951,6 +951,33 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 3a: a customer's 850 becomes a Sales Order (2026-11-20)
+
+No migration. First slice of the sales cycle (`docs/prd-edi.md` Phase 3). A partner may now be a CUSTOMER (partner
+drawer: "Partner is a" Supplier / Customer); a new customer partner defaults to sending 855, 856, 810 (+997 if ticked),
+`EDI_DOCS_OUT` is now `850, 855, 856, 810, 997` (the outbound 855/856/810 are 3b–3d, not built yet).
+
+- `parse850` (`lib/edi/x12/inbound.ts`): BEG03 = THEIR order number, BEG05 date, DTM 002 requested delivery, `N1*ST`
+  (qualifier UL = GLN, else their own location code), PO1 with `BP` (THEIR part number), `VP` (OUR item code),
+  `UP/EN/UK` (GTIN). **On an inbound order the qualifiers mean the opposite of our outbound 850** (there VP was theirs).
+- `inboundOrderToSalesOrder` (pure, `lib/edi/inbound.ts`) + `apply850` / identifier resolution
+  (`lib/edi/inbound-order-server.ts`, called from `processMessage`). **A DOCUMENT only**: `createTradeDoc` (no stock,
+  no ledger); a person confirms it and it ships through Shipping as any SO does. SO: `party_ref` = their PO number
+  (also the duplicate guard: the same number from the same customer is never created twice, case-insensitive),
+  `expiry_date` = requested delivery, `issue_date` = their order date, delivery address from `findShipTo`
+  (GLN, then code), lines through `salesOrderOptions` in OUR order unit for the pack level their identifier names.
+- **Never guesses; one bad line refuses the WHOLE order** (a half order is a wrong order) and nothing is created:
+  needs one identifier that resolves (BP via `resolvePartNumber` customer side, a GTIN we own — supplier-owned
+  barcodes ignored, an item code); those that resolve must agree on item AND pack level; the quantity unit must be
+  our order unit for that level (partner unit overrides first); a price is required; an unknown ship-to refuses.
+  A price differing >1% from the item's list price is accepted but the file goes to review (the SO still exists).
+  `BEG01` other than `00` (change/cancel) goes to review: that is Phase 4.
+- The file is linked to the SO (`app_doc_type = 'SalesOrder'`); `TxnResult.soId` carries it.
+- Tests in `tests/edi-inbound.test.ts`; `scripts/_e2e_edi_850_in.ts` (9 checks on dev, cleaned up).
+- **Not built / not verified**: not clicked through in a browser. A VP matching one of our SKU codes is not read
+  (the pack level would be a guess); only our item code, at the unit level. No tax is set on the lines (set it when
+  confirming). Currency is taken as sent (CUR02) with no check against the customer's currency.
+
 ## EDI Phase 2d: we send our own 997 for the partner's files (2026-11-20)
 
 No migration. `write997` (`lib/edi/x12/997.ts`, pure) writes one 997 per received functional group, all in one FA
