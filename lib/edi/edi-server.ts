@@ -50,9 +50,11 @@ async function loadPartner(orgId: string, id: string) {
 export async function createPartner(orgId: string, input: PartnerInput, actorId: string | null) {
   const partyId = input.partyId ? String(input.partyId) : "";
   if (!partyId) fail("Choose the supplier or customer this profile is for.");
-  const [party] = await db.select({ id: parties.id }).from(parties).where(and(eq(parties.id, partyId), eq(parties.orgId, orgId))).limit(1);
+  const [party] = await db.select({ id: parties.id, partyType: parties.partyType }).from(parties).where(and(eq(parties.id, partyId), eq(parties.orgId, orgId))).limit(1);
   if (!party) fail("Supplier or customer not found.", 404);
-  const v = partnerValues(input);
+  // A customer is sent our order acknowledgement, ship notice and invoice; a supplier, our purchase orders.
+  const defaults = party!.partyType === "customer" && input.docsOut == null ? { ...input, docsOut: ["855", "856", "810"] } : input;
+  const v = partnerValues(defaults);
   if (v.ok === false) fail(v.error);
   try {
     const [row] = await db.insert(ediPartners).values({ orgId, partyId, ...(v as any).value, createdBy: actorId }).returning();

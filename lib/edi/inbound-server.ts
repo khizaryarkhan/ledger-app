@@ -28,6 +28,7 @@ import { recordSupplierResponse } from "@/lib/accounting/po-supplier-server";
 import { LedgerValidationError } from "@/lib/ledger";
 import { EdiError, allocateControlNo, utcStamp } from "@/lib/edi/edi-server";
 import { write997 } from "@/lib/edi/x12/997";
+import { apply850 } from "@/lib/edi/inbound-order-server";
 import { logEvent } from "@/lib/audit";
 
 const MAX_BYTES = 2_000_000;
@@ -36,6 +37,8 @@ const isUniqueViolation = (e: any) => e?.code === "23505" || /duplicate key|uniq
 type Partner = typeof ediPartners.$inferSelect;
 export type TxnResult = {
   setId: string; controlNo: string; outcome: "applied" | "review" | "ignored"; summary: string; reasons: string[]; poId?: string | null;
+  /** 850 only: the Sales Order created from (or already standing for) the customer's order. */
+  soId?: string | null;
   /** 810 only: the bill a person may create, the line-by-line match, and the bill once created. */
   proposal?: BillProposal | null; match?: InvoiceMatchLine[]; bill?: { entryId: string; docNumber: string | null } | null;
 };
@@ -130,7 +133,7 @@ export async function reprocessMessage(orgId: string, id: string, actorId: strin
 async function processMessage(orgId: string, partner: Partner, messageId: string, ixn: ReturnType<typeof readInterchange>, actorId: string | null) {
   const results: TxnResult[] = [];
   let status: "processed" | "review" | "ignored" | "error" = "processed";
-  let appDoc: { id: string; number: string | null } | null = null;
+  let appDoc: { id: string; number: string | null; type: "PurchaseOrder" | "SalesOrder" } | null = null;
   try {
     if (ixn.test && partner.mode === "live") {
       status = "ignored";
@@ -141,11 +144,14 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
           : t.setId === "855" ? [await apply855(orgId, partner, t.segments, t.controlNo)]
           : t.setId === "856" ? await apply856(orgId, partner, t.segments, t.controlNo, actorId)
           : t.setId === "810" ? [await apply810(orgId, partner, t.segments, t.controlNo)]
+          : t.setId === "850" ? [await apply850(orgId, partner, t.segments, t.controlNo, actorId)]
           : [{ setId: t.setId, controlNo: t.controlNo, outcome: "review" as const, summary: `${t.setId} files are not read yet.`, reasons: [] }];
         results.push(...rs);
-        for (const r of rs) if (r.poId && !appDoc) {
-          const [d] = await db.select({ number: tradeDocuments.docNumber }).from(tradeDocuments).where(eq(tradeDocuments.id, r.poId)).limit(1);
-          appDoc = { id: r.poId, number: d?.number ?? null };
+        for (const r of rs) {
+          const docId = r.soId ?? r.poId;
+          if (!docId || appDoc) continue;
+          const [d] = await db.select({ number: tradeDocuments.docNumber }).from(tradeDocuments).where(eq(tradeDocuments.id, docId)).limit(1);
+          appDoc = { id: docId, number: d?.number ?? null, type: r.soId ? "SalesOrder" : "PurchaseOrder" };
         }
       }
       if (results.some(r => r.outcome === "review")) status = "review";
@@ -156,7 +162,7 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
     results.push({ setId: "*", controlNo: String(ixn.controlNo), outcome: "review", summary: "Processing stopped with an error. Process it again, or contact support if it keeps failing.", reasons: [String(e?.message ?? e).slice(0, 300)] });
   }
   const [message] = await db.update(ediMessages).set({
-    status, result: results, appDocType: appDoc ? "PurchaseOrder" : null, appDocId: appDoc?.id ?? null, appDocNumber: appDoc?.number ?? null,
+    status, result: results, appDocType: appDoc?.type ?? null, appDocId: appDoc?.id ?? null, appDocNumber: appDoc?.number ?? null,
     error: status === "error" ? results.at(-1)?.reasons[0] ?? null : null,
   }).where(eq(ediMessages.id, messageId)).returning();
   logEvent({ orgId, eventType: "edi_received", docType: appDoc ? "trade" : null, docId: appDoc?.id ?? null, actorId,

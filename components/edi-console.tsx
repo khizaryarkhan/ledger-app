@@ -298,7 +298,8 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
   }));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  useEffect(() => { if (isNew) fetch("/api/parties/suppliers?native=1").then(r => r.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, [isNew]);
+  const [side, setSide] = useState<"suppliers" | "customers">("suppliers");
+  useEffect(() => { if (isNew) fetch(`/api/parties/${side}?native=1`).then(r => r.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, [isNew, side]);
   const set = (patch: Partial<typeof f>) => setF(x => ({ ...x, ...patch }));
 
   async function save() {
@@ -308,7 +309,8 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
       if (k) unitOverrides[k] = v ?? "";
     }
     const { units: _u, sendAck, ...rest } = f;
-    const docsOut = [...((partner.docsOut ?? ["850"]) as string[]).filter(d => d !== "997"), ...(sendAck ? ["997"] : [])];
+    const base = (partner.docsOut ?? (side === "customers" ? ["855", "856", "810"] : ["850"])) as string[];
+    const docsOut = [...base.filter(d => d !== "997"), ...(sendAck ? ["997"] : [])];
     const body = { ...rest, docsOut, unitOverrides, senderAppId: f.senderAppId || null, receiverAppId: f.receiverAppId || null, notes: f.notes || null };
     setSaving(true); setErr("");
     const r = await fetch(isNew ? "/api/edi/partners" : `/api/edi/partners/${partner.id}`, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -328,12 +330,22 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
       footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={isNew ? "Add partner" : "Save"} err={err} />}>
       <div className="space-y-4">
         {isNew && (
-          <Field label="Supplier">
-            <SelectField inset value={f.partyId} onChange={e => set({ partyId: e.target.value })} aria-label="Supplier">
-              <option value="">Choose a supplier</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </SelectField>
-          </Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Partner is a">
+              <SelectField inset value={side} onChange={e => { setSide(e.target.value as "suppliers" | "customers"); set({ partyId: "" }); }} aria-label="Partner type">
+                <option value="suppliers">Supplier (we send purchase orders)</option>
+                <option value="customers">Customer (they send us orders)</option>
+              </SelectField>
+            </Field>
+            <div className="col-span-2">
+              <Field label={side === "customers" ? "Customer" : "Supplier"}>
+                <SelectField inset value={f.partyId} onChange={e => set({ partyId: e.target.value })} aria-label={side === "customers" ? "Customer" : "Supplier"}>
+                  <option value="">{side === "customers" ? "Choose a customer" : "Choose a supplier"}</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </SelectField>
+              </Field>
+            </div>
+          </div>
         )}
         <div className="grid grid-cols-3 gap-3">
           <Field label="Mode"><SelectField inset value={f.mode} onChange={e => set({ mode: e.target.value })} aria-label="Mode"><option value="test">Test (ISA15 = T)</option><option value="live">Live (ISA15 = P)</option></SelectField></Field>

@@ -9,7 +9,9 @@
  * for a person to look, given in words.
  */
 
-import type { EdiOrderAck, EdiShipNotice, EdiShipOrder, EdiInvoice } from "@/lib/edi/model";
+import type { EdiOrderAck, EdiShipNotice, EdiShipOrder, EdiInvoice, EdiInboundOrder } from "@/lib/edi/model";
+import { x12UnitFor } from "@/lib/edi/validate";
+import { salesOrderOptions } from "@/lib/inventory/order-options";
 import type { DeliveryInput } from "@/lib/inventory/expected-delivery";
 import { roundQty } from "@/lib/inventory/round";
 import type { SubmittedLine } from "@/lib/accounting/po-workflow";
@@ -251,6 +253,79 @@ export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: I
     receiptIds: chosen!.map(r => r.id), receiptNos: chosen!.map(r => r.receiptNo ?? r.id), prices,
     goods, total: inv.total, tax: inv.tax, charges,
   } };
+}
+
+/** An item reference an identifier on a customer's order resolved to: our item, the sales SKU (null = base unit) and pack level. */
+export type ItemRef = { itemId: string; skuId: string | null; level: "unit" | "inner" | "addl_inner" | "outer" };
+export type OrderLineRefs = { lineNo: string; bp: ItemRef | null; gtin: ItemRef | null; vp: ItemRef | null };
+export type OrderItemCtx = {
+  name: string; code: string | null; baseUom: string | null; unitPrice: number | null;
+  skus: { id: string; innerUnitPackSize?: any; innerPackType?: any; unitsInAddlInnerPack?: any; addlInnerPackType?: any; unitsInOuterPack?: any; outerPackType?: any }[];
+};
+export type SalesOrderLine = {
+  itemId: string; skuId: string | null; description: string; qty: number; rate: number; amount: number;
+  orderUom: string; packLevel: string; unitsPerOrderUnit: number;
+};
+export type SalesOrderOutcome =
+  | { ok: true; lines: SalesOrderLine[]; notes: string[]; needsReview: boolean }
+  | { ok: false; problems: string[] };
+
+const LEVEL_TO_OPTION: Record<ItemRef["level"], string> = { unit: "base", inner: "inner", addl_inner: "addl", outer: "outer" };
+const PRICE_TOLERANCE = 0.01;
+
+/**
+ * A customer's 850 → the lines of one Sales Order. Never guesses: a line needs
+ * at least one identifier that resolves (their part number, a GTIN, or our own
+ * item code); the ones that resolve must agree on item and pack level; the
+ * quantity's unit must be OUR order unit for that level; the price must be
+ * present. Any problem refuses the WHOLE order (a half order is a wrong order)
+ * and it goes to review with the raw line named. A price that differs from the
+ * item's list price is accepted but flagged for a person.
+ */
+export function inboundOrderToSalesOrder(
+  order: EdiInboundOrder, refs: OrderLineRefs[], items: Map<string, OrderItemCtx>, overrides: Record<string, string>,
+): SalesOrderOutcome {
+  const problems = [...order.problems];
+  const notes: string[] = [];
+  let needsReview = false;
+  if (!order.poNumber.trim()) problems.push("The order has no number (BEG03).");
+  if (!order.lines.length) problems.push("The order has no lines (PO1).");
+  const out: SalesOrderLine[] = [];
+  const seen = new Set<string>();
+  for (const l of order.lines) {
+    const at = `Line "${l.lineNo}"`;
+    if (seen.has(l.lineNo)) { problems.push(`${at} appears twice.`); continue; }
+    seen.add(l.lineNo);
+    const r = refs.find(x => x.lineNo === l.lineNo);
+    const found = r ? ([["their part number", r.bp], ["GTIN", r.gtin], ["our item code", r.vp]] as const).filter(([, v]) => v) : [];
+    const given = Object.keys(l.ids).filter(k => ["BP", "VP", "UP", "EN", "UK"].includes(k));
+    if (!given.length) { problems.push(`${at}: no item identifier (BP, VP or a GTIN).`); continue; }
+    if (!found.length) { problems.push(`${at}: none of ${given.map(k => `${k} ${l.ids[k]}`).join(", ")} is known. Register their part number on the item, or add the GTIN.`); continue; }
+    const first = found[0][1]!;
+    const clash = found.find(([, v]) => v!.itemId !== first.itemId || v!.level !== first.level || v!.skuId !== first.skuId);
+    if (clash) { problems.push(`${at}: ${found[0][0]} and ${clash[0]} point at different items or pack sizes.`); continue; }
+    const item = items.get(first.itemId);
+    if (!item) { problems.push(`${at}: the item is no longer there.`); continue; }
+    const sku = first.skuId ? item.skus.find(s => s.id === first.skuId) : null;
+    const opt = salesOrderOptions(item.baseUom, sku ? [sku] : []).find(o => o.packLevel === LEVEL_TO_OPTION[first.level]);
+    if (!opt || !opt.orderUom) { problems.push(`${at}: ${item.name} has no ${first.level} level to order in.`); continue; }
+    const ours = x12UnitFor(opt.orderUom, overrides);
+    const theirs = (l.unit ?? "").toUpperCase();
+    if (ours.ok === false) { problems.push(`${at}: we have no EDI code for ${opt.orderUom}. Set one for this partner.`); continue; }
+    if (theirs !== ours.code) { problems.push(`${at}: ordered in ${theirs || "no unit"}, our unit for ${item.name} at that level is ${opt.orderUom} (${ours.code}).`); continue; }
+    if (l.qty == null || !Number.isFinite(l.qty) || l.qty <= 0) { problems.push(`${at}: no quantity.`); continue; }
+    if (l.price == null || !Number.isFinite(l.price) || l.price < 0) { problems.push(`${at}: no unit price (PO104).`); continue; }
+    const upo = opt.unitsPerOrderUnit;
+    const perBase = l.price / upo;
+    if (item.unitPrice && item.unitPrice > 0 && Math.abs(perBase - item.unitPrice) / item.unitPrice > PRICE_TOLERANCE) {
+      notes.push(`${at}: they pay ${Math.round(perBase * 1e6) / 1e6} per ${item.baseUom ?? "unit"}, ${item.name} lists at ${item.unitPrice}.`);
+      needsReview = true;
+    }
+    out.push({ itemId: first.itemId, skuId: first.skuId, description: l.description || item.name, qty: l.qty, rate: l.price,
+      amount: Math.round(l.qty * l.price * 100) / 100, orderUom: opt.orderUom, packLevel: opt.packLevel, unitsPerOrderUnit: upo });
+  }
+  if (problems.length) return { ok: false, problems };
+  return { ok: true, lines: out, notes, needsReview };
 }
 
 /** YYYY-MM-DD plus n days, in UTC throughout (a date is a date). */

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { readInterchange } from "@/lib/edi/x12/read";
-import { parse997, parse855, parse856, parse810, ymdFrom } from "@/lib/edi/x12/inbound";
-import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, type AckPoLine, type AsnPoLine, type InvoiceReceipt } from "@/lib/edi/inbound";
+import { parse997, parse855, parse856, parse810, parse850, ymdFrom } from "@/lib/edi/x12/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, inboundOrderToSalesOrder, type AckPoLine, type AsnPoLine, type InvoiceReceipt, type ItemRef, type OrderItemCtx } from "@/lib/edi/inbound";
 import { prepareDelivery } from "@/lib/inventory/expected-delivery";
 import { interchange, interchangeSets, seg, type Envelope } from "@/lib/edi/x12/envelope";
 import { write997 } from "@/lib/edi/x12/997";
@@ -247,6 +247,58 @@ describe("our 997 for their file", () => {
   it("writes several sets in one group with their own ST numbers", () => {
     const f = interchangeSets(ours, "FA", [{ txnSet: "997", body: [seg("AK1", "IN", "1")] }, { txnSet: "997", body: [seg("AK1", "SH", "2")] }]);
     expect(readInterchange(f).groups[0].txns.map(t => t.controlNo)).toEqual(["0001", "0002"]);
+  });
+});
+
+describe("850 from a customer → a Sales Order", () => {
+  const po = (lines: string[], head: string[] = []) => parse850(readInterchange(interchange(env, "PO", "850", [
+    seg("BEG", "00", "SA", "CUST-PO-77", "", "20261120"), seg("CUR", "BY", "EUR"), seg("DTM", "002", "20261205"),
+    seg("N1", "ST", "Dublin DC", "UL", "5412345000020"), ...head, ...lines, seg("CTT", "1"),
+  ])).groups[0].txns[0].segments);
+  const line = (...a: (string | number)[]) => seg("PO1", ...a);
+
+  const bag: ItemRef = { itemId: "I1", skuId: null, level: "unit" };
+  const carton: ItemRef = { itemId: "I1", skuId: "K1", level: "outer" };
+  const items = new Map<string, OrderItemCtx>([["I1", { name: "Rice", code: "RM-RICE", baseUom: "kg", unitPrice: 0.5,
+    skus: [{ id: "K1", innerUnitPackSize: 25, innerPackType: "bag", unitsInOuterPack: 8, outerPackType: "carton" }] }]]);
+  const refs = (r: Partial<{ bp: ItemRef | null; gtin: ItemRef | null; vp: ItemRef | null }>) => [{ lineNo: "1", bp: null, gtin: null, vp: null, ...r }];
+
+  it("reads their order number and date, currency, requested date, ship-to (GLN) and lines with identifiers", () => {
+    const o = po([line(1, 40, "KG", "0.5", "", "BP", "THEIR-9", "VP", "RM-RICE", "UP", "012345678905")]);
+    expect(o).toMatchObject({ purpose: "00", poNumber: "CUST-PO-77", poDate: "2026-11-20", currency: "EUR", requestedDate: "2026-12-05",
+      shipTo: { name: "Dublin DC", gln: "5412345000020", code: null }, problems: [] });
+    expect(o.lines).toEqual([{ lineNo: "1", qty: 40, unit: "KG", price: 0.5, ids: { BP: "THEIR-9", VP: "RM-RICE", UP: "012345678905" }, description: null }]);
+    expect(po([line(1, 1, "KG", 1, "", "BP", "X")], [seg("N1", "ST", "Store 12", "92", "S-12")]).shipTo).toMatchObject({ gln: "5412345000020" }); // first ST wins
+  });
+
+  it("becomes order lines in OUR unit for the pack level their identifier names", () => {
+    const r = inboundOrderToSalesOrder(po([line(1, 40, "KG", "0.5", "", "BP", "T1")]), refs({ bp: bag }), items, {});
+    expect(r).toMatchObject({ ok: true, needsReview: false, lines: [{ itemId: "I1", skuId: null, qty: 40, rate: 0.5, amount: 20, orderUom: "kg", packLevel: "base", unitsPerOrderUnit: 1 }] });
+  });
+
+  it("an outer pack: carton quantity, price per carton, 200 kg in each", () => {
+    const r = inboundOrderToSalesOrder(po([line(1, 3, "CT", "100", "", "UP", "012345678905")]), refs({ gtin: carton }), items, {});
+    expect(r).toMatchObject({ ok: true, lines: [{ skuId: "K1", qty: 3, rate: 100, amount: 300, orderUom: "carton", packLevel: "outer", unitsPerOrderUnit: 200 }] });
+  });
+
+  it("never guesses: no identifier, an unknown one, two that disagree, a wrong unit, no price", () => {
+    const run = (l: string, r: ReturnType<typeof refs>) => inboundOrderToSalesOrder(po([l]), r, items, {});
+    expect(run(line(1, 1, "KG", 1), refs({}))).toEqual({ ok: false, problems: [expect.stringMatching(/no item identifier/)] });
+    expect(run(line(1, 1, "KG", 1, "", "BP", "NOPE"), refs({}))).toEqual({ ok: false, problems: [expect.stringMatching(/none of BP NOPE is known/)] });
+    expect(run(line(1, 1, "KG", 1, "", "BP", "A", "UP", "012345678905"), refs({ bp: bag, gtin: carton }))).toEqual({ ok: false, problems: [expect.stringMatching(/point at different items or pack sizes/)] });
+    expect(run(line(1, 1, "CT", 1, "", "BP", "A"), refs({ bp: bag }))).toEqual({ ok: false, problems: [expect.stringMatching(/ordered in CT, our unit for Rice at that level is kg \(KG\)/)] });
+    expect(run(line(1, 1, "KG", "", "", "BP", "A"), refs({ bp: bag }))).toEqual({ ok: false, problems: [expect.stringMatching(/no unit price/)] });
+  });
+
+  it("one bad line refuses the WHOLE order: a half order is a wrong order", () => {
+    const o = po([line(1, 40, "KG", "0.5", "", "BP", "T1"), line(2, 5, "KG", "1", "", "BP", "NOPE")]);
+    const r = inboundOrderToSalesOrder(o, [{ lineNo: "1", bp: bag, gtin: null, vp: null }, { lineNo: "2", bp: null, gtin: null, vp: null }], items, {});
+    expect(r.ok).toBe(false);
+  });
+
+  it("accepts a price that differs from the list price but flags it for a person", () => {
+    const r = inboundOrderToSalesOrder(po([line(1, 40, "KG", "0.4", "", "BP", "T1")]), refs({ bp: bag }), items, {});
+    expect(r).toMatchObject({ ok: true, needsReview: true, notes: [expect.stringMatching(/they pay 0.4 per kg, Rice lists at 0.5/)] });
   });
 });
 

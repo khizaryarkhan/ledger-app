@@ -1,11 +1,11 @@
 /**
  * X12 inbound transaction sets → the canonical model. Pure.
- * 997 (functional acknowledgement), 855 (PO acknowledgement), 856 (ship notice) and 810 (invoice).
+ * 997 (functional acknowledgement), 855 (PO acknowledgement), 856 (ship notice), 810 (invoice) and 850 (a customer order).
  * Dates CCYYMMDD → YYYY-MM-DD by slicing; anything else is reported, not guessed.
  */
 
 import { el } from "@/lib/edi/x12/read";
-import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine, EdiShipNotice, EdiShipItem, EdiShipOrder, EdiInvoice, EdiInvoiceLine } from "@/lib/edi/model";
+import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine, EdiShipNotice, EdiShipItem, EdiShipOrder, EdiInvoice, EdiInvoiceLine, EdiInboundOrder, EdiInboundOrderLine } from "@/lib/edi/model";
 
 /** CCYYMMDD → YYYY-MM-DD, or null when it is not a real calendar date. */
 export function ymdFrom(v: string): string | null {
@@ -175,5 +175,41 @@ export function parse810(segments: string[][]): EdiInvoice {
     dueDate, netDays: el(itd, 7) === "" ? null : Number(el(itd, 7)),
     lines, total: cents(el(segments.find(s => s[0] === "TDS"), 1), "Total"),
     tax: txi.length ? txi.reduce((a, s) => a + Number(el(s, 2)), 0) : null, charges, problems,
+  };
+}
+
+/** 850 → a customer's purchase order. BEG03 is THEIR order number, BEG05 its date; DTM 002 the requested delivery; N1*ST the ship-to. */
+export function parse850(segments: string[][]): EdiInboundOrder {
+  const beg = segments.find(s => s[0] === "BEG");
+  const problems: string[] = [];
+  const date = (raw: string, label: string) => {
+    if (!raw) return null;
+    const d = ymdFrom(raw);
+    if (!d) problems.push(`${label} "${raw}" is not a date`);
+    return d;
+  };
+  const st = segments.find(s => s[0] === "N1" && el(s, 1) === "ST");
+  const stId = el(st, 4);
+  const shipTo = st ? {
+    name: el(st, 2) || null,
+    gln: el(st, 3) === "UL" ? stId || null : null,
+    code: el(st, 3) !== "UL" && stId ? stId : null,
+  } : null;
+  const lines: EdiInboundOrderLine[] = [];
+  let cur: EdiInboundOrderLine | null = null;
+  for (const s of segments) {
+    if (s[0] === "PO1") {
+      const ids: Record<string, string> = {};
+      for (let i = 6; i + 1 < s.length; i += 2) if (s[i]) ids[s[i].trim()] = (s[i + 1] ?? "").trim();
+      cur = { lineNo: el(s, 1), qty: el(s, 2) === "" ? null : Number(el(s, 2)), unit: el(s, 3) || null, price: el(s, 4) === "" ? null : Number(el(s, 4)), ids, description: null };
+      lines.push(cur);
+    } else if (s[0] === "PID" && cur && !cur.description) cur.description = s.slice(5).map(x => x.trim()).find(Boolean) ?? null;
+    else if (s[0] === "CTT") cur = null;
+  }
+  return {
+    purpose: el(beg, 1), poNumber: el(beg, 3), poDate: date(el(beg, 5), "Order date"),
+    currency: el(segments.find(s => s[0] === "CUR"), 2) || null,
+    requestedDate: date(el(segments.find(s => s[0] === "DTM" && el(s, 1) === "002"), 2), "Requested delivery date"),
+    shipTo, lines, problems,
   };
 }

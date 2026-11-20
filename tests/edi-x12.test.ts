@@ -36,7 +36,7 @@ describe("partner profile rules", () => {
   it("refuses a separator in an ID, an unknown qualifier, and a document not built yet", () => {
     expect(partnerValues({ senderQualifier: "ZZ", senderId: "A*B", receiverQualifier: "01", receiverId: "1" })).toEqual({ ok: false, error: expect.stringMatching(/plain letters/) });
     expect(partnerValues({ senderQualifier: "QQ", senderId: "A", receiverQualifier: "01", receiverId: "1" })).toEqual({ ok: false, error: expect.stringMatching(/qualifier/) });
-    expect(partnerValues({ senderQualifier: "ZZ", senderId: "A", receiverQualifier: "01", receiverId: "1", docsOut: ["810"] })).toEqual({ ok: false, error: expect.stringMatching(/810 is not a document/) });
+    expect(partnerValues({ senderQualifier: "ZZ", senderId: "A", receiverQualifier: "01", receiverId: "1", docsOut: ["860"] })).toEqual({ ok: false, error: expect.stringMatching(/860 is not a document/) });
   });
   it("keeps unit overrides as our unit → a 2-character code", () => {
     expect(unitOverrideValues({ " Case ": "cs" })).toEqual({ case: "CS" });

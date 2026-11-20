@@ -122,3 +122,14 @@ export type EdiInvoice = {
   charges: { code: string; amount: number }[];
   problems: string[];
 };
+
+/** One line of a customer's purchase order (X12 850 inbound). Identifiers keyed by qualifier: VP our number, BP theirs, UP/EN/UK a GTIN. */
+export type EdiInboundOrderLine = { lineNo: string; qty: number | null; unit: string | null; price: number | null; ids: Record<string, string>; description: string | null };
+/** A customer's purchase order as it arrives. Dates as YYYY-MM-DD, null when absent or unreadable (the reason is in `problems`). */
+export type EdiInboundOrder = {
+  purpose: string; poNumber: string; poDate: string | null; currency: string | null; requestedDate: string | null;
+  /** N1*ST: their place identifier. `gln` when qualifier UL, else `code` (their own location code). */
+  shipTo: { name: string | null; gln: string | null; code: string | null } | null;
+  lines: EdiInboundOrderLine[];
+  problems: string[];
+};
