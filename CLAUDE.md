@@ -964,9 +964,28 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   proven on dev by `scripts/_e2e_edi_810_out.ts`, whose Sales Order now deletes with no manual reset.
 - **ISO code on the org's country list is editable** (Settings → Team → Countries, `components/country-iso-field.tsx`, admins;
   PATCH `/api/countries` already validated it). An entry whose name matched no code shows an amber empty box.
-- **Not done**: a PO/SO "reopened" showing its ship-to and Incoterm: trade documents have NO reopen screen at all (only ledger
-  documents open in the form with `editId`), so there is nothing to fix until one exists. Terms, ship-to and part numbers on the
-  PO/SO PDFs, and printed GS1-128 pallet labels (`buildGs1({ sscc })` has the data; no barcode is drawn), are still not built.
+- **Terms, delivery address and the other side's part numbers now print on POs and sales orders**
+  (`loadTradeDocumentForPrint` + `print-document-sheet.tsx`; `PrintDocument.doc` gained `paymentTerms`, `incoterm`, `shipTo`,
+  `partNumberLabel`, and `PrintLine.partNumber`). Terms are the ones COPIED onto the order (`termsLabel`, `incotermLabel`); the
+  delivery box is a PO's ship-to location (our company address only when it names none) or a sales order's customer address;
+  each line prints "Supplier part no." (PO, per `item_part_numbers` / the supplier link, at the level ordered) or "Customer part
+  no." (SO); a sales order's `party_ref` prints as "Your PO no.". `scripts/_e2e_trade_print.ts` (5 checks incl. the rendered HTML).
+- **The 856 carries batch and dates** where a shipment line came from ONE lot (`lotsForLines`, pure): `LIN … LT <batch>` and
+  `DTM 094/511/036`. The batch is the lot's `supplier_batch_no` (what is printed on the pack) else our `lot_no`. The lots come
+  from the shipment's `issue_sale` movements (`ref_type = 'Shipment'`, `ref_id` = the shipment's entry id else its own id). A
+  line issued from several lots, or an item on two shipment lines, gets NONE (packing records contents per line, not per lot,
+  so a batch would be a guess). Proven through the real loader in `scripts/_e2e_edi_856_out.ts`.
+- **Printable pallet/carton labels with a GS1-128 SSCC barcode.** An icon on each shipment row opens
+  `/print/shipment-labels/[id]` (4 x 6 in, one label per package: from, ship to, PO, shipment, contents, barcode + `(00)` number).
+  Data: `GET /api/inventory/shipping/[id]/labels` (`lib/inventory/sscc-labels-server.ts`; the delivery address only when every
+  order on the shipment names the SAME one). The encoder is `lib/barcode/code128.ts`, written in-tree (no dependency was added:
+  a download needs approval): subset C with FNC1 first, `00` + the SSCC = 20 digits. **`tests/code128.test.ts` guards the
+  pattern table** (107 entries, each of six widths summing to 11, the stop 13, Code 128's own parity rule on the bar widths, all
+  distinct, and an encode/decode round trip; a mistyped digit was proven to fail it). **NOT verified with a real scanner**: those
+  checks catch typos, not a swapped pair of valid patterns. Print a label and scan it before a customer relies on it.
+- **Not done / not a gap**: a PO/SO "reopened" in the form: trade documents have no edit path at all (only ledger documents open
+  with `editId`). The print/preview page (`/print/trade/[kind]/[id]`, linked from the list rows) is the read-only view, and it
+  now shows the ship-to, terms and Incoterm; an EDITABLE reopen needs a PO edit path, which is a feature of its own.
 
 ## EDI Phase 3d: our 810 invoice for a customer invoice made from shipments (2026-11-20)
 
@@ -1017,9 +1036,9 @@ No migration. An icon on each row of Shipping (module `edi`) → `GET/POST /api/
   holds goods of two orders** (one HL tree carries one order: pack each order separately); a line for another customer.
 - Tests in `tests/edi-outbound.test.ts` (round trip through our own `parse856`); `scripts/_e2e_edi_856_out.ts` (7 checks
   on dev: inserts a minimal Posted shipment with pallet and carton directly, no stock or ledger, then deletes it).
-- **Not built / not verified**: not clicked through in a browser. No lot, batch or expiry on the notice (shipment lines
-  do not record which lots were issued; the movements do). No weights or carton counts (`TD1`), no carrier SCAC code
-  (free-text carrier only). Marking sent stamps nothing on the shipment.
+- **Not built / not verified**: not clicked through in a browser. Batch and dates are added only for a line issued from one lot
+  (see "EDI small gaps"). No weights or carton counts (`TD1`), no carrier SCAC code (free-text carrier only). Marking sent
+  stamps nothing on the shipment.
 
 ## EDI Phase 3b: our 855 order acknowledgement from a confirmed Sales Order (2026-11-20)
 
