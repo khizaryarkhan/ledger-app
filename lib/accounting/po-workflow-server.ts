@@ -13,6 +13,8 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
 import { roundQty } from "@/lib/inventory/round";
+import { supplierPartNumbersFor } from "@/lib/inventory/part-numbers-server";
+import { partNumberForLevel } from "@/lib/inventory/part-numbers";
 import {
   SYSTEM_PO_STAGES, FULFILMENT_STAGES, CLOSE_REASONS, isManuallySettable, lineBalance, lineState, type PoStageDef, type LineState,
 } from "@/lib/accounting/po-workflow";
@@ -128,8 +130,10 @@ export async function poItems(orgId: string, id: string, today: string): Promise
   const [items, skus, sups] = await Promise.all([
     itemIds.length ? db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(inArray(apItems.id, itemIds)) : Promise.resolve([] as { id: string; name: string; baseUom: string | null }[]),
     skuIds.length ? db.select({ id: itemSkus.id, name: itemSkus.skuName, code: itemSkus.skuCode }).from(itemSkus).where(inArray(itemSkus.id, skuIds)) : Promise.resolve([] as { id: string; name: string | null; code: string | null }[]),
-    supIds.length ? db.select({ id: itemSupplierSkus.id, name: itemSupplierSkus.skuName, code: itemSupplierSkus.supplierSku }).from(itemSupplierSkus).where(inArray(itemSupplierSkus.id, supIds)) : Promise.resolve([] as { id: string; name: string | null; code: string | null }[]),
+    supIds.length ? db.select({ id: itemSupplierSkus.id, name: itemSupplierSkus.skuName }).from(itemSupplierSkus).where(inArray(itemSupplierSkus.id, supIds)) : Promise.resolve([] as { id: string; name: string | null }[]),
   ]);
+  // The supplier's part number for the level each line is ordered at (0140).
+  const partsBySup = await supplierPartNumbersFor(orgId, supIds);
   const itemBy = new Map(items.map(i => [i.id, i]));
   const skuBy = new Map(skus.map(s => [s.id, s]));
   const supBy = new Map(sups.map(s => [s.id, s]));
@@ -144,7 +148,7 @@ export async function poItems(orgId: string, id: string, today: string): Promise
     return {
       id: l.id, lineNo: l.lineNo,
       name: sup?.name || sku?.name || item?.name || l.description || "(no description)",
-      sku: sup?.code || sku?.code || null,
+      sku: (l.supplierSkuId ? partNumberForLevel(partsBySup.get(l.supplierSkuId) ?? {}, l.packLevel) : null) || sku?.code || null,
       orderUom: l.orderUom, packLevel: l.packLevel, unitsPerOrderUnit: per, baseUom: item?.baseUom ?? null,
       qty: Number(l.qty ?? 0), orderedBase, receivedBase, balanceBase,
       receivedOrder: roundQty(receivedBase / per), balanceOrder: roundQty(balanceBase / per),

@@ -7,6 +7,8 @@
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { identifiersForItem } from "@/lib/inventory/identifiers-server";
+import { supplierPartNumbersForItem } from "@/lib/inventory/part-numbers-server";
+import { partNumbersByLevel } from "@/lib/inventory/part-numbers";
 import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -50,10 +52,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const ids = await identifiersForItem(orgId!, params.id);
   const codesFor = (pick: (x: typeof ids[number]) => boolean) =>
     Object.fromEntries(ids.filter(pick).map(x => [x.packLevel, { scheme: x.scheme, code: x.code }]));
+  // Supplier part numbers per level (0140), attached to their link.
+  const parts = await supplierPartNumbersForItem(orgId!, params.id);
   return ok({
     item,
     skus: skus.map(r => ({ ...r, identifiers: codesFor(x => x.itemSkuId === r.id) })),
-    supplierSkus: supRows.map(r => ({ ...r, supplierName: r.supplierId ? supName.get(r.supplierId) ?? null : null, identifiers: codesFor(x => x.supplierSkuId === r.id) })),
+    supplierSkus: supRows.map(r => ({ ...r, supplierName: r.supplierId ? supName.get(r.supplierId) ?? null : null, identifiers: codesFor(x => x.supplierSkuId === r.id), partNumbers: partNumbersByLevel(parts.filter(p => p.supplierSkuId === r.id)) })),
     lots,
     movements,
     onHandBySku: onHandBySkuOut,

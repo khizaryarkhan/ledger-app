@@ -951,6 +951,33 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI foundation: part-number cross-references (2026-11-20)
+
+Phase 0 item 2 of `docs/prd-edi.md`. Migration `0140` (additive). A part number is a PARTNER's code for one of our
+items at one pack level: `side = supplier` is their number on a supplier link (X12 VP on our PO); `side = customer`
+is a customer's code for what we sell them (X12 BP on their order). Rules `lib/inventory/part-numbers.ts` (pure),
+writes `part-numbers-server.ts`, tests `tests/part-numbers.test.ts`.
+
+- **Its own table (`item_part_numbers`), deliberately NOT `item_identifiers`.** A barcode is unique across the org (a
+  scan has no partner); a part number only means something with its partner, so it is unique per
+  `(org, party, side, code_key)`. Folding them together would either refuse two suppliers both using "A100" or let a
+  scan match a partner code.
+- `code_key` = trimmed, spaces collapsed, upper-cased. Hyphens and dots are KEPT (`AB-100` is not `AB100`): never guess.
+- **One per pack level**: a supplier link has unit/inner/outer; a customer code is for the item's base unit, or for a
+  sales SKU at one of its levels. A document line takes the part number of the level it is ordered at
+  (`partNumberForLevel`, which maps order-options' `base`/`supplier`/`addl`), and NEVER falls back to the unit's
+  number: the bag's code against a carton quantity orders the wrong pack (test proven to fail on that fallback).
+- **`item_supplier_skus.supplier_sku` / `item_code_by_supplier` are legacy and no longer written.** Checked before:
+  `item_code_by_supplier` was empty everywhere; `supplier_sku` held 2 values on production (1 on dev), copied by 0140
+  as unit-level part numbers. Drop both columns in a later migration. The PO items view (`po-workflow-server.ts`)
+  now shows the part number for the line's level.
+- UI: the supplier drawer's "Supplier's part numbers" fold; a "Customer part numbers" panel on any sellable item
+  (`components/customer-part-numbers.tsx`, `/api/inventory/customer-part-numbers`, admin-only writes, ungated like SKUs).
+- `resolvePartNumber(org, party, side, code)` is the lookup an inbound EDI order will use: exact key or null.
+- **Not built / not verified**: no screen clicked through in a browser; the supplier-link save path was typechecked
+  and unit-tested, the customer path exercised against the dev database. Part numbers are not yet printed on the PO PDF
+  or the new-document form, and nothing reads customer part numbers yet (no inbound EDI).
+
 ## Item Ledger — the stock card (2026-11-17)
 
 Asked after the General Ledger showed one Raw Materials line per document: "if you are not crediting Raw Materials
@@ -1664,7 +1691,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0139` at `when` `1794700000000`;
+  this silently dropped a table in prod once). Latest is `0140` at `when` `1794800000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

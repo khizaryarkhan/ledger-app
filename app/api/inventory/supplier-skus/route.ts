@@ -23,6 +23,7 @@ import { allowsPackConfiguration, sourcingOf, SOURCING_POLICIES, PRICE_BASES, su
 import { supplierSkuReferences, blockerMessage } from "@/lib/inventory/references";
 import { prepareIdentifiers, writeIdentifiers, identifierErrorMessage } from "@/lib/inventory/identifiers-server";
 import type { PackLevel } from "@/lib/inventory/identifiers";
+import { prepareSupplierPartNumbers, writeSupplierPartNumbers, partNumberErrorMessage } from "@/lib/inventory/part-numbers-server";
 import { NextResponse } from "next/server";
 
 const s = (v: any, n = 64) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
@@ -67,8 +68,10 @@ function linkValues(item: ItemRow, b: any, supplierCurrency: string | null): { e
 
   const values = {
     supplierUom,
-    skuName: s(b?.skuName, 255), supplierProductName: s(b?.supplierProductName, 255), supplierSku: s(b?.supplierSku),
-    itemCodeBySupplier: s(b?.itemCodeBySupplier),
+    // Part numbers are per pack level in item_part_numbers (0140), sent as
+    // b.partNumbers; the old supplier_sku / item_code_by_supplier columns are
+    // no longer written.
+    skuName: s(b?.skuName, 255), supplierProductName: s(b?.supplierProductName, 255),
     innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: normalisePackType(b?.innerPackType),
     unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: normalisePackType(b?.outerPackType),
     conversionFactor: factor,
@@ -145,9 +148,11 @@ export async function POST(req: Request) {
   const v = linkValues(item, b, supplier.currency?.trim() || null);
   if ("error" in v) return bad(v.error);
   // Barcodes are validated BEFORE anything is written (no transactions).
-  let ids;
-  try { ids = await prepareIdentifiers(orgId!, item.id, b?.identifiers, v.levels); }
-  catch (e) { const m = identifierErrorMessage(e); if (m) return bad(m); throw e; }
+  let ids, parts;
+  try {
+    ids = await prepareIdentifiers(orgId!, item.id, b?.identifiers, v.levels);
+    parts = await prepareSupplierPartNumbers(orgId!, supplierId, null, b?.partNumbers, v.levels);
+  } catch (e) { const m = identifierErrorMessage(e) ?? partNumberErrorMessage(e); if (m) return bad(m); throw e; }
 
   const isPreferred = b?.isPreferred === true;
   if (isPreferred) await standDownPreferred(orgId!, item.id);
@@ -161,6 +166,8 @@ export async function POST(req: Request) {
       .where(and(eq(itemSupplierSkus.orgId, orgId!), eq(itemSupplierSkus.itemId, item.id))).limit(1)).length,
   } as any).returning();
   await writeIdentifiers(orgId!, item.id, { supplierSkuId: row.id }, ids);
+  try { await writeSupplierPartNumbers(orgId!, item.id, supplierId, row.id, parts); }
+  catch (e) { const m = partNumberErrorMessage(e); if (m) return bad(`The link was saved, but: ${m}`, 409); throw e; }
   return ok(row);
 }
 
@@ -203,9 +210,11 @@ export async function PATCH(req: Request) {
     }
   }
 
-  let ids;
-  try { ids = await prepareIdentifiers(orgId!, item.id, b?.identifiers, v.levels); }
-  catch (e) { const m = identifierErrorMessage(e); if (m) return bad(m); throw e; }
+  let ids, parts;
+  try {
+    ids = await prepareIdentifiers(orgId!, item.id, b?.identifiers, v.levels);
+    parts = await prepareSupplierPartNumbers(orgId!, existing.supplierId, id, b?.partNumbers, v.levels);
+  } catch (e) { const m = identifierErrorMessage(e) ?? partNumberErrorMessage(e); if (m) return bad(m); throw e; }
 
   const isPreferred = b?.isPreferred === undefined ? existing.isPreferred : b.isPreferred === true;
   if (isPreferred && !existing.isPreferred) await standDownPreferred(orgId!, item.id, id);
@@ -213,6 +222,8 @@ export async function PATCH(req: Request) {
   const [row] = await db.update(itemSupplierSkus).set({ ...v.values, isPreferred } as any)
     .where(and(eq(itemSupplierSkus.id, id), eq(itemSupplierSkus.orgId, orgId!))).returning();
   await writeIdentifiers(orgId!, item.id, { supplierSkuId: id }, ids);
+  try { await writeSupplierPartNumbers(orgId!, item.id, existing.supplierId, id, parts); }
+  catch (e) { const m = partNumberErrorMessage(e); if (m) return bad(`The link was saved, but: ${m}`, 409); throw e; }
   return ok(row);
 }
 

@@ -24,6 +24,8 @@ import { PartyDrawer } from "@/components/party-drawer";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
 import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
+import { PART_NUMBER_MAX } from "@/lib/inventory/part-numbers";
+import { CustomerPartNumbers } from "@/components/customer-part-numbers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, QtyUnitField, control, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
@@ -223,6 +225,7 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
             <div className="space-y-5">
               {showsSkus && <SkuEditor item={item} onChanged={onChanged} />}
               {showsSuppliers && <SupplierSkuEditor item={item} onChanged={onChanged} />}
+              {itemCanBeSold(item) && <CustomerPartNumbers item={item} />}
               {!showsSkus && !showsSuppliers && (
                 <p className="text-[12px] text-stone-500 leading-relaxed">
                   {meta.tracked
@@ -421,7 +424,7 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                       <span className="text-stone-200">{s.supplierName || "—"}</span>
                       {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
                     </span>
-                    {(s.skuName || s.supplierProductName || s.supplierSku) && <div className="text-[11px] text-stone-500">{[s.skuName, s.supplierProductName, s.supplierSku].filter(Boolean).join(" · ")}</div>}
+                    {(s.skuName || s.supplierProductName || s.partNumbers?.unit) && <div className="text-[11px] text-stone-500">{[s.skuName, s.supplierProductName, s.partNumbers?.unit].filter(Boolean).join(" · ")}</div>}
                   </td>
                   {!open && (
                     <td className="px-3 py-2 text-stone-300">
@@ -513,6 +516,15 @@ function GtinField({ label, value, onChange, disabled, disabledHint }: { label: 
 }
 
 /** "1 carton = 12 bag = 300 kg" — the configuration read back from the top level down. */
+function PartField({ label, value, onChange, disabled, disabledHint }: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; disabledHint?: string }) {
+  return (
+    <Field label={label} hint={disabled ? disabledHint : undefined}>
+      <input className={`${controlInset} font-mono`} value={disabled ? "" : value} disabled={disabled} maxLength={PART_NUMBER_MAX}
+        onChange={e => onChange(e.target.value)} placeholder={disabled ? "" : "Their part number"} />
+    </Field>
+  );
+}
+
 function ConfigLine({ text, empty }: { text?: string; empty: string }) {
   return (
     <div className={`rounded-md px-3 py-2 text-[12px] ${text ? "bg-emerald-500/8 border border-emerald-800/40 text-emerald-300" : "border border-dashed border-stone-700 text-stone-500"}`}>
@@ -613,7 +625,6 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
     // (0090) carry no supplier UoM, and an empty unit reads as a broken record.
     supplierUom: link?.supplierUom || item.baseUom || "",
     skuName: link?.skuName ?? "", supplierProductName: link?.supplierProductName ?? "",
-    supplierSku: link?.supplierSku ?? "", itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
     innerUnitPackSize: numStr(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
     unitsInOuterPack: numStr(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
     conversionFactor: numStr(link?.conversionFactor),
@@ -622,6 +633,9 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
   });
   const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
   const [codes, setCodes] = useState<Codes>(codesFromRow(link));
+  // The supplier's part number per pack level (0140): what goes on a PO line to them.
+  const [parts, setParts] = useState<Codes>({ ...(link?.partNumbers ?? {}) });
+  const setPart = (l: PackLevel) => (v: string) => setParts(c => ({ ...c, [l]: v }));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
   const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
@@ -695,7 +709,7 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
       : { conversionFactor: crossDim ? f.conversionFactor : "", ...(hasOuter ? {} : { unitsInOuterPack: "", outerPackType: "" }) };
     const r = await fetch(link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`, {
       method: link ? "PATCH" : "POST", headers: jsonHeaders,
-      body: JSON.stringify({ itemId: item.id, ...f, ...pack, priceBasis: basis.v, isPreferred, identifiers: codesPayload(codes, levels) }),
+      body: JSON.stringify({ itemId: item.id, ...f, ...pack, priceBasis: basis.v, isPreferred, identifiers: codesPayload(codes, levels), partNumbers: codesPayload(parts, levels) }),
     });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
@@ -727,10 +741,17 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
           <Field label="Supplier's product name" hint="As it appears on their invoice and price list">
             <input className={controlInset} value={f.supplierProductName} onChange={e => set("supplierProductName")(e.target.value)} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Supplier's SKU"><input className={`${controlInset} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} /></Field>
-            <Field label="Supplier's item code"><input className={`${controlInset} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} /></Field>
-          </div>
+        </Fold>
+
+        {/* Their catalogue number for each pack they sell, printed on our PO
+            line ordered at that pack. One per level: quoting the bag's number
+            against a carton quantity would order the wrong pack. */}
+        <Fold title="Supplier's part numbers" summary={`${levels.filter(l => (parts[l] ?? "").trim()).length} of ${levels.length} set`}>
+          <PartField label={`Per ${unit || "unit"}`} value={parts.unit ?? ""} onChange={setPart("unit")} />
+          {!open && <>
+            <PartField label={`Inner pack${f.innerPackType ? ` (${f.innerPackType})` : ""}`} value={parts.inner ?? ""} onChange={setPart("inner")} disabled={!hasInner} disabledHint="Define an inner pack under Packaging first." />
+            <PartField label={`Outer pack${f.outerPackType ? ` (${f.outerPackType})` : ""}`} value={parts.outer ?? ""} onChange={setPart("outer")} disabled={!hasOuter} disabledHint="Define an outer pack under Packaging first." />
+          </>}
         </Fold>
 
         <Fold title="Packaging" summary={open ? `Bought in ${base || "its base unit"}` : (config || unit)}>

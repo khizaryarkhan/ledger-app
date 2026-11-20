@@ -141,6 +141,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/inventory/items", owner: null },         // Products & Services — every org's master data, not just Supply Chain's
   { path: "/api/inventory/skus", owner: null },
   { path: "/api/inventory/supplier-skus", owner: null },
+  { path: "/api/inventory/customer-part-numbers", owner: null }, // customer part numbers: item master data, like SKUs
 
   // Studio
   { path: "/api/batch", owner: "studio" },

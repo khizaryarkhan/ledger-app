@@ -2080,6 +2080,9 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
   supplierUom:        varchar("supplier_uom", { length: 16 }),
   skuName:            varchar("sku_name", { length: 255 }),                 // OUR name for this sourced SKU
   supplierProductName: varchar("supplier_product_name", { length: 255 }),  // the SUPPLIER's name for it, as on their invoice (0093)
+  // LEGACY, no longer written (0140): part numbers now live in item_part_numbers,
+  // per pack level. supplier_sku was copied there as the unit-level number;
+  // item_code_by_supplier was never used. Drop both in a later migration.
   supplierSku:        varchar("supplier_sku", { length: 64 }),
   itemCodeBySupplier: varchar("item_code_by_supplier", { length: 64 }),
   innerUnitPackSize:  numeric("inner_unit_pack_size", { precision: 14, scale: 4 }),
@@ -2130,6 +2133,31 @@ export const itemIdentifiers = pgTable("item_identifiers", {
   item_identifiers_item_idx: index("item_identifiers_item_idx").on(t.orgId, t.itemId),
 }));
 export type ItemIdentifier = typeof itemIdentifiers.$inferSelect;
+
+// Part-number cross-references (0140): a PARTNER's code for one of our items at
+// one pack level. side "supplier" = their part number on a link we buy through
+// (X12 VP); side "customer" = their code for what we sell them (X12 BP on their
+// order). Unique per partner, not per org (a barcode is per org): `code_key`
+// (trimmed, upper-cased) is unique per (org, party, side). The per-level unique
+// indexes use COALESCE / partial predicates drizzle cannot declare; they live in
+// the migration. Rules: lib/inventory/part-numbers.ts / part-numbers-server.ts.
+export const itemPartNumbers = pgTable("item_part_numbers", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  itemId:        uuid("item_id").notNull().references(() => apItems.id, { onDelete: "cascade" }),
+  partyId:       uuid("party_id").notNull().references(() => parties.id, { onDelete: "cascade" }),
+  side:          varchar("side", { length: 8 }).notNull(),                      // supplier | customer
+  supplierSkuId: uuid("supplier_sku_id").references(() => itemSupplierSkus.id, { onDelete: "cascade" }),
+  itemSkuId:     uuid("item_sku_id").references(() => itemSkus.id, { onDelete: "cascade" }),
+  packLevel:     varchar("pack_level", { length: 16 }).notNull().default("unit"),
+  code:          varchar("code", { length: 48 }).notNull(),
+  codeKey:       varchar("code_key", { length: 48 }).notNull(),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  item_part_numbers_partner_code_uq: uniqueIndex("item_part_numbers_partner_code_uq").on(t.orgId, t.partyId, t.side, t.codeKey),
+  item_part_numbers_item_idx: index("item_part_numbers_item_idx").on(t.orgId, t.itemId),
+}));
+export type ItemPartNumber = typeof itemPartNumbers.$inferSelect;
 
 // =========================================================================
 // INVENTORY — FIFO COST LOTS & MOVEMENT LEDGER
