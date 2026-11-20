@@ -14,9 +14,13 @@ const refuse = (m: string): never => { throw new X12ReadError(m); };
 
 export type X12Txn = { setId: string; controlNo: string; segments: string[][] };
 export type X12Group = { functionalId: string; senderAppId: string; receiverAppId: string; controlNo: number; version: string; txns: X12Txn[] };
+/** A TA1 (interchange acknowledgement): sits between ISA and IEA with no group of its own. */
+export type X12Ta1 = { controlNo: number; date: string; time: string; status: string; noteCode: string };
 export type X12Interchange = {
   senderQualifier: string; senderId: string; receiverQualifier: string; receiverId: string;
   date: string; time: string; controlNo: number; test: boolean; groups: X12Group[];
+  /** TA1s found at interchange level, in file order. */
+  interchangeAcks: X12Ta1[];
   separators: { element: string; component: string; segment: string };
 };
 
@@ -35,7 +39,7 @@ export function readInterchange(raw: string): X12Interchange {
   if (isa.length < 17) refuse("The ISA segment does not have 16 elements.");
   const ixn: X12Interchange = {
     senderQualifier: isa[5].trim(), senderId: isa[6].trim(), receiverQualifier: isa[7].trim(), receiverId: isa[8].trim(),
-    date: isa[9], time: isa[10], controlNo: Number(isa[13]), test: isa[15] === "T", groups: [],
+    date: isa[9], time: isa[10], controlNo: Number(isa[13]), test: isa[15] === "T", groups: [], interchangeAcks: [],
     separators: { element, component, segment },
   };
   if (!Number.isInteger(ixn.controlNo) || ixn.controlNo < 0) refuse("The ISA control number is not a number.");
@@ -64,6 +68,8 @@ export function readInterchange(raw: string): X12Interchange {
       if (Number(s[1]) !== txn!.segments.length) refuse(`Transaction ${txn!.controlNo}: SE says ${s[1]} segments, it has ${txn!.segments.length}.`);
       if (s[2] !== txn!.controlNo) refuse(`Transaction ${txn!.controlNo}: SE control number does not match its ST.`);
       group!.txns.push(txn!); txn = null;
+    } else if (id === "TA1" && !group && !txn) {
+      ixn.interchangeAcks.push({ controlNo: Number(s[1]), date: (s[2] ?? "").trim(), time: (s[3] ?? "").trim(), status: (s[4] ?? "").trim(), noteCode: (s[5] ?? "").trim() });
     } else if (id === "IEA") {
       if (group || txn) refuse("IEA comes before every group is closed.");
       if (Number(s[1]) !== ixn.groups.length) refuse(`IEA says ${s[1]} groups; the file has ${ixn.groups.length}.`);

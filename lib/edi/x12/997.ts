@@ -11,7 +11,7 @@
 
 import { seg, interchangeSets, type Envelope } from "@/lib/edi/x12/envelope";
 
-export type ReceivedGroup = { functionalId: string; controlNo: number; txns: { setId: string; controlNo: string }[] };
+export type ReceivedGroup = { functionalId: string; controlNo: number; /** GS08, for a 999 to echo. */ version?: string; txns: { setId: string; controlNo: string }[] };
 
 /** One 997 per received group, all in one FA group. Null when there is nothing to acknowledge. */
 export function write997(groups: ReceivedGroup[], env: Envelope): string | null {

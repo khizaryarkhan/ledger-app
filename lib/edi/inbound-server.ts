@@ -21,13 +21,15 @@ import { ediPartners, ediMessages, tradeDocuments, tradeDocumentLines, apItems, 
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { readInterchange, X12ReadError } from "@/lib/edi/x12/read";
 import { parse997, parse855, parse856, parse810 } from "@/lib/edi/x12/inbound";
-import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, type BillProposal, type InvoiceMatchLine, type InvoiceReceipt, type InvoiceOutcome } from "@/lib/edi/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBillMulti, type InvoicePoGroup, type BillProposal, type InvoiceMatchLine, type InvoiceReceipt, type InvoiceOutcome } from "@/lib/edi/inbound";
 import { createExpectedDelivery, setDeliveryCancelled, deleteExpectedDelivery, expectedDeliveryErrorOf } from "@/lib/inventory/expected-delivery-server";
 import { x12UnitFor } from "@/lib/edi/validate";
 import { recordSupplierResponse } from "@/lib/accounting/po-supplier-server";
 import { LedgerValidationError } from "@/lib/ledger";
 import { EdiError, allocateControlNo, utcStamp } from "@/lib/edi/edi-server";
 import { write997 } from "@/lib/edi/x12/997";
+import { write999, writeTa1 } from "@/lib/edi/x12/ack";
+import { ta1Status, ta1Note } from "@/lib/edi/x12/inbound";
 import { apply850 } from "@/lib/edi/inbound-order-server";
 import { logEvent } from "@/lib/audit";
 
@@ -62,7 +64,7 @@ export async function receiveEdiFile(orgId: string, content: string, fileName: s
   try {
     [row] = await db.insert(ediMessages).values({
       orgId, partnerId: partner.id, partyId: partner.partyId, direction: "in",
-      docType: (setIds.length === 1 ? setIds[0] : "mixed").slice(0, 8), standard: "x12",
+      docType: (setIds.length === 1 ? setIds[0] : !setIds.length && ixn.interchangeAcks.length ? "TA1" : "mixed").slice(0, 8), standard: "x12",
       version: (firstGroup?.version || partner.version).slice(0, 8), test: ixn.test, status: "received",
       interchangeNo: ixn.controlNo, groupNo: firstGroup?.controlNo ?? 0, txnNo: (firstGroup?.txns[0]?.controlNo ?? "").slice(0, 9),
       fileName: (fileName || `inbound_${ixn.controlNo}.x12`).slice(0, 128), payload: content,
@@ -74,14 +76,22 @@ export async function receiveEdiFile(orgId: string, content: string, fileName: s
     return { duplicate: true, message: first, results: (first?.result as TxnResult[] | null) ?? [] };
   }
   const processed = await processMessage(orgId, partner, row.id, ixn, actorId);
-  // A partner that wants our 997 gets one ready to send for every file it sends (never for its own 997).
-  let ack: { id: string; fileName: string } | null = null;
-  if (partner.enabled && (partner.docsOut as string[]).includes("997") && ixn.groups.some(g => g.functionalId !== "FA")) {
-    ack = await generateAck997(orgId, row.id, actorId).then(r => ({ id: r.id, fileName: r.fileName }))
-      .catch(e => { console.error("[edi] the 997 for a received file could not be generated", { orgId, messageId: row.id, e }); return null; });
+  // A partner that wants our 997, 999 or TA1 gets each ready to send for every file it sends (never for its own acknowledgement).
+  const acks: { id: string; fileName: string; docType: string }[] = [];
+  if (partner.enabled && ixn.groups.some(g => g.functionalId !== "FA")) {
+    for (const t of ACK_DOCS) {
+      if (!(partner.docsOut as string[]).includes(t)) continue;
+      const r = await generateAck(orgId, row.id, actorId, t).then(x => ({ id: x.id, fileName: x.fileName, docType: t }))
+        .catch(e => { console.error(`[edi] the ${t} for a received file could not be generated`, { orgId, messageId: row.id, e }); return null; });
+      if (r) acks.push(r);
+    }
   }
-  return { duplicate: false, ...processed, ack };
+  return { duplicate: false, ...processed, ack: acks[0] ?? null, acks };
 }
+
+/** The acknowledgements we can make of a received file. */
+export const ACK_DOCS = ["997", "999", "TA1"] as const;
+export type AckDoc = (typeof ACK_DOCS)[number];
 
 /**
  * Our 997 for a received file, kept like any outbound file: download it,
@@ -90,30 +100,37 @@ export async function receiveEdiFile(orgId: string, content: string, fileName: s
  * file it answers. Accepted throughout: see lib/edi/x12/997.ts.
  */
 export async function generateAck997(orgId: string, inboundId: string, actorId: string | null) {
+  return generateAck(orgId, inboundId, actorId, "997");
+}
+
+/** The same for a 999 or a TA1 (docType): one live acknowledgement of each kind per received file. */
+export async function generateAck(orgId: string, inboundId: string, actorId: string | null, docType: AckDoc) {
   const [m] = await db.select().from(ediMessages).where(and(eq(ediMessages.id, inboundId), eq(ediMessages.orgId, orgId))).limit(1);
   if (!m || m.direction !== "in") throw new EdiError("Inbound file not found.", 404);
-  const [existing] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"),
-    eq(ediMessages.appDocType, "EdiFile"), eq(ediMessages.appDocId, m.id), ne(ediMessages.status, "void"))).limit(1);
+  const sameAck = and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"), eq(ediMessages.docType, docType),
+    eq(ediMessages.appDocType, "EdiFile"), eq(ediMessages.appDocId, m.id), ne(ediMessages.status, "void"));
+  const [existing] = await db.select().from(ediMessages).where(sameAck).limit(1);
   if (existing) return { ...existing, already: true };
   const [partner] = await db.select().from(ediPartners).where(eq(ediPartners.id, m.partnerId)).limit(1);
   if (!partner) throw new EdiError("EDI partner not found.", 404);
   if (!partner.enabled) throw new EdiError("This partner's EDI profile is switched off.");
   const ixn = readInterchange(m.payload);
-  const groups = ixn.groups.map(g => ({ functionalId: g.functionalId, controlNo: g.controlNo, txns: g.txns.map(t => ({ setId: t.setId, controlNo: t.controlNo })) }));
-  if (!groups.some(g => g.functionalId !== "FA")) throw new EdiError("This file is itself an acknowledgement (997); it is never acknowledged.", 409);
+  const groups = ixn.groups.map(g => ({ functionalId: g.functionalId, controlNo: g.controlNo, version: g.version, txns: g.txns.map(t => ({ setId: t.setId, controlNo: t.controlNo })) }));
+  if (!groups.some(g => g.functionalId !== "FA")) throw new EdiError("This file is itself an acknowledgement (997, 999 or TA1); it is never acknowledged.", 409);
 
   const controlNo = await allocateControlNo(orgId, partner.id);
-  const payload = write997(groups, {
+  const env = {
     version: partner.version as "004010" | "005010", test: ixn.test,
     senderQualifier: partner.senderQualifier, senderId: partner.senderId, receiverQualifier: partner.receiverQualifier, receiverId: partner.receiverId,
     senderAppId: partner.senderAppId || partner.senderId, receiverAppId: partner.receiverAppId || partner.receiverId,
     controlNo, now: utcStamp(),
-  })!;
-  const fileName = `997_for_${ixn.controlNo}_${String(controlNo).padStart(9, "0")}.x12`;
+  };
+  const payload = (docType === "997" ? write997(groups, env) : docType === "999" ? write999(groups, env) : writeTa1({ controlNo: ixn.controlNo, date: ixn.date, time: ixn.time }, env))!;
+  const fileName = `${docType}_for_${ixn.controlNo}_${String(controlNo).padStart(9, "0")}.x12`;
   let row;
   try {
     [row] = await db.insert(ediMessages).values({
-      orgId, partnerId: partner.id, partyId: partner.partyId, direction: "out", docType: "997", standard: "x12",
+      orgId, partnerId: partner.id, partyId: partner.partyId, direction: "out", docType, standard: "x12",
       version: partner.version, test: ixn.test, status: "generated", interchangeNo: controlNo, groupNo: controlNo, txnNo: "0001",
       appDocType: "EdiFile", appDocId: m.id, appDocNumber: `${m.docType} ${m.interchangeNo}`.slice(0, 64),
       fileName, payload, payloadSha256: createHash("sha256").update(payload).digest("hex"), createdBy: actorId,
@@ -122,12 +139,11 @@ export async function generateAck997(orgId: string, inboundId: string, actorId: 
     // A second "make our 997" raced this one: the unique index (0147) let only one in. Return the winner; the control
     // number taken here is simply never used, as for any file that is not kept.
     if (e?.code !== "23505" && !/duplicate key|unique constraint/i.test(String(e?.message ?? ""))) throw e;
-    const [won] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"),
-      eq(ediMessages.appDocType, "EdiFile"), eq(ediMessages.appDocId, m.id), ne(ediMessages.status, "void"))).limit(1);
+    const [won] = await db.select().from(ediMessages).where(sameAck).limit(1);
     if (!won) throw e;
     return { ...won, already: true };
   }
-  logEvent({ orgId, eventType: "edi_generated", docType: null, docId: null, actorId, meta: { messageId: row.id, docType: "997", controlNo, answers: m.id } })
+  logEvent({ orgId, eventType: "edi_generated", docType: null, docId: null, actorId, meta: { messageId: row.id, docType, controlNo, answers: m.id } })
     .catch(e => console.error("[audit] edi_generated failed:", e));
   return { ...row, already: false };
 }
@@ -150,8 +166,9 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
       status = "ignored";
       results.push({ setId: "*", controlNo: String(ixn.controlNo), outcome: "ignored", summary: "A test file (ISA15 = T) from a partner set to live: stored, not applied.", reasons: [] });
     } else {
+      for (const a of ixn.interchangeAcks) results.push(await applyTa1(orgId, partner, messageId, a));
       for (const g of ixn.groups) for (const t of g.txns) {
-        const rs: TxnResult[] = t.setId === "997" ? [await apply997(orgId, partner, messageId, t.segments, t.controlNo)]
+        const rs: TxnResult[] = t.setId === "997" || t.setId === "999" ? [await apply997(orgId, partner, messageId, t.segments, t.controlNo, t.setId)]
           : t.setId === "855" ? [await apply855(orgId, partner, t.segments, t.controlNo)]
           : t.setId === "856" ? await apply856(orgId, partner, t.segments, t.controlNo, actorId)
           : t.setId === "810" ? [await apply810(orgId, partner, t.segments, t.controlNo)]
@@ -182,18 +199,40 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
   return { message, results };
 }
 
-/** 997: mark the outbound file it answers. */
-async function apply997(orgId: string, partner: Partner, messageId: string, segments: string[][], controlNo: string): Promise<TxnResult> {
+/** TA1: their answer about the ENVELOPE of an interchange we sent. Marks that outbound file; a worse answer already on it stays. */
+async function applyTa1(orgId: string, partner: Partner, messageId: string, a: { controlNo: number; status: string; noteCode: string }): Promise<TxnResult> {
+  const status = ta1Status(a.status);
+  const cn = String(a.controlNo);
+  const [target] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.partnerId, partner.id),
+    eq(ediMessages.direction, "out"), eq(ediMessages.interchangeNo, a.controlNo))).limit(1);
+  if (!target) return { setId: "TA1", controlNo: cn, outcome: "review", summary: `Acknowledges interchange ${a.controlNo}, which we have no record of sending to this partner.`, reasons: [] };
+  const rank: Record<string, number> = { accepted: 0, accepted_with_errors: 1, partially_accepted: 2, rejected: 3 };
+  const note = ta1Note(a.noteCode);
+  if ((rank[target.ackStatus ?? ""] ?? -1) < rank[status]) {
+    await db.update(ediMessages).set({ ackStatus: status, ackedAt: new Date(), ackMessageId: messageId,
+      error: status === "accepted" ? null : (note ?? `TA104 ${a.status}`).slice(0, 500) }).where(eq(ediMessages.id, target.id));
+  }
+  const words = { accepted: "accepted", accepted_with_errors: "accepted with errors", partially_accepted: "partly accepted", rejected: "rejected" }[status];
+  return {
+    setId: "TA1", controlNo: cn, outcome: status === "accepted" ? "applied" : "review",
+    summary: `${target.fileName}: their system ${words} the envelope${note ? `, because ${note}` : ""}.`,
+    reasons: status === "accepted" ? [] : ["Their system did not accept the interchange. Fix the cause and send a new file."],
+    poId: target.appDocType === "PurchaseOrder" ? target.appDocId : null,
+  };
+}
+
+/** 997 or 999: mark the outbound file it answers. */
+async function apply997(orgId: string, partner: Partner, messageId: string, segments: string[][], controlNo: string, setId: "997" | "999" = "997"): Promise<TxnResult> {
   const ack = parse997(segments);
   const [target] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.partnerId, partner.id),
     eq(ediMessages.direction, "out"), eq(ediMessages.groupNo, ack.groupControlNo))).limit(1);
-  if (!target) return { setId: "997", controlNo, outcome: "review", summary: `Acknowledges group ${ack.groupControlNo}, which we have no record of sending to this partner.`, reasons: [] };
+  if (!target) return { setId, controlNo, outcome: "review", summary: `Acknowledges group ${ack.groupControlNo}, which we have no record of sending to this partner.`, reasons: [] };
   await db.update(ediMessages).set({ ackStatus: ack.groupStatus, ackedAt: new Date(), ackMessageId: messageId,
     error: ack.groupStatus === "accepted" ? null : [...ack.codes, ...ack.txns.flatMap(t => t.codes)].join(" ").slice(0, 500) || null })
     .where(eq(ediMessages.id, target.id));
   const words = { accepted: "accepted", accepted_with_errors: "accepted with errors", partially_accepted: "partly accepted", rejected: "rejected" }[ack.groupStatus];
   return {
-    setId: "997", controlNo, outcome: ack.groupStatus === "accepted" ? "applied" : "review",
+    setId, controlNo, outcome: ack.groupStatus === "accepted" ? "applied" : "review",
     summary: `${target.fileName} was ${words} by the partner.`,
     reasons: ack.groupStatus === "accepted" ? [] : ["Their translator did not accept the file cleanly. Fix the cause and send a new file."],
     poId: target.appDocType === "PurchaseOrder" ? target.appDocId : null,
@@ -307,31 +346,43 @@ async function apply856(orgId: string, partner: Partner, segments: string[][], c
 export async function matchInvoice(orgId: string, partner: Partner, segments: string[][]): Promise<{ poId: string | null; poNumber: string; invoiceNo: string; outcome: InvoiceOutcome; existingBill: string | null }> {
   const inv = parse810(segments);
   const none = (problems: string[]) => ({ poId: null, poNumber: inv.poNumber, invoiceNo: inv.invoiceNo, existingBill: null, outcome: { ok: false as const, problems, lines: [] } });
-  if (!inv.poNumber) return none(["The invoice names no purchase order (BIG04). Bill it by hand."]);
-  const [po] = await db.select({ id: tradeDocuments.id, currency: tradeDocuments.currency }).from(tradeDocuments)
-    .where(and(eq(tradeDocuments.orgId, orgId), eq(tradeDocuments.kind, "PurchaseOrder"), eq(tradeDocuments.partyId, partner.partyId), eq(tradeDocuments.docNumber, inv.poNumber))).limit(1);
-  if (!po) return none([`No purchase order ${inv.poNumber} to this supplier.`]);
+  // The purchase orders it names: BIG04 for one, or each line's own (IT1 qualifier PO) for several.
+  const poNumbers = [...new Set(inv.lines.map(l => (l.ids.PO || inv.poNumber || "").trim()).filter(Boolean))];
+  if (inv.poNumber && !poNumbers.length) poNumbers.push(inv.poNumber.trim());
+  if (!poNumbers.length) return none(["The invoice names no purchase order (BIG04, or PO on each line). Bill it by hand."]);
+  const pos: { id: string; currency: string | null; docNumber: string }[] = [];
+  for (const n of poNumbers) {
+    const [po] = await db.select({ id: tradeDocuments.id, currency: tradeDocuments.currency, docNumber: tradeDocuments.docNumber }).from(tradeDocuments)
+      .where(and(eq(tradeDocuments.orgId, orgId), eq(tradeDocuments.kind, "PurchaseOrder"), eq(tradeDocuments.partyId, partner.partyId), eq(tradeDocuments.docNumber, n))).limit(1);
+    if (!po) return none([`No purchase order ${n} to this supplier.`]);
+    pos.push({ id: po.id, currency: po.currency, docNumber: po.docNumber ?? n });
+  }
 
   const [org] = await db.select({ home: organisations.currency }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
   const home = (org?.home ?? "PKR").toUpperCase();
-  const billCurrency = (inv.currency || po.currency || home).toUpperCase();
-  const receiptIds = [...new Set((await db.select({ id: goodsReceiptLines.receiptId }).from(goodsReceiptLines)
-    .where(and(eq(goodsReceiptLines.orgId, orgId), eq(goodsReceiptLines.poId, po.id)))).map(r => r.id))];
-  const heads = receiptIds.length ? await db.select().from(goodsReceipts)
-    .where(and(eq(goodsReceipts.orgId, orgId), inArray(goodsReceipts.id, receiptIds), eq(goodsReceipts.supplierId, partner.partyId), eq(goodsReceipts.status, "Posted"))) : [];
-  const inCurrency = heads.filter(h => (h.currency || home).toUpperCase() === billCurrency);
-  const lines = inCurrency.length ? await db.select().from(goodsReceiptLines)
-    .where(and(eq(goodsReceiptLines.orgId, orgId), inArray(goodsReceiptLines.receiptId, inCurrency.map(h => h.id)))) : [];
-  const receipts: InvoiceReceipt[] = inCurrency.map(h => {
-    const fx = billCurrency === home ? 1 : Number(h.exchangeRate) || 1;
-    return { id: h.id, receiptNo: h.receiptNo, receiptDate: String(h.receiptDate), currency: billCurrency,
-      lines: lines.filter(l => l.receiptId === h.id).map(l => ({ id: l.id, poLineId: l.poLineId,
-        unbilledQty: Math.max(0, Number(l.qtyBase) - Number(l.billedQty)), price: Number(l.unitCost) / fx })) };
-  });
-  const outcome = invoiceToBill(inv, await asnPoLines(orgId, po.id, partner.unitOverrides as Record<string, string>), receipts, billCurrency);
+  const billCurrency = (inv.currency || pos[0].currency || home).toUpperCase();
+  const groups: InvoicePoGroup[] = [];
+  for (const po of pos) {
+    const receiptIds = [...new Set((await db.select({ id: goodsReceiptLines.receiptId }).from(goodsReceiptLines)
+      .where(and(eq(goodsReceiptLines.orgId, orgId), eq(goodsReceiptLines.poId, po.id)))).map(r => r.id))];
+    const heads = receiptIds.length ? await db.select().from(goodsReceipts)
+      .where(and(eq(goodsReceipts.orgId, orgId), inArray(goodsReceipts.id, receiptIds), eq(goodsReceipts.supplierId, partner.partyId), eq(goodsReceipts.status, "Posted"))) : [];
+    const inCurrency = heads.filter(h => (h.currency || home).toUpperCase() === billCurrency);
+    const lines = inCurrency.length ? await db.select().from(goodsReceiptLines)
+      .where(and(eq(goodsReceiptLines.orgId, orgId), inArray(goodsReceiptLines.receiptId, inCurrency.map(h => h.id)))) : [];
+    const receipts: InvoiceReceipt[] = inCurrency.map(h => {
+      const fx = billCurrency === home ? 1 : Number(h.exchangeRate) || 1;
+      return { id: h.id, receiptNo: h.receiptNo, receiptDate: String(h.receiptDate), currency: billCurrency,
+        lines: lines.filter(l => l.receiptId === h.id).map(l => ({ id: l.id, poLineId: l.poLineId,
+          unbilledQty: Math.max(0, Number(l.qtyBase) - Number(l.billedQty)), price: Number(l.unitCost) / fx })) };
+    });
+    groups.push({ poNumber: po.docNumber, poLines: await asnPoLines(orgId, po.id, partner.unitOverrides as Record<string, string>), receipts });
+  }
+  const outcome = invoiceToBillMulti(inv, groups, billCurrency);
+  const po = pos[0];
   const [dup] = inv.invoiceNo ? await db.select({ billNumber: apBills.billNumber }).from(apBills)
     .where(and(eq(apBills.orgId, orgId), eq(apBills.supplierId, partner.partyId), sql`upper(${apBills.reference}) = upper(${inv.invoiceNo.trim()})`)).limit(1) : [];
-  return { poId: po.id, poNumber: inv.poNumber, invoiceNo: inv.invoiceNo, outcome, existingBill: dup ? (dup.billNumber || "a bill") : null };
+  return { poId: po.id, poNumber: pos.map(p => p.docNumber).join(", "), invoiceNo: inv.invoiceNo, outcome, existingBill: dup ? (dup.billNumber || "a bill") : null };
 }
 
 /** The segments of one 810 inside a stored file, found by its ST control number. */

@@ -951,6 +951,43 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI: TA1, 999 and an invoice for several POs (2026-11-20)
+
+Migration `0150` (two partial unique indexes, additive; applied to the dev branch only).
+
+- **TA1 (interchange acknowledgement)** and **999 (5010 implementation acknowledgement)**, both ways. A partner can now be set
+  to receive our **997, 999 and/or TA1** (three checkboxes in the partner drawer; `docs_out` gains `999` and `TA1`): each is
+  made ready to send for every file the partner sends, and a person can make any of them from a received file ("Make our 999 /
+  TA1 for this file", `PATCH /api/edi/messages/[id] { action: "ack", docType }`, default 997). `generateAck997` is now a
+  wrapper over `generateAck(…, docType)`; one live acknowledgement of each kind per received file is a DATABASE guarantee
+  (0147 for the 997, 0150 for the 999 and TA1), proven by two simultaneous calls in `scripts/_e2e_edi_acks.ts`.
+  - **Our TA1** (`lib/edi/x12/ack.ts`, `interchangeBare` in envelope.ts): ISA, `TA1` echoing THEIR ISA control number, date and
+    time, `A*000`, IEA counting zero groups. **Our 999**: per received group `AK1` (with the group's GS08 version), per set
+    `AK2` + `IK5*A`, `AK9`. Everything is accepted, for the same reason as the 997: a file whose counts do not add up is refused
+    and never stored, and agreeing with the CONTENT is a business answer, never an acknowledgement. An acknowledgement is
+    never acknowledged (997, 999 and TA1 files are all refused).
+  - **Reading theirs**: `readInterchange` now reads a TA1 at interchange level (`interchangeAcks`); a TA1 inside a group is just a
+    segment of that set. Their TA1 marks the outbound file whose ISA control number it names (status + reason; **a worse answer
+    already on the file is never replaced by a better one**, so a late "accepted" TA1 cannot hide a 997 rejection); their 999
+    goes through the same path as a 997 (`parse997` also reads `IK5`/`IK3`/`IK4`). One about a file we never sent goes to review.
+  - **TA105 note codes are described only where every guide read agrees** (001, 002, 018, 025: Microsoft BizTalk and Logic Apps,
+    the CSSC and Indiana Medicaid companion guides); any other code is shown as its number ("see the partner's guide"), never
+    guessed. TA104: A accepted, E accepted with errors, anything else rejected.
+  - A 999 under version 004010 is allowed but is the 5010 form; the drawer says to use it with 005010.
+- **One invoice for several purchase orders** (inbound 810): `invoiceToBillMulti` (`lib/edi/inbound.ts`; `invoiceToBill` is now
+  a one-group wrapper, behaviour and messages unchanged). With one PO every line belongs to it (BIG04). With several, each line
+  names its own PO (IT1 qualifier `PO`) and its line number is THAT PO's. Each PO is matched to ITS receipts exactly as before
+  (the oldest run whose unbilled quantities equal what is invoiced, nothing else unbilled), and the proposal bills all of them
+  together on one bill (`billFromReceipts` already takes any receipts of one supplier). Refused, with the reason, and nothing
+  proposed for any of them: a line that names no PO, a PO we do not hold for that supplier, a PO with no line, or quantities that
+  match no run for ANY of them. A receipt that holds lines of two POs is refused too (its other lines read as unmatched).
+  `matchInvoice` returns every PO number joined; the result keeps the FIRST PO's id for the screen's link. **The inbound 856
+  already handled several POs** (one expected delivery per order, since 2b), so that half of the gap was not a gap.
+- Tests: `tests/edi-acks.test.ts`, `edi-multi-po.test.ts`; `scripts/_e2e_edi_acks.ts` (11 checks on dev, cleaned up); the
+  existing 810, 856, 997 and inbound e2e scripts still pass. **Not built / not verified**: nothing clicked through in a browser;
+  the multi-PO server load (several POs, receipts) is unit-tested but has no dev-database run, only the single-PO path does;
+  no 824 (application advice), no negative 999 (we never store a file we would reject).
+
 ## EDI: the listed gaps closed before testing (2026-11-20)
 
 Migrations `0148` (`edi_partners.tax_type`) and `0149` (`sales_shipments.carrier_scac`), both additive; applied to the dev branch only.
@@ -983,7 +1020,7 @@ Migrations `0148` (`edi_partners.tax_type`) and `0149` (`sales_shipments.carrier
 - Tests: `tests/invoice-link-backfill.test.ts`, `part-numbers-bulk.test.ts`, `edi-810-extras.test.ts`, `edi-856-extras.test.ts`;
   the existing e2e 810/856 scripts still pass on dev. **Not built / not verified**: no screen clicked through in a browser; credit
   memo, SAC and TD1 are a first cut against the common 4010 shape (each partner's guide decides the exact segments, and some want
-  negative amounts on a credit memo); TA1/999 and inbound invoices or ship notices spanning several POs are still not built.
+  negative amounts on a credit memo). TA1, 999 and a multi-PO inbound invoice were built right after: see the next section above.
 
 ## EDI small gaps (2026-11-20)
 
@@ -2111,7 +2148,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0149` at `when` `1795700000000`;
+  this silently dropped a table in prod once). Latest is `0150` at `when` `1795800000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

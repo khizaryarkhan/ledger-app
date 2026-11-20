@@ -31,10 +31,32 @@ export function parse997(segments: string[][]): EdiFunctionalAck {
   let cur: EdiFunctionalAck["txns"][number] | null = null;
   for (const s of segments) {
     if (s[0] === "AK2") { cur = { setId: el(s, 1), controlNo: el(s, 2), status: "accepted", codes: [] }; out.txns.push(cur); }
-    else if (s[0] === "AK5" && cur) { cur.status = ACK_STATUS[el(s, 1)] ?? "rejected"; cur.codes = [...s.slice(2).map(x => x.trim()).filter(Boolean), ...cur.codes]; } // AK3/AK4 details come before AK5: keep them
-    else if ((s[0] === "AK3" || s[0] === "AK4") && cur) cur.codes.push(`${s[0]}:${s.slice(1).map(x => x.trim()).filter(Boolean).join("/")}`);
+    // A 999 says IK5 / IK3 / IK4 where a 997 says AK5 / AK3 / AK4: the same facts, read the same way.
+    else if ((s[0] === "AK5" || s[0] === "IK5") && cur) { cur.status = ACK_STATUS[el(s, 1)] ?? "rejected"; cur.codes = [...s.slice(2).map(x => x.trim()).filter(Boolean), ...cur.codes]; } // AK3/AK4 details come before AK5: keep them
+    else if ((s[0] === "AK3" || s[0] === "AK4" || s[0] === "IK3" || s[0] === "IK4") && cur) cur.codes.push(`${s[0]}:${s.slice(1).map(x => x.trim()).filter(Boolean).join("/")}`);
   }
   return out;
+}
+
+/** TA104: A accepted, E accepted with errors, R rejected. Anything else is treated as rejected: never read as good news. */
+export function ta1Status(code: string): EdiFunctionalAck["groupStatus"] {
+  return code === "A" ? "accepted" : code === "E" ? "accepted_with_errors" : "rejected";
+}
+
+/**
+ * TA105 note codes whose meaning is the same in every guide read (Microsoft BizTalk and Logic Apps, the CSSC and Indiana
+ * Medicaid companion guides). Others are shown as their number: each partner's guide lists them, and guessing one wrongly
+ * would send someone fixing the wrong thing.
+ */
+const TA1_NOTES: Record<string, string> = {
+  "001": "the interchange control number in the ISA and the IEA do not match",
+  "002": "the standard named in ISA11 is not supported",
+  "018": "the interchange control number is invalid",
+  "025": "the interchange control number duplicates an earlier one",
+};
+export function ta1Note(code: string): string | null {
+  if (!code || code === "000") return null;
+  return TA1_NOTES[code] ?? `note code ${code} (see the partner's guide)`;
 }
 
 export function parse855(segments: string[][]): EdiOrderAck {

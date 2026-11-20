@@ -78,6 +78,20 @@ export function interchangeSets(env: Envelope, functionalId: string, sets: { txn
   return [isa, gs, ...txns, seg("GE", sets.length, env.controlNo), seg("IEA", 1, ctl9)].join("\n") + "\n";
 }
 
+/** ISA/IEA around segments with NO functional group (what a TA1 is): IEA counts zero groups. */
+export function interchangeBare(env: Envelope, body: string[]): string {
+  if (!(env.controlNo >= 1 && env.controlNo <= 999_999_999)) throw new Error("Control number out of range.");
+  const ctl9 = String(env.controlNo).padStart(9, "0");
+  const isa = [
+    "ISA", "00", pad("", 10), "00", pad("", 10),
+    env.senderQualifier, pad(env.senderId, 15), env.receiverQualifier, pad(env.receiverId, 15),
+    env.now.date.slice(2), env.now.time,
+    env.version === "005010" ? "^" : "U", env.version === "005010" ? "00501" : "00401",
+    ctl9, "0", env.test ? "T" : "P", COMPONENT,
+  ].join(ELEMENT) + SEGMENT;
+  return [isa, ...body, seg("IEA", 0, ctl9)].join("\n") + "\n";
+}
+
 /** Split a file into segments (each as its elements), for checks and tests. */
 export function segments(file: string): string[][] {
   return file.split(SEGMENT).map(s => s.replace(/^\s+/, "")).filter(Boolean).map(s => s.split(ELEMENT));

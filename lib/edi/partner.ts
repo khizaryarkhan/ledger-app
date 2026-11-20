@@ -11,7 +11,7 @@ export const X12_VERSIONS = ["004010", "005010"] as const;
 export const EDI_MODES = ["test", "live"] as const;
 /** Phase 1: the file is generated and kept here; a person delivers it. Others plug in behind lib/edi/transport. */
 export const EDI_TRANSPORTS = ["manual"] as const;
-export const EDI_DOCS_OUT = ["850", "855", "856", "810", "997"] as const;
+export const EDI_DOCS_OUT = ["850", "855", "856", "810", "997", "999", "TA1"] as const;
 
 /** TXI01 tax type codes an 810 may carry. An invoice stores only the tax AMOUNT, so which kind it is is the partner's rule. */
 export const EDI_TAX_TYPES: { code: string; label: string }[] = [

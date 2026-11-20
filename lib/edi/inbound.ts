@@ -9,7 +9,7 @@
  * for a person to look, given in words.
  */
 
-import type { EdiOrderAck, EdiShipNotice, EdiShipOrder, EdiInvoice, EdiInboundOrder } from "@/lib/edi/model";
+import type { EdiOrderAck, EdiShipNotice, EdiShipOrder, EdiInvoice, EdiInvoiceLine, EdiInboundOrder } from "@/lib/edi/model";
 import { x12UnitFor } from "@/lib/edi/validate";
 import { salesOrderOptions } from "@/lib/inventory/order-options";
 import type { DeliveryInput } from "@/lib/inventory/expected-delivery";
@@ -149,7 +149,7 @@ export type InvoiceReceipt = {
   lines: { id: string; poLineId: string | null; unbilledQty: number; price: number }[];
 };
 export type InvoiceMatchLine = {
-  lineNo: string; poLineId: string | null; invoicedQty: number | null; invoicePrice: number | null;
+  lineNo: string; poNumber?: string; poLineId: string | null; invoicedQty: number | null; invoicePrice: number | null;
   unbilledQty: number; receiptPrice: number | null;
 };
 /** What a person is asked to approve: bill these receipts, at these invoice prices. Nothing is posted from the file. */
@@ -165,31 +165,24 @@ export type InvoiceOutcome =
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
 const money = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * An 810 against our records. A bill from receipts bills each receipt WHOLE
- * (every line not yet billed), so the invoice is matched to the oldest run of
- * the PO's receipts whose unbilled quantities equal what is invoiced, line for
- * line, with nothing else unbilled on them. Never guesses: a line we cannot
- * place, a quantity in another unit, or quantities that match no run of
- * receipts is a reason for a person to bill it by hand in Receiving.
- */
-export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: InvoiceReceipt[], billCurrency: string): InvoiceOutcome {
-  const problems = [...inv.problems];
-  const notes: string[] = [];
-  if (!inv.invoiceNo.trim()) problems.push("The invoice has no number (BIG02).");
-  if (!inv.invoiceDate) problems.push("The invoice has no date (BIG01).");
-  if (!inv.lines.length) problems.push("The invoice lists no lines (IT1).");
-  if (inv.currency && inv.currency.toUpperCase() !== billCurrency.toUpperCase()) problems.push(`The invoice is in ${inv.currency}, the goods were received in ${billCurrency}.`);
+/** One purchase order an invoice names: its lines (with X12 unit codes) and the receipts against it. */
+export type InvoicePoGroup = { poNumber: string; poLines: AsnPoLine[]; receipts: InvoiceReceipt[] };
 
-  const byNo = new Map(poLines.map(l => [l.lineNo, l]));
+/**
+ * One PO's share of an invoice. A bill from receipts bills each receipt WHOLE (every line not yet billed), so the PO's
+ * invoice lines are matched to the oldest run of ITS receipts whose unbilled quantities equal what is invoiced, line for line,
+ * with nothing else unbilled on them. Problems are appended to the shared list; the run is only searched while there are none.
+ */
+function matchGroup(lines: EdiInvoiceLine[], g: InvoicePoGroup, problems: string[]) {
+  const byNo = new Map(g.poLines.map(l => [l.lineNo, l]));
   const wanted = new Map<string, { qty: number; price: number }>();
   const view: InvoiceMatchLine[] = [];
-  for (const il of inv.lines) {
+  for (const il of lines) {
     const at = `Line "${il.lineNo}"`;
     const pl = /^\d+$/.test(il.lineNo) ? byNo.get(Number(il.lineNo)) : undefined;
-    const row: InvoiceMatchLine = { lineNo: il.lineNo, poLineId: pl?.id ?? null, invoicedQty: null, invoicePrice: null, unbilledQty: 0, receiptPrice: null };
+    const row: InvoiceMatchLine = { lineNo: il.lineNo, poNumber: g.poNumber, poLineId: pl?.id ?? null, invoicedQty: null, invoicePrice: null, unbilledQty: 0, receiptPrice: null };
     view.push(row);
-    if (!pl) { problems.push(`${at} is not a line of ${inv.poNumber}.`); continue; }
+    if (!pl) { problems.push(`${at} is not a line of ${g.poNumber}.`); continue; }
     const bp = il.ids.BP;
     if (bp && pl.itemCode && bp.trim().toUpperCase() !== pl.itemCode.trim().toUpperCase()) problems.push(`${at}: they name our item ${bp}, the order line is ${pl.itemCode}.`);
     if (il.qty == null || !Number.isFinite(il.qty) || il.qty <= 0) { problems.push(`${at}: no quantity invoiced.`); continue; }
@@ -203,8 +196,8 @@ export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: I
     row.invoicedQty = q.qty; row.invoicePrice = Math.round(q.price * 1e6) / 1e6;
   }
 
-  const ours = new Set(poLines.map(l => l.id));
-  const candidates = [...receipts]
+  const ours = new Set(g.poLines.map(l => l.id));
+  const candidates = [...g.receipts]
     .filter(r => r.lines.some(l => l.poLineId && ours.has(l.poLineId) && l.unbilledQty > 1e-6))
     .sort((a, b) => a.receiptDate.localeCompare(b.receiptDate) || String(a.receiptNo).localeCompare(String(b.receiptNo)));
   let chosen: InvoiceReceipt[] | null = null;
@@ -229,20 +222,70 @@ export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: I
   if (!problems.length && !chosen) {
     problems.push(candidates.length
       ? "The invoiced quantities do not match what has been received and not yet billed. Bill it by hand from Receiving."
-      : `Nothing received against ${inv.poNumber} is waiting to be billed. Receive the goods first.`);
+      : `Nothing received against ${g.poNumber} is waiting to be billed. Receive the goods first.`);
+  }
+  return { view, wanted, chosen };
+}
+
+/**
+ * An 810 against our records, for ONE purchase order (BIG04). Behaves as it always did; see invoiceToBillMulti for an
+ * invoice that names several. The matching is shared.
+ */
+export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: InvoiceReceipt[], billCurrency: string): InvoiceOutcome {
+  return invoiceToBillMulti(inv, [{ poNumber: inv.poNumber, poLines, receipts }], billCurrency);
+}
+
+/**
+ * An 810 against our records, for one OR SEVERAL purchase orders. With one group every line belongs to it (BIG04). With
+ * several, each line says which PO it is on (IT1 qualifier PO) and its line number is that PO's own. Each PO is matched to its
+ * own receipts exactly as a single-PO invoice is, and the proposal bills all of them together on one bill. Never guesses: a
+ * line that names no PO, a PO we do not hold, or quantities that match no run of receipts for ANY of them stops the whole
+ * invoice, with the reason in words.
+ */
+export function invoiceToBillMulti(inv: EdiInvoice, groups: InvoicePoGroup[], billCurrency: string): InvoiceOutcome {
+  const problems = [...inv.problems];
+  const notes: string[] = [];
+  if (!inv.invoiceNo.trim()) problems.push("The invoice has no number (BIG02).");
+  if (!inv.invoiceDate) problems.push("The invoice has no date (BIG01).");
+  if (!inv.lines.length) problems.push("The invoice lists no lines (IT1).");
+  if (inv.currency && inv.currency.toUpperCase() !== billCurrency.toUpperCase()) problems.push(`The invoice is in ${inv.currency}, the goods were received in ${billCurrency}.`);
+
+  // Which lines belong to which PO.
+  const share = new Map<string, EdiInvoiceLine[]>();
+  if (groups.length === 1) share.set(groups[0].poNumber.trim(), inv.lines);
+  else for (const il of inv.lines) {
+    const po = (il.ids.PO || inv.poNumber || "").trim();
+    if (!po) { problems.push(`Line "${il.lineNo}" names no purchase order, and the invoice names several.`); continue; }
+    share.set(po, [...(share.get(po) ?? []), il]);
+  }
+  for (const po of share.keys()) if (!groups.some(g => g.poNumber.trim() === po)) problems.push(`No purchase order ${po} to this supplier.`);
+
+  const done: { wanted: Map<string, { qty: number; price: number }>; chosen: InvoiceReceipt[] | null }[] = [];
+  const view: InvoiceMatchLine[] = [];
+  for (const g of groups) {
+    const mine = share.get(g.poNumber.trim()) ?? [];
+    if (!mine.length) { problems.push(`No line of the invoice is for ${g.poNumber}.`); continue; }
+    const r = matchGroup(mine, g, problems);
+    view.push(...r.view);
+    done.push({ wanted: r.wanted, chosen: r.chosen });
   }
   if (problems.length) return { ok: false, problems, lines: view };
 
   const prices: { lineId: string; unitCost: number }[] = [];
+  const receiptIds: string[] = [], receiptNos: string[] = [];
   let goods = 0;
-  for (const r of chosen!) for (const l of r.lines) {
-    if (l.unbilledQty <= 1e-6 || !l.poLineId) continue;
-    const w = wanted.get(l.poLineId)!;
-    goods += l.unbilledQty * w.price;
-    if (!near(w.price, l.price)) prices.push({ lineId: l.id, unitCost: Math.round(w.price * 1e6) / 1e6 });
+  for (const d of done) for (const r of d.chosen!) {
+    if (!receiptIds.includes(r.id)) { receiptIds.push(r.id); receiptNos.push(r.receiptNo ?? r.id); }
+    for (const l of r.lines) {
+      if (l.unbilledQty <= 1e-6 || !l.poLineId) continue;
+      const w = d.wanted.get(l.poLineId)!;
+      goods += l.unbilledQty * w.price;
+      if (!near(w.price, l.price)) prices.push({ lineId: l.id, unitCost: Math.round(w.price * 1e6) / 1e6 });
+    }
   }
   goods = money(goods);
   const charges = money(inv.charges.reduce((a, c) => a + c.amount, 0));
+  if (groups.length > 1) notes.push(`The invoice covers ${groups.length} purchase orders (${groups.map(g => g.poNumber).join(", ")}); they are billed together on one bill.`);
   if (prices.length) notes.push(`The invoice price differs from the receipt on ${prices.length} line(s): the difference goes to purchase price variance, and the share on stock still held into its cost.`);
   if (inv.tax) notes.push(`The invoice carries tax of ${money(inv.tax)}: choose the tax rate when you create the bill.`);
   if (charges) notes.push(`The invoice carries charges or allowances of ${charges} (${inv.charges.map(c => c.code).join(", ")}): they are not on this bill. Post them separately.`);
@@ -250,8 +293,7 @@ export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: I
   const dueDate = inv.dueDate ?? (inv.netDays != null && inv.invoiceDate ? addDaysYmd(inv.invoiceDate, inv.netDays) : null);
   return { ok: true, lines: view, notes, proposal: {
     invoiceNo: inv.invoiceNo.trim(), invoiceDate: inv.invoiceDate!, dueDate, currency: billCurrency,
-    receiptIds: chosen!.map(r => r.id), receiptNos: chosen!.map(r => r.receiptNo ?? r.id), prices,
-    goods, total: inv.total, tax: inv.tax, charges,
+    receiptIds, receiptNos, prices, goods, total: inv.total, tax: inv.tax, charges,
   } };
 }
 
