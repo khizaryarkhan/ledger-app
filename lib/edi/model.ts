@@ -54,3 +54,25 @@ export type EdiOrder = {
   lines: EdiOrderLine[];
   total: number;
 };
+
+/** A functional acknowledgement (X12 997 / EDIFACT CONTRL): did the partner's translator accept our group? */
+export type EdiAckStatus = "accepted" | "accepted_with_errors" | "partially_accepted" | "rejected";
+export type EdiFunctionalAck = {
+  functionalId: string;
+  /** The group control number of OUR file it answers. */
+  groupControlNo: number;
+  groupStatus: EdiAckStatus;
+  codes: string[];
+  txns: { setId: string; controlNo: string; status: EdiAckStatus; codes: string[] }[];
+};
+
+/** One acknowledged line of a PO acknowledgement, with each status the partner gave it. */
+export type EdiAckLine = {
+  /** Our line number, echoed back. */
+  lineNo: string;
+  qty: number | null; unit: string | null; price: number | null;
+  acks: { status: string; qty: number | null; unit: string | null; dateQualifier: string | null; date: string | null; rawDate: string | null }[];
+};
+
+/** A PO acknowledgement (X12 855 / EDIFACT ORDRSP). */
+export type EdiOrderAck = { ackType: string; poNumber: string; poDate: string | null; lines: EdiAckLine[] };

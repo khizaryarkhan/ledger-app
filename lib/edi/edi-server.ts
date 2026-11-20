@@ -178,6 +178,7 @@ export async function listMessages(orgId: string, opts: { appDocId?: string | nu
     interchangeNo: ediMessages.interchangeNo, appDocType: ediMessages.appDocType, appDocId: ediMessages.appDocId,
     appDocNumber: ediMessages.appDocNumber, fileName: ediMessages.fileName, voidReason: ediMessages.voidReason,
     createdAt: ediMessages.createdAt, sentAt: ediMessages.sentAt,
+    ackStatus: ediMessages.ackStatus, ackedAt: ediMessages.ackedAt, error: ediMessages.error, result: ediMessages.result,
   }).from(ediMessages).leftJoin(parties, eq(parties.id, ediMessages.partyId))
     .where(and(...where)).orderBy(desc(ediMessages.createdAt)).limit(Math.min(opts.limit ?? 200, 500));
 }

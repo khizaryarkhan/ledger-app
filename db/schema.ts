@@ -3624,6 +3624,11 @@ export const ediMessages = pgTable("edi_messages", {
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   sentAt:        timestamp("sent_at"),
   sentBy:        uuid("sent_by"),
+  // Phase 2 (0146): on an outbound file, the 997 that answered it; on an inbound file, what was done with it.
+  ackStatus:     varchar("ack_status", { length: 24 }),   // accepted | accepted_with_errors | partially_accepted | rejected
+  ackedAt:       timestamp("acked_at"),
+  ackMessageId:  uuid("ack_message_id"),
+  result:        jsonb("result"),
 }, (t) => ({
   edi_messages_control_uq: uniqueIndex("edi_messages_control_uq").on(t.partnerId, t.direction, t.interchangeNo),
   edi_messages_doc_idx: index("edi_messages_doc_idx").on(t.orgId, t.appDocId),

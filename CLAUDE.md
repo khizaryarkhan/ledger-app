@@ -951,6 +951,43 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 2a: reading what the supplier sends back — 997 and 855 (2026-11-20)
+
+First slice of `docs/prd-edi.md` Phase 2. Migration `0146` (additive: `edi_messages.ack_status`, `acked_at`,
+`ack_message_id`, `result`). 856 (ASN → expected delivery) and 810 (invoice → bill) are the next slices.
+
+- **Inbound is an upload** (manual transport): Supply Chain → EDI → Files → "Upload a received file" →
+  `POST /api/edi/inbound { fileName, content }` (≤ 2 MB). `lib/edi/inbound-server.ts`'s `receiveEdiFile`:
+  1. `lib/edi/x12/read.ts` reads ONE interchange on the separators its own ISA declares (element = 4th char,
+     component = ISA16, terminator = the char after it) and refuses, with the reason, any envelope whose SE / GE /
+     IEA counts or control numbers do not add up. A partner's file is never read on our writer's assumptions.
+  2. The partner is found from the ISA IDs (their `receiver_id` → our `sender_id`, case-insensitive). No match =
+     refused, naming the IDs. Nothing is guessed.
+  3. **Stored first**, as `direction = 'in'`; the existing unique `(partner, direction, interchange_no)` makes a
+     re-upload a no-op that returns the first result (`duplicate: true`).
+  4. Each transaction set is acted on; `result` keeps a sentence per set and `status` is processed / review /
+     ignored / error. A file that threw part-way is `error` and may be processed again (PATCH `reprocess`).
+- **997** → finds OUR outbound file by group control number and sets its `ack_status` (accepted / accepted with
+  errors / partly accepted / rejected; codes kept in `error`). The Files list and the PO's Send by EDI drawer show it.
+- **855** goes through **the same path as the supplier portal**: `recordSupplierResponse` was extracted from
+  `submitSupplierResponse` (`lib/accounting/po-supplier-server.ts`), and both channels call it. BAK02 RJ/RD =
+  decline; otherwise `lib/edi/inbound.ts`'s `ackToResponse` turns the ACK lines into confirm or proposed
+  quantity/date per line (IA / IQ / IC / IB / DR / IS / IR), which is **stored for a person to decide, never
+  applied**. A price change (IP) is never applied (same rule as the portal) and puts the file in review. A split
+  line proposes the total and the latest date, and also asks for review. An unknown line, a quantity in another
+  unit, a bad date or an unknown BAK02 refuses the whole acknowledgement into review, in words.
+- **A test file (ISA15 = T) from a partner set to live is stored and ignored**, never applied.
+- **Real bug fixed on the way (in main since the supplier portal, 6d244ef0)**: after the confirm branch,
+  `submitSupplierResponse` had a bare `else` that set `rejected_at`, so **every proposed revision also rejected
+  the PO** (stage Rejected outranks Revision proposed, and a rejected PO leaves Receiving; accepting the proposal
+  never cleared it). Now only `kind === "decline"` rejects. Production had no supplier responses at all when this
+  was found (checked read-only), so no real order was affected. Pinned in `tests/edi-inbound.test.ts`, proven to
+  fail on the old code.
+- **Not built / not verified**: we do not SEND a 997 for the partner's files yet; 856 and 810 are not read
+  (they land in review as "not read yet"); nothing clicked through in a browser (server paths exercised on the dev
+  DB by `scripts/_e2e_edi_inbound.ts`, 9 checks, cleaned up — the PO's creator is blanked during the run because
+  the response path emails the creator).
+
 ## EDI Phase 1: outbound X12 850 for purchase orders, manual delivery (2026-11-20)
 
 `docs/prd-edi.md` Phase 1. Migration `0145` (additive). Opt-in module key **`edi`** (`lib/modules.ts`; admin
@@ -1824,7 +1861,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0145` at `when` `1795300000000`;
+  this silently dropped a table in prod once). Latest is `0146` at `when` `1795400000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

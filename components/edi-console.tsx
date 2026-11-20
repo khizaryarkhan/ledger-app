@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Plus, Download, RefreshCw, Pencil, Trash2 } from "lucide-react";
+import { Plus, Download, RefreshCw, Pencil, Trash2, Upload, Loader } from "lucide-react";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset } from "@/components/form-kit";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { ISA_QUALIFIERS, X12_VERSIONS } from "@/lib/edi/partner";
@@ -20,6 +20,8 @@ export function EdiConsole() {
   const [files, setFiles] = useState<any[] | null>(null);
   const [partners, setPartners] = useState<any[] | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [showing, setShowing] = useState<any | null>(null);
   const [err, setErr] = useState("");
 
   async function load() {
@@ -44,9 +46,10 @@ export function EdiConsole() {
 
   return (
     <ListPage>
-      <ListPageHeader title="EDI" subtitle="Purchase orders as X12 files for trading partners. Generate from the purchase order, download, deliver, then mark sent.">
+      <ListPageHeader title="EDI" subtitle="Purchase orders as X12 files for trading partners. Generate from the purchase order, download, deliver, mark sent; upload what the partner sends back.">
         {pill("files", "Files")}{pill("partners", "Partners")}
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} /></button>
+        {tab === "files" && <button onClick={() => setUploading(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-medium"><Upload size={13} /> Upload a received file</button>}
         {tab === "partners" && <button onClick={() => setEditing({})} className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-medium"><Plus size={13} /> New partner</button>}
       </ListPageHeader>
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
@@ -57,15 +60,16 @@ export function EdiConsole() {
           : (
             <table className="w-full text-[12.5px]">
               <thead><tr className="text-left text-[12px] text-stone-400 border-b border-stone-800">
-                <th className="py-2 pr-3">Partner</th><th className="py-2 pr-3">Document</th><th className="py-2 pr-3">Control no.</th><th className="py-2 pr-3">Status</th><th className="py-2" />
+                <th className="py-2 pr-3">Partner</th><th className="py-2 pr-3">Way</th><th className="py-2 pr-3">Document</th><th className="py-2 pr-3">Control no.</th><th className="py-2 pr-3">Status</th><th className="py-2" />
               </tr></thead>
               <tbody>
                 {files.map(m => (
                   <tr key={m.id} className="border-b border-stone-800/50">
                     <td className="py-2 pr-3 text-stone-200">{m.partyName || "—"}</td>
+                    <td className="py-2 pr-3 text-stone-400">{m.direction === "in" ? "Received" : "Sent"}</td>
                     <td className="py-2 pr-3 text-stone-300">{m.docType} · {m.appDocNumber || "—"}{m.test ? <span className="ml-1.5 text-amber-400 text-[11px]">test</span> : null}</td>
                     <td className="py-2 pr-3 font-mono text-stone-400">{m.interchangeNo}</td>
-                    <td className="py-2 pr-3">{m.status === "generated" ? <span className="text-amber-400">waiting to be sent</span> : m.status === "sent" ? <span className="text-stone-300">sent</span> : <span className="text-stone-500">void{m.voidReason ? `: ${m.voidReason}` : ""}</span>}</td>
+                    <td className="py-2 pr-3">{statusCell(m, () => setShowing(m))}</td>
                     <td className="py-2 text-right"><a href={`/api/edi/messages/${m.id}?download=1`} className="inline-flex p-1.5 rounded hover:bg-stone-700 text-stone-400 hover:text-stone-200" title="Download" aria-label="Download"><Download size={14} /></a></td>
                   </tr>
                 ))}
@@ -91,8 +95,108 @@ export function EdiConsole() {
           ))
         )}
       </div>
+      {uploading && <UploadDrawer onClose={() => { setUploading(false); load(); }} />}
+      {showing && <ResultDrawer message={showing} onClose={() => setShowing(null)} onChanged={() => { setShowing(null); load(); }} />}
       {editing && <PartnerDrawer partner={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </ListPage>
+  );
+}
+
+const ACK_WORDS: Record<string, string> = { accepted: "accepted by partner", accepted_with_errors: "accepted with errors", partially_accepted: "partly accepted", rejected: "rejected by partner" };
+
+/** One cell for both ways: an outbound file's send + acknowledgement, an inbound file's outcome. Colour only for what needs a person. */
+function statusCell(m: any, open: () => void) {
+  if (m.direction === "in") {
+    const label = m.status === "processed" ? "applied" : m.status === "review" ? "needs review" : m.status === "ignored" ? "ignored (test file)" : m.status === "error" ? "failed" : m.status;
+    const hot = m.status === "review" || m.status === "error";
+    return <button onClick={open} className={`underline-offset-2 hover:underline ${hot ? "text-amber-400" : "text-stone-300"}`}>{label}</button>;
+  }
+  if (m.status === "generated") return <span className="text-amber-400">waiting to be sent</span>;
+  if (m.status === "void") return <span className="text-stone-500">void{m.voidReason ? `: ${m.voidReason}` : ""}</span>;
+  const ack = m.ackStatus ? ACK_WORDS[m.ackStatus] : "sent, not acknowledged yet";
+  return <span className={m.ackStatus && m.ackStatus !== "accepted" ? "text-amber-400" : "text-stone-300"} title={m.error ?? undefined}>{ack}</span>;
+}
+
+/** Upload a file the partner sent. The result says what was done with each transaction set. */
+function UploadDrawer({ onClose }: { onClose: () => void }) {
+  const [file, setFile] = useState<{ name: string; content: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState<any | null>(null);
+
+  async function pick(f: File | undefined) {
+    setErr(""); setDone(null);
+    if (!f) return;
+    if (f.size > 2_000_000) { setErr("The file is larger than 2 MB."); return; }
+    setFile({ name: f.name, content: await f.text() });
+  }
+  async function send() {
+    if (!file) { setErr("Choose a file."); return; }
+    setBusy(true); setErr("");
+    const r = await fetch("/api/edi/inbound", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, content: file.content }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setErr(d?.error || "Could not read the file."); return; }
+    setDone(d);
+  }
+  return (
+    <Drawer title="Upload a received file" subtitle="An X12 file your partner sent: a 997 acknowledgement or an 855 order acknowledgement." onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <input type="file" accept=".x12,.edi,.txt,.dat,text/plain" onChange={e => pick(e.target.files?.[0])} className="text-[12.5px] text-stone-300" aria-label="X12 file" />
+        {file && !done && (
+          <button onClick={send} disabled={busy} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md bg-primary hover:bg-primary-hover text-white text-[12.5px] font-medium disabled:opacity-50">
+            {busy ? <Loader size={13} className="animate-spin" /> : <Upload size={14} />} Read {file.name}
+          </button>
+        )}
+        {err && <p className="text-[12px] text-rose-400">{err}</p>}
+        {done && (
+          <div className="space-y-2">
+            {done.duplicate && <p className="text-[12.5px] text-stone-300">This file was already received (same partner and interchange number), so nothing changed. Its first result:</p>}
+            <Results results={done.results ?? []} />
+          </div>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
+function Results({ results }: { results: any[] }) {
+  if (!results.length) return <p className="text-[12.5px] text-stone-500">Nothing to report.</p>;
+  return (
+    <div className="space-y-2">
+      {results.map((r, i) => (
+        <div key={i} className={`rounded-lg border px-3.5 py-2.5 text-[12.5px] ${r.outcome === "review" ? "border-amber-900/60 bg-amber-950/20" : "border-stone-800"}`}>
+          <div className="text-stone-200"><span className="font-mono text-stone-500 mr-1.5">{r.setId}</span>{r.summary}</div>
+          {(r.reasons ?? []).map((x: string, j: number) => <div key={j} className="text-stone-400 mt-0.5">{x}</div>)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ResultDrawer({ message, onClose, onChanged }: { message: any; onClose: () => void; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function reprocess() {
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/edi/messages/${message.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reprocess" }) });
+    setBusy(false);
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not process it again."); return; }
+    onChanged();
+  }
+  return (
+    <Drawer title={`Received · ${message.fileName}`} subtitle={`${message.partyName ?? ""} · control no. ${message.interchangeNo}`} onClose={onClose} size="lg">
+      <div className="space-y-3">
+        <Results results={Array.isArray(message.result) ? message.result : []} />
+        {message.status === "error" && (
+          <button onClick={reprocess} disabled={busy} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-stone-600 text-[12.5px] text-stone-200 hover:bg-stone-800 disabled:opacity-50">
+            {busy && <Loader size={13} className="animate-spin" />} Process it again
+          </button>
+        )}
+        {err && <p className="text-[12px] text-rose-400">{err}</p>}
+        <a href={`/api/edi/messages/${message.id}?download=1`} className="inline-flex items-center gap-1.5 text-[12.5px] text-stone-400 hover:text-stone-200"><Download size={13} /> Download the file</a>
+      </div>
+    </Drawer>
   );
 }
 

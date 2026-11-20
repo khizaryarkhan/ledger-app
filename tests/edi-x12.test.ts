@@ -136,7 +136,8 @@ describe("EDI boundaries", () => {
   });
   const edi = walk("lib/edi");
   it("nothing in lib/edi posts stock or ledger", () => {
-    const banned = /postJournalEntry|postDocument|postGoodsReceipt|commitReceipt|commitIssue|postShipment|@\/lib\/ledger"/;
+    // The posting engines themselves. (Importing LedgerValidationError from lib/ledger is allowed: it is an error class.)
+    const banned = /postJournalEntry|reverseJournalEntry|postDocument|updateDocument|postGoodsReceipt|commitReceipt|commitIssue|postShipment|billFromReceipts/;
     const offenders = edi.filter(f => banned.test(readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
   });

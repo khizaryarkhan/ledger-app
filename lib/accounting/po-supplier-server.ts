@@ -184,7 +184,19 @@ export interface SupplierSubmission { kind: "confirm" | "revise" | "decline"; me
 export async function submitSupplierResponse(token: string, input: SupplierSubmission) {
   const v = await checkSupplierToken(token);
   if (!v.ok) return err("This link is no longer active. Contact the buyer directly.");
-  const t = v.token;
+  return recordSupplierResponse(v.token.orgId, v.token.documentId, input, { tokenId: v.token.id, actorName: "Supplier (portal)", channel: "in the supplier portal" });
+}
+
+/** Where a supplier answer came from: the portal (with its token) or an EDI 855. */
+export type ResponseSource = { tokenId: string | null; actorName: string; channel: string };
+
+/**
+ * The supplier answers a PO, from ANY channel. One path: the portal and an
+ * inbound EDI 855 both land here, so a revision is stored for a person to
+ * decide whichever way it arrived, and confirm/decline apply the same way.
+ */
+export async function recordSupplierResponse(orgId: string, documentId: string, input: SupplierSubmission, source: ResponseSource) {
+  const t = { orgId, documentId, id: source.tokenId };
   const message = input.message?.trim().slice(0, 2000) || null;
   if (!["confirm", "revise", "decline"].includes(input.kind)) err("Choose how you want to respond.");
   const [doc] = await db.select().from(tradeDocuments).where(and(eq(tradeDocuments.id, t.documentId), eq(tradeDocuments.orgId, t.orgId))).limit(1);
@@ -230,18 +242,21 @@ export async function submitSupplierResponse(token: string, input: SupplierSubmi
 
   if (kind === "confirm") {
     if (!doc.confirmedAt) await db.update(tradeDocuments).set({ confirmedAt: now, sentAt: doc.sentAt ?? now, updatedAt: now }).where(eq(tradeDocuments.id, doc.id));
-  } else {
+  } else if (kind === "decline") {
+    // Only a decline rejects the order. A revision is a proposal: it must leave the
+    // order live (stage "Revision proposed") until a person decides. Before 2026-11-20
+    // this was a bare `else`, so every proposed change also rejected the PO.
     await db.update(tradeDocuments).set({ rejectedAt: now, rejectReason: message || "The supplier cannot supply this order.", updatedAt: now }).where(eq(tradeDocuments.id, doc.id));
   }
 
-  logEvent({ orgId: t.orgId, eventType: "document_edited", docType: "trade", docId: doc.id, actorName: "Supplier (portal)", meta: { action: `supplier_${kind}`, docNumber: doc.docNumber, lines: revisions.length } })
+  logEvent({ orgId: t.orgId, eventType: "document_edited", docType: "trade", docId: doc.id, actorName: source.actorName, meta: { action: `supplier_${kind}`, docNumber: doc.docNumber, lines: revisions.length } })
     .catch(e => console.error("[audit] supplier response failed:", e));
-  notifyBuyer(t.orgId, doc, kind, message).catch(e => console.error("[po] notify buyer failed:", e));
+  notifyBuyer(t.orgId, doc, kind, message, source.channel).catch(e => console.error("[po] notify buyer failed:", e));
   return { kind, revisions: revisions.length };
 }
 
 /** Tell whoever raised the PO. Best-effort: a mail failure must not lose the supplier's answer. */
-async function notifyBuyer(orgId: string, doc: typeof tradeDocuments.$inferSelect, kind: string, message: string | null) {
+async function notifyBuyer(orgId: string, doc: typeof tradeDocuments.$inferSelect, kind: string, message: string | null, channel = "in the supplier portal") {
   if (!doc.createdBy) return;
   const [u] = await db.select({ email: users.email }).from(users).where(eq(users.id, doc.createdBy)).limit(1);
   if (!u?.email) return;
@@ -249,7 +264,7 @@ async function notifyBuyer(orgId: string, doc: typeof tradeDocuments.$inferSelec
   await sendEmail(orgId, {
     to: u.email,
     subject: `${doc.partyLabel ?? "Your supplier"} ${what} ${doc.docNumber ?? "your purchase order"}`,
-    body: `<p>${esc(doc.partyLabel ?? "The supplier")} ${what} <b>${esc(doc.docNumber ?? "")}</b> in the supplier portal.</p>${message ? `<p style="color:#57534e">“${esc(message)}”</p>` : ""}<p>${kind === "revise" ? "Open Purchase Orders and choose Review changes to accept or keep the original." : "Open Purchase Orders to see the update."}</p>`,
+    body: `<p>${esc(doc.partyLabel ?? "The supplier")} ${what} <b>${esc(doc.docNumber ?? "")}</b> ${esc(channel)}.</p>${message ? `<p style="color:#57534e">“${esc(message)}”</p>` : ""}<p>${kind === "revise" ? "Open Purchase Orders and choose Review changes to accept or keep the original." : "Open Purchase Orders to see the update."}</p>`,
   });
 }
 

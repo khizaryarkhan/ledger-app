@@ -13,7 +13,7 @@ import { Drawer } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 
 type Problem = { lineNo: number | null; message: string };
-type Msg = { id: string; status: string; interchangeNo: number; fileName: string; test: boolean; createdAt: string; sentAt: string | null; voidReason: string | null };
+type Msg = { id: string; status: string; ackStatus?: string | null; direction?: string; interchangeNo: number; fileName: string; test: boolean; createdAt: string; sentAt: string | null; voidReason: string | null };
 
 export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; docNumber: string | null; partyLabel?: string | null }; onClose: () => void; onChanged?: (msg: string) => void }) {
   const base = `/api/edi/purchase-orders/${po.id}`;
@@ -87,7 +87,7 @@ export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; do
                 <div className="min-w-0 text-[12px]">
                   <div className="font-mono text-stone-200 truncate">{m.fileName}</div>
                   <div className="text-stone-500">
-                    Control no. {m.interchangeNo}{m.test ? " · test" : ""} · {m.status === "sent" ? "sent" : m.status === "void" ? `void${m.voidReason ? `: ${m.voidReason}` : ""}` : "waiting to be sent"}
+                    Control no. {m.interchangeNo}{m.test ? " · test" : ""} · {m.status === "sent" ? (m.ackStatus ? `sent, ${m.ackStatus === "accepted" ? "accepted by partner" : m.ackStatus.replace(/_/g, " ")}` : "sent, not acknowledged yet") : m.status === "void" ? `void${m.voidReason ? `: ${m.voidReason}` : ""}` : "waiting to be sent"}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">

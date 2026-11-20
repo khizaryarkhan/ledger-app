@@ -85,7 +85,8 @@ export type EventType =
   // EDI (0145): a file generated for a document, marked sent, or voided. Keyed on docType "trade" / the PO id.
   | "edi_generated"
   | "edi_sent"
-  | "edi_voided";
+  | "edi_voided"
+  | "edi_received";
 
 export interface LogEventArgs {
   orgId: string;

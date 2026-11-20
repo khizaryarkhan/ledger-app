@@ -1,10 +1,11 @@
 /**
  * GET   /api/edi/messages/[id]             → the message with its payload
  * GET   /api/edi/messages/[id]?download=1  → the file itself, to deliver to the partner
- * PATCH /api/edi/messages/[id] { action: "sent" } | { action: "void", reason }
+ * PATCH /api/edi/messages/[id] { action: "sent" } | { action: "void", reason } | { action: "reprocess" } (an inbound file that failed)
  */
 import { ok, bad, requireOrg } from "@/lib/api";
 import { getMessage, markMessageSent, voidMessage } from "@/lib/edi/edi-server";
+import { reprocessMessage } from "@/lib/edi/inbound-server";
 import { ediGuard, ediFail } from "../../_shared";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -30,6 +31,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   try {
     if (b?.action === "sent") return ok(await markMessageSent(g.orgId!, params.id, g.actorId));
     if (b?.action === "void") return ok(await voidMessage(g.orgId!, params.id, String(b.reason ?? ""), g.actorId));
-    return bad("action must be sent or void");
+    if (b?.action === "reprocess") return ok(await reprocessMessage(g.orgId!, params.id, g.actorId));
+    return bad("action must be sent, void or reprocess");
   } catch (e) { return ediFail(e); }
 }
