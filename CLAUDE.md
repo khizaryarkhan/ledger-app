@@ -951,6 +951,28 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI foundation: SSCC — packing shipments, capturing pallet labels on receipts (2026-11-20)
+
+Phase 0 item 5. Migration `0143` (additive). Rules `lib/inventory/sscc.ts` (pure), server `sscc-server.ts`, tests
+`tests/sscc.test.ts`. An SSCC (AI 00) = extension digit + GS1 Company Prefix + serial reference + check digit.
+
+- **The org's GS1 Company Prefix** (`organisations.gs1_company_prefix`, 4-12 digits, Settings → Company, with the
+  extension digit) is what its GS1 office assigned: validated for shape, never invented. No prefix = packing refused
+  with where to set it.
+- **Allocation is one `UPDATE … RETURNING` on `sscc_next_serial`** (8 concurrent allocations on dev: all unique),
+  backed by a unique `(org_id, sscc)` index. The counter only goes up: a removed package's SSCC, or one taken by a
+  save that then failed, is never re-used (a gap costs nothing; a re-used SSCC mislabels a pallet). Everything is
+  validated BEFORE a serial is taken. Changing the prefix does not reset the counter.
+- **Packing** (`shipment_packages` + `shipment_package_lines`, Shipping list → package icon): a pallet, or a carton
+  (any pack type) optionally on a pallet, ONE level deep; contents in item base units per shipment line, never more
+  than the line shipped minus what is already packed. A pallet with packages on it can't be removed. Packing moves
+  no stock and posts nothing; only a Posted shipment can be packed.
+- **Receipts** (`goods_receipt_packages`, Receiving list → boxes icon): record the supplier's pallet/carton SSCCs,
+  typed or scanned (18 digits, "(00)…" or raw "00…"); the check digit is verified, so a misread label is refused.
+- **Not built / not verified**: no printed GS1-128 label yet (`buildGs1({ sscc })` produces the data; rendering the
+  barcode is its own piece); the receipt SSCCs are not matched against an expected delivery (that is the next Phase 0
+  item); nothing clicked through in a browser (server paths exercised on the dev DB, then restored).
+
 ## EDI foundation: trading terms and supplier contacts (2026-11-20)
 
 Phase 0 item 4. Migration `0142` (additive, nothing back-filled). Rules `lib/party-terms.ts` (pure), tests
@@ -1737,7 +1759,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0142` at `when` `1795000000000`;
+  this silently dropped a table in prod once). Latest is `0143` at `when` `1795100000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

@@ -337,6 +337,8 @@ export default function CompanySettingsPage() {
                     <Txt k="taxNumber" label="Tax registration no." ph="VAT / GST / NTN" />
                     <Txt k="registrationNumber" label="Company registration no." />
                     <Txt k="gln" label="GLN (GS1 location number)" ph="13 digits, used on EDI documents" />
+                    <Txt k="gs1CompanyPrefix" label="GS1 Company Prefix" ph="As assigned by your GS1 office; numbers your SSCCs" />
+                    <Txt k="ssccExtensionDigit" label="SSCC extension digit" ph="0-9, usually 0" />
                   </div>
                 </div>
 

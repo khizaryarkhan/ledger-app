@@ -22,6 +22,7 @@ import { QTY_EPSILON } from "@/lib/inventory/round";
 import { salesOrderOptions } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
 import { CREATE_NEW, CreateNewDrawer, createNewLabel } from "@/components/create-new";
+import { ShipmentPackagesDrawer } from "@/components/shipment-packages-drawer";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -40,6 +41,8 @@ export function ShippingConsole() {
   const [sel, setSel] = useState<Record<string, boolean>>({});
   const [invoicing, setInvoicing] = useState(false);
   const [voidErr, setVoidErr] = useState("");
+  // Packing a shipment into SSCC-labelled pallets / cartons (0143).
+  const [packing, setPacking] = useState<any | null>(null);
 
   async function load() {
     const r = await fetch(`/api/inventory/shipping`).then(x => x.json()).catch(() => []);
@@ -123,6 +126,7 @@ export function ShippingConsole() {
       {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <ShipDrawer customers={customers} items={items} onClose={() => { setShowNew(false); load(); }} />}
+      {packing && <ShipmentPackagesDrawer shipment={packing} onClose={() => setPacking(null)} />}
       {invoicing && <InvoiceDrawer shipments={selected} onClose={() => setInvoicing(false)} onDone={() => { setInvoicing(false); setSel({}); load(); }} />}
 
       {rows === null ? (
@@ -155,7 +159,10 @@ export function ShippingConsole() {
                       <td className={`${listNumCell} text-stone-300`}>{money(r.saleTotal)}</td>
                       <td className={`${listNumCell} text-stone-400`}>{money(r.invoicedAmount)}</td>
                       <td className={listMoneyCell}><span className={r.open > 0.005 ? "text-amber-400 font-medium" : "text-stone-500"}>{money(r.open)}</span></td>
-                      <td className="px-2 py-2"><button onClick={() => voidRow(r.id, r.shipmentNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void shipment"><Trash2 size={13} /></button></td>
+                      <td className="px-2 py-2 flex items-center gap-0.5">
+                        <button onClick={() => setPacking(r)} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-stone-200" title="Pack into pallets / cartons (SSCC)" aria-label="Pack shipment"><Package size={13} /></button>
+                        <button onClick={() => voidRow(r.id, r.shipmentNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void shipment"><Trash2 size={13} /></button>
+                      </td>
                     </tr>
                   );
                 })}

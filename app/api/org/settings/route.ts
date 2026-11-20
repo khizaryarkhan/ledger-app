@@ -8,6 +8,7 @@ import { visibleModules } from "@/lib/roles";
 import { memberRole } from "@/lib/roles-server";
 import { countryCodeError, normaliseCountryCode, countryCodeFromName } from "@/lib/countries";
 import { glnError } from "@/lib/gs1";
+import { normaliseCompanyPrefix } from "@/lib/inventory/sscc";
 
 /**
  * Company details printed on outbound documents. One list drives the select,
@@ -19,6 +20,8 @@ const COMPANY_FIELD_LIMITS = {
   addressPostcode: 32, addressCountry: 64,
   // EDI (0139): validated after the length check below (ISO code / GS1 check digit).
   addressCountryCode: 2, gln: 13,
+  // SSCC (0143): the GS1 Company Prefix the org's GS1 office assigned. Validated below.
+  gs1CompanyPrefix: 12,
   phone: 64, email: 255, website: 255,
   taxNumber: 64, registrationNumber: 64,
   bankName: 255, bankAccountName: 255, bankAccountNumber: 64,
@@ -30,6 +33,9 @@ type CompanyField = keyof typeof COMPANY_FIELD_LIMITS;
 const COMPANY_COLUMNS = Object.fromEntries(
   (Object.keys(COMPANY_FIELD_LIMITS) as CompanyField[]).map(k => [k, (organisations as any)[k]]),
 ) as Record<CompanyField, any>;
+// The SSCC extension digit is a number column, read back with the company block and
+// validated on its own (it is never blank: 0-9, default 0).
+(COMPANY_COLUMNS as any).ssccExtensionDigit = organisations.ssccExtensionDigit;
 
 function getStages(org: any): Stage[] {
   const raw = (org?.stages as Stage[] | null) ?? DEFAULT_STAGES;
@@ -210,6 +216,20 @@ export async function PATCH(req: Request) {
       const e = glnError(updates.gln);
       if (e) return bad(`GLN: ${e}`);
       updates.gln = String(updates.gln).replace(/[\s-]/g, "");
+    }
+  }
+  // SSCC numbering (0143): prefix shape and extension digit, refused rather than stored as typed.
+  if (body.company !== undefined && body.company !== null) {
+    if (updates.gs1CompanyPrefix !== undefined) {
+      const p = normaliseCompanyPrefix(updates.gs1CompanyPrefix);
+      if (p.ok === false) return bad(p.error);
+      updates.gs1CompanyPrefix = p.prefix;
+    }
+    const ext = (body.company as any).ssccExtensionDigit;
+    if (ext !== undefined && ext !== null && String(ext).trim() !== "") {
+      const d = Number(ext);
+      if (!Number.isInteger(d) || d < 0 || d > 9) return bad("The SSCC extension digit is one digit, 0-9.");
+      updates.ssccExtensionDigit = d;
     }
   }
   if (body.displayName !== undefined) {

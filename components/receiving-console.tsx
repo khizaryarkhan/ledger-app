@@ -20,6 +20,7 @@ import { Field, Section, SelectField, controlInset, Drawer, QtyUnitField } from 
 import { ClosePoLineDrawer } from "@/components/po-workflow-drawers";
 import { CLOSE_REASONS } from "@/lib/accounting/po-workflow";
 import { CREATE_NEW, CreateNewDrawer, createNewLabel, type CreateKind } from "@/components/create-new";
+import { ReceiptSsccDrawer } from "@/components/receipt-sscc-drawer";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -39,6 +40,8 @@ export function ReceivingConsole() {
   const [billing, setBilling] = useState(false);
   const [voidErr, setVoidErr] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  // SSCCs read from the supplier's pallet labels (0143).
+  const [ssccFor, setSsccFor] = useState<any | null>(null);
 
   async function load() {
     const r = await fetch(`/api/inventory/receiving`).then(x => x.json()).catch(() => []);
@@ -125,6 +128,7 @@ export function ReceivingConsole() {
 
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} onBillReceipt={billReceipt} onOpenReceipt={openReceipt} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
+      {ssccFor && <ReceiptSsccDrawer receipt={ssccFor} onClose={() => setSsccFor(null)} />}
       {editingId && <EditReceiptDrawer receiptId={editingId} items={items} onClose={() => { setEditingId(null); load(); }} />}
 
       {rows === null ? (
@@ -157,6 +161,7 @@ export function ReceivingConsole() {
                         ) : (
                           <span className="p-1 text-stone-500 opacity-40" title="Already billed — reverse the bill first to edit"><Pencil size={13} /></span>
                         )}
+                        <button onClick={() => setSsccFor(r)} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-stone-200" title="Pallet labels (SSCC)" aria-label="Pallet labels (SSCC)"><Boxes size={13} /></button>
                         <button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Delete receipt"><Trash2 size={13} /></button>
                       </td>
                     </tr>

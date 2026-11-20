@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, numeric, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial, date, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, numeric, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial, date, primaryKey, smallint, bigint } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
@@ -33,6 +33,12 @@ export const organisations = pgTable("organisations", {
   // EDI (0139): ISO 3166-1 alpha-2 code beside the country name, and the org's GS1 GLN.
   addressCountryCode: varchar("address_country_code", { length: 2 }),
   gln: varchar("gln", { length: 13 }),
+  // SSCC (0143): the GS1 Company Prefix the org's GS1 office assigned (never
+  // invented here), its chosen extension digit, and the next serial reference.
+  // The counter only goes UP, so an SSCC is never handed out twice.
+  gs1CompanyPrefix: varchar("gs1_company_prefix", { length: 12 }),
+  ssccExtensionDigit: smallint("sscc_extension_digit").notNull().default(0),
+  ssccNextSerial: bigint("sscc_next_serial", { mode: "number" }).notNull().default(1),
   phone: varchar("phone", { length: 64 }),
   email: varchar("email", { length: 255 }),
   website: varchar("website", { length: 255 }),
@@ -3484,6 +3490,40 @@ export const shipmentLines = pgTable("shipment_lines", {
   shipment_lines_so_idx: index("shipment_lines_so_idx").on(t.soId),
 }));
 export type ShipmentLine = typeof shipmentLines.$inferSelect;
+
+// Packed units on a shipment (0143): a pallet or a carton, each with its own
+// SSCC (AI 00, unique per org). A carton may sit on a pallet (parent_id), one
+// level deep. What is in it: shipment_package_lines. Rules: lib/inventory/sscc.ts.
+export const shipmentPackages = pgTable("shipment_packages", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  shipmentId:    uuid("shipment_id").notNull().references(() => salesShipments.id, { onDelete: "cascade" }),
+  parentId:      uuid("parent_id").references((): any => shipmentPackages.id, { onDelete: "cascade" }),
+  sscc:          varchar("sscc", { length: 18 }).notNull(),
+  packType:      varchar("pack_type", { length: 32 }).notNull(),
+  grossWeightKg: numeric("gross_weight_kg", { precision: 14, scale: 3 }),
+  createdBy:     uuid("created_by"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  shipment_packages_sscc_uq: uniqueIndex("shipment_packages_sscc_uq").on(t.orgId, t.sscc),
+  shipment_packages_shipment_idx: index("shipment_packages_shipment_idx").on(t.shipmentId),
+}));
+export const shipmentPackageLines = pgTable("shipment_package_lines", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  packageId:      uuid("package_id").notNull().references(() => shipmentPackages.id, { onDelete: "cascade" }),
+  shipmentLineId: uuid("shipment_line_id").notNull().references(() => shipmentLines.id, { onDelete: "cascade" }),
+  qtyBase:        numeric("qty_base", { precision: 20, scale: 6 }).notNull(),
+}, (t) => ({ shipment_package_lines_package_idx: index("shipment_package_lines_package_idx").on(t.packageId) }));
+// SSCCs captured on a goods receipt from the supplier's pallet labels (0143).
+export const goodsReceiptPackages = pgTable("goods_receipt_packages", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  receiptId: uuid("receipt_id").notNull().references(() => goodsReceipts.id, { onDelete: "cascade" }),
+  sscc:      varchar("sscc", { length: 18 }).notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ goods_receipt_packages_uq: uniqueIndex("goods_receipt_packages_uq").on(t.receiptId, t.sscc) }));
 
 // =========================================================================
 // TRANSACTION LINKS — the relationship graph (Estimate→Invoice, Payment→
