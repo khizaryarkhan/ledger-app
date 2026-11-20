@@ -2159,6 +2159,37 @@ export const itemPartNumbers = pgTable("item_part_numbers", {
 }));
 export type ItemPartNumber = typeof itemPartNumbers.$inferSelect;
 
+// Customer delivery addresses (0141): where a customer takes delivery (stores,
+// distribution centres). Same structured address + ISO country + GLN fields as
+// stock_locations (0139); `code` is the CUSTOMER's own name for the place,
+// which their EDI order may send instead of a GLN. One default per customer,
+// one row per code and per GLN: partial unique indexes in the migration (the
+// code one is on upper(code), which drizzle cannot declare).
+// Rules: lib/customer-ship-to.ts / customer-ship-to-server.ts.
+export const partyShipTo = pgTable("party_ship_to", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  partyId:         uuid("party_id").notNull().references(() => parties.id, { onDelete: "cascade" }),
+  name:            varchar("name", { length: 128 }).notNull(),
+  code:            varchar("code", { length: 32 }),
+  addressStreet:   varchar("address_street", { length: 255 }),
+  addressLine2:    varchar("address_line2", { length: 255 }),
+  addressCity:     varchar("address_city", { length: 128 }),
+  addressState:    varchar("address_state", { length: 128 }),
+  addressPostcode: varchar("address_postcode", { length: 32 }),
+  countryCode:     varchar("country_code", { length: 2 }),
+  gln:             varchar("gln", { length: 13 }),
+  contactName:     varchar("contact_name", { length: 128 }),
+  contactPhone:    varchar("contact_phone", { length: 64 }),
+  isDefault:       boolean("is_default").notNull().default(false),
+  status:          varchar("status", { length: 16 }).notNull().default("Active"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  party_ship_to_party_idx: index("party_ship_to_party_idx").on(t.orgId, t.partyId),
+}));
+export type PartyShipTo = typeof partyShipTo.$inferSelect;
+
 // =========================================================================
 // INVENTORY — FIFO COST LOTS & MOVEMENT LEDGER
 // A "lot" is a dated FIFO cost layer created when stock is received (purchase),
@@ -3006,6 +3037,8 @@ export const tradeDocuments = pgTable("trade_documents", {
   salesOrderId:     uuid("sales_order_id"),
   // EDI (0139): where a PO's goods are to be delivered. Null = the org's default location.
   shipToLocationId: uuid("ship_to_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
+  // SalesOrder only (0141): the customer's delivery address. Null = none chosen.
+  customerShipToId: uuid("customer_ship_to_id").references((): any => partyShipTo.id, { onDelete: "set null" }),
   // Estimate / SalesOrder only (0133): the customer's project, carried to the invoice on conversion.
   projectId:        uuid("project_id"),
   // Confirmation (0114). partyRef = the supplier's order confirmation no. on a

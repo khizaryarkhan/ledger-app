@@ -351,6 +351,8 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/owner-portal/[token]/zip", methods: ["GET"], params: ["ids","name"] },
   { path: "/api/parties/[type]", methods: ["GET","POST"], params: ["native"], body: ["currency","paymentTerms"] },
   { path: "/api/parties/[type]/[id]", methods: ["DELETE","GET","PATCH"], body: ["code","companyName","currency","email","leadTimeDays","name","paymentTerms","phone"] },
+  { path: "/api/parties/[type]/[id]/ship-to", methods: ["GET","POST"], params: ["active"] },
+  { path: "/api/parties/[type]/[id]/ship-to/[shipToId]", methods: ["DELETE","PATCH"] },
   { path: "/api/pax-console/actions/[id]", methods: ["POST"], body: ["decision"] },
   { path: "/api/pax-console/analyze", methods: ["POST"], body: ["asOf","bucket","currency","customer","dataset","disputed","escalatedTo","filters","from","groupBy","limit","minDaysPastDue","stage","to","withRows"] },
   { path: "/api/pax-console/chat", methods: ["POST"], body: ["conversationId","message"] },

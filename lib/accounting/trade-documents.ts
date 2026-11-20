@@ -20,6 +20,7 @@ import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
 import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
+import { resolveSalesOrderShipTo, shipToErrorOf } from "@/lib/customer-ship-to-server";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
 import { canonicalOrderUnit } from "@/lib/inventory/uom";
@@ -53,6 +54,9 @@ export type TradeDocInput = {
   salesOrderId?: string | null;
   // PurchaseOrder only (0139): the stock location the goods are delivered to. Null = the org's default location.
   shipToLocationId?: string | null;
+  // SalesOrder only (0141): the customer's delivery address. Undefined = the
+  // customer's default (if it has one); null / "" = none.
+  customerShipToId?: string | null;
   // Estimate / SalesOrder only — the customer's project (must belong to that customer).
   projectId?: string | null;
   // The counterparty's own reference (0114): the customer's PO number on an
@@ -107,6 +111,13 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     if (!loc) err("That ship-to location was not found.");
     if (loc.status !== "Active") err("That ship-to location is inactive.");
     shipToLocationId = loc.id;
+  }
+
+  // Delivery address (0141, SalesOrder only): an active address of THIS customer.
+  let customerShipToId: string | null = null;
+  if (kind === "SalesOrder") {
+    try { customerShipToId = await resolveSalesOrderShipTo(orgId, input.partyId, input.customerShipToId); }
+    catch (e) { const s = shipToErrorOf(e); if (s) err(s.message); throw e; }
   }
 
   // A Purchase Order commits to buying, so the sourcing decision has to exist
@@ -165,6 +176,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     subtotal: subtotal.toFixed(2), taxTotal: taxTotal.toFixed(2), total: total.toFixed(2),
     salesOrderId: kind === "PurchaseOrder" ? (input.salesOrderId || null) : null,
     shipToLocationId,
+    customerShipToId,
     projectId,
     partyRef: input.partyRef?.trim() || null,
     createdBy: actorId,

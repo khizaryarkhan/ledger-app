@@ -32,6 +32,7 @@ import { CREDIT_REASONS, CREDIT_TYPES, RECEIVED_DATE_TYPES } from "@/lib/account
 import { CalcInput, CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
 import { useStockLocations } from "@/components/location-picker";
+import { shipToOneLine } from "@/lib/customer-ship-to";
 
 export type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
@@ -288,6 +289,20 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   // PO ship-to (0139): blank = the org's default location. Offered only when there is a choice to make.
   const [shipToLocationId, setShipToLocationId] = useState("");
   const { locations: stockLocations } = useStockLocations();
+  // Sales Order delivery address (0141): the customer's active addresses, its default pre-selected.
+  const [shipToOptions, setShipToOptions] = useState<any[]>([]);
+  const [customerShipToId, setCustomerShipToId] = useState("");
+  useEffect(() => {
+    setShipToOptions([]); setCustomerShipToId("");
+    if (type !== "SalesOrder" || !partyId) return;
+    let live = true;
+    fetch(`/api/parties/customers/${partyId}/ship-to?active=1`).then(r => r.json()).then(rows => {
+      if (!live || !Array.isArray(rows)) return;
+      setShipToOptions(rows);
+      setCustomerShipToId(rows.find((r: any) => r.isDefault)?.id ?? "");
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [type, partyId]);
   const [openSalesOrders, setOpenSalesOrders] = useState<any[]>([]);
   const [credits, setCredits] = useState<any[] | null>(null);
   const [creditAlloc, setCreditAlloc] = useState<Record<string, string>>({});
@@ -1039,6 +1054,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
         url = `/api/trade-documents/${cfg.trade}`; payload.issueDate = date; payload.expiryDate = expiryDate || undefined;
         if (type === "PurchaseOrder") payload.salesOrderId = salesOrderId || undefined;
         if (type === "PurchaseOrder") payload.shipToLocationId = shipToLocationId || undefined;
+        // Sent only when the customer has addresses: "" then means "none" on purpose.
+        if (type === "SalesOrder" && shipToOptions.length) payload.customerShipToId = customerShipToId || null;
       }
 
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -1245,6 +1262,14 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                   <SelectField value={shipToLocationId} onChange={e => setShipToLocationId(e.target.value)}>
                     <option value="">Default location</option>
                     {stockLocations.map(l => <option key={l.id} value={l.id}>{l.code} · {l.name}</option>)}
+                  </SelectField>
+                </Field>
+              )}
+              {type === "SalesOrder" && shipToOptions.length > 0 && (
+                <Field label="Deliver to" hint="One of this customer's delivery addresses">
+                  <SelectField value={customerShipToId} onChange={e => setCustomerShipToId(e.target.value)}>
+                    <option value="">No delivery address</option>
+                    {shipToOptions.map((s: any) => <option key={s.id} value={s.id}>{shipToOneLine(s)}{s.isDefault ? " (default)" : ""}</option>)}
                   </SelectField>
                 </Field>
               )}

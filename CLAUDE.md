@@ -951,6 +951,30 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI foundation: customer delivery addresses (2026-11-20)
+
+Phase 0 item 1's last piece. Migration `0141` (additive, nothing back-filled). `party_ship_to`: a customer's delivery
+points (stores, DCs), each with the 0139 structured address + ISO country + GLN, a contact, and `code` = the
+CUSTOMER's own name for the place (their EDI order may send it instead of a GLN). Rules `lib/customer-ship-to.ts`
+(pure, reuses `addressValues`), writes `customer-ship-to-server.ts`, tests `tests/customer-ship-to.test.ts`.
+
+- **One default, one row per code (case-insensitive), one per GLN, per customer** — partial unique indexes in the
+  migration are the real guard (the code one is on `upper(code)`, not declarable in drizzle). The server pre-checks the
+  same for a friendly message. The first active address a customer gets becomes its default; deactivating the
+  default clears it and promotes nothing.
+- **A Sales Order names its delivery address** (`trade_documents.customer_ship_to_id`). `resolveSalesOrderShipTo`:
+  `undefined` = the customer's active default, `null`/"" = none on purpose, an id must be an ACTIVE address of THAT
+  customer. The form sends the field only when the customer has addresses, so older callers get the default.
+- **An address a sales order uses can't be deleted** (the FK's set-null would silently make the order say nothing
+  about where it goes); it is set Inactive instead.
+- UI: "Delivery addresses" inside the customer drawer (edit only; each address saves on its own, apart from the
+  drawer's Save), and a "Deliver to" picker on the Sales Order form. Routes `/api/parties/customers/[id]/ship-to[/id]`,
+  any org user (same rule as editing a customer). `findShipTo` (GLN, then code; exact only) is the inbound lookup.
+- **Not built / not verified**: nothing clicked through in a browser (server rules exercised against the dev
+  database, including a real SO taking the default). A saved SO does not show its address when reopened (same gap
+  as a PO's ship-to); the SO PDF does not print it; shipments do not carry an address yet (comes with the 856/SSCC);
+  the order points at the live address, it does not keep a copy of it as it was when ordered.
+
 ## EDI foundation: part-number cross-references (2026-11-20)
 
 Phase 0 item 2 of `docs/prd-edi.md`. Migration `0140` (additive). A part number is a PARTNER's code for one of our
@@ -1691,7 +1715,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0140` at `when` `1794800000000`;
+  this silently dropped a table in prod once). Latest is `0141` at `when` `1794900000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
