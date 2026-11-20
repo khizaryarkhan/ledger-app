@@ -220,6 +220,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/documents/audit", methods: ["GET"], params: ["docId","docType"] },
   { path: "/api/documents/payments/available-for-deposit", methods: ["GET"] },
   { path: "/api/edi/inbound", methods: ["POST"], body: ["content","fileName"] },
+  { path: "/api/edi/invoices/[id]", methods: ["GET","POST"] },
   { path: "/api/edi/messages", methods: ["GET"], params: ["docId"] },
   { path: "/api/edi/messages/[id]", methods: ["GET","PATCH"], params: ["download"], body: ["index","reason","taxRateId"] },
   { path: "/api/edi/partners", methods: ["GET","POST"] },

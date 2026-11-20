@@ -44,6 +44,12 @@ import { checkReason, checkReceivedDate } from "@/lib/accounting/entry-reasons";
 export type DocLineInput = {
   accountId?: string;
   itemId?: string | null;          // inventory item (drives asset/COGS routing & lots)
+  // The goods on this line were already issued and costed when they SHIPPED
+  // (Dr cost of sales / Cr inventory at the shipment), so an invoice for them
+  // posts revenue only. The item is still named, so its income account resolves
+  // and the sales document stays item-driven; this flag only stops the invoice
+  // from issuing the stock and booking cost of sales a second time.
+  costedAtShipment?: boolean | null;
   // Deliberately post this line somewhere other than the item's configured
   // account. Ignored for tracked purchases, where asset routing is mandatory.
   accountOverride?: boolean | null;
@@ -451,7 +457,7 @@ async function itemMapForInput(orgId: string, input: PostDocInput): Promise<Map<
  */
 async function planDocumentInventory(orgId: string, type: DocType, input: PostDocInput, itemMap: Map<string, ItemCostInfo>, rate: number): Promise<InvPlan> {
   const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [], returnsIn: [], locationId: null };
-  const stockLines = (input.lines ?? []).filter(l => l.itemId && itemMap.get(l.itemId)?.tracked && Math.abs(Number(l.qty) || 0) > 0);
+  const stockLines = (input.lines ?? []).filter(l => l.itemId && !l.costedAtShipment && itemMap.get(l.itemId)?.tracked && Math.abs(Number(l.qty) || 0) > 0);
   if (!stockLines.length) return plan;
   const RETURN_IN = type === "CreditNote" || type === "RefundReceipt";
   const RETURN_OUT = type === "VendorCredit";

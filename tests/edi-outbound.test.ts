@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readInterchange } from "@/lib/edi/x12/read";
-import { parse855, parse856 } from "@/lib/edi/x12/inbound";
+import { parse855, parse856, parse810 } from "@/lib/edi/x12/inbound";
+import { write810 } from "@/lib/edi/x12/810";
+import { buildInvoice, type InvFacts } from "@/lib/edi/build/invoice";
 import { write856 } from "@/lib/edi/x12/856";
 import { buildShipNotice, type ShipFacts } from "@/lib/edi/build/shipment";
 import { write855 } from "@/lib/edi/x12/855";
@@ -156,5 +158,65 @@ describe("856 builder and writer", () => {
       packages: [{ id: "P1", sscc: PALLET, parentId: null, packType: "pallet", lines: [{ shipmentLineId: "SL1", qtyBase: 400 }, { shipmentLineId: "SL2", qtyBase: 200 }] }],
     });
     expect(failOf(two)).toMatch(/holds goods of more than one order/);
+  });
+});
+
+describe("810 builder and writer", () => {
+  const inv = (over: Partial<InvFacts> = {}): InvFacts => ({
+    invoice: { docNumber: "INV-0042", date: "2026-11-27", dueDate: "2026-12-27", currency: "EUR", net: 700, tax: 161, total: 861, posted: true },
+    customer: { name: "Customer Ltd", gln: "5412345000020" }, us: { name: "Prime Foods Ltd", gln: "5412345000013" },
+    // 3 cartons of 200 kg at 0.5/kg = 100 per carton = 300; plus 40 kg at 10/kg = 400.
+    lines: [{ shipLineId: "SL1", soId: "S1", soLineId: "OL1", qtyBase: 600, amount: 300, ratePerBase: 0.5 }, { shipLineId: "SL2", soId: "S1", soLineId: "OL2", qtyBase: 40, amount: 400, ratePerBase: 10 }],
+    orders: [{ soId: "S1", poNumber: "CUST-PO-77", poDate: "2026-11-20",
+      soLines: [{ id: "OL1", lineNo: 1, orderUom: "carton", baseUom: "kg", unitsPerOrderUnit: 200, itemCode: "RM-RICE" }, { id: "OL2", lineNo: 2, orderUom: "kg", baseUom: "kg", unitsPerOrderUnit: 1, itemCode: "RM-OATS" }],
+      theirs: [{ lineNo: "10", unit: "CT" }, { lineNo: "20", unit: "KG" }] }],
+    parts: { SL1: { bp: "THEIR-9", gtin: "00012345678905" }, SL2: { bp: null, gtin: null } },
+    ...over,
+  });
+  const out = (f: InvFacts) => { const r = buildInvoice(f, {}); if (r.ok === false) throw new Error(JSON.stringify(r.problems)); return r.invoice; };
+  const failOf = (f: InvFacts) => { const r = buildInvoice(f, {}); return r.ok === false ? r.problems.map(p => p.message).join(" | ") : "OK"; };
+  const sellerEnv: Envelope = { ...env, controlNo: 73 };
+
+  it("builds lines in THEIR numbers, the quantity in the order unit and the price per that unit", () => {
+    const i = out(inv());
+    expect(i).toMatchObject({ invoiceNo: "INV-0042", date: "2026-11-27", dueDate: "2026-12-27", poNumber: "CUST-PO-77", poDate: "2026-11-20", net: 700, tax: 161, total: 861 });
+    expect(i.items).toEqual([
+      { lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 3, unit: "CT", price: 100, poNumber: "CUST-PO-77" },
+      { lineNo: "20", partNumber: null, gtin: null, itemCode: "RM-OATS", qty: 40, unit: "KG", price: 10, poNumber: "CUST-PO-77" },
+    ]);
+  });
+
+  it("is a file our own parse810 reads back: number, date, PO, due date, lines, total in cents, tax", () => {
+    const ixn = readInterchange(write810(out(inv()), sellerEnv));
+    expect(ixn.groups[0]).toMatchObject({ functionalId: "IN" });
+    const n = parse810(ixn.groups[0].txns[0].segments);
+    expect(n).toMatchObject({ invoiceNo: "INV-0042", invoiceDate: "2026-11-27", poNumber: "CUST-PO-77", currency: "EUR", dueDate: "2026-12-27", total: 861, tax: 161, problems: [] });
+    expect(n.lines).toEqual([
+      { lineNo: "10", qty: 3, unit: "CT", price: 100, ids: { BP: "THEIR-9", UP: "012345678905", VP: "RM-RICE" } },
+      { lineNo: "20", qty: 40, unit: "KG", price: 10, ids: { VP: "RM-OATS" } },
+    ]);
+  });
+
+  it("several orders on one invoice carry the PO number on each line instead of in BIG04", () => {
+    const f = inv({
+      lines: [{ shipLineId: "SL1", soId: "S1", soLineId: "OL1", qtyBase: 600, amount: 300, ratePerBase: 0.5 }, { shipLineId: "SL2", soId: "S2", soLineId: "OL3", qtyBase: 40, amount: 400, ratePerBase: 10 }],
+      orders: [inv().orders[0], { soId: "S2", poNumber: "CUST-PO-78", poDate: "2026-11-21", soLines: [{ id: "OL3", lineNo: 1, orderUom: "kg", baseUom: "kg", unitsPerOrderUnit: 1, itemCode: "RM-OATS" }], theirs: null }],
+    });
+    const i = out(f);
+    expect(i.poNumber).toBeNull();
+    const n = parse810(readInterchange(write810(i, sellerEnv)).groups[0].txns[0].segments);
+    expect(n.poNumber).toBe("");
+    expect(n.lines.map(l => l.ids.PO)).toEqual(["CUST-PO-77", "CUST-PO-78"]);
+  });
+
+  it("never guesses: no line-level links, an invoice edited afterwards, no PO number, lines that no longer match, not posted", () => {
+    expect(failOf(inv({ lines: [] }))).toMatch(/no line-level link to its shipments/);
+    expect(failOf(inv({ invoice: { ...inv().invoice, net: 750, total: 911 } }))).toMatch(/add up to 700, the invoice net is 750/);
+    const noPo = inv(); noPo.orders[0].poNumber = null;
+    expect(failOf(noPo)).toMatch(/no customer PO number/);
+    const moved = inv(); moved.orders[0].theirs = [{ lineNo: "10", unit: "CT" }];
+    expect(failOf(moved)).toMatch(/2 line\(s\), their order had 1/);
+    expect(failOf(inv({ invoice: { ...inv().invoice, posted: false } }))).toMatch(/not posted/);
+    expect(failOf(inv({ invoice: { ...inv().invoice, tax: 100 } }))).toMatch(/is not the total/);
   });
 });

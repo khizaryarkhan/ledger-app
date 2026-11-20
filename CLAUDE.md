@@ -951,6 +951,37 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 3d: our 810 invoice for a customer invoice made from shipments (2026-11-20)
+
+No migration. "Send by EDI" on a native Invoice's own page (`/accounting/transactions/[id]`, module `edi`) →
+`GET/POST /api/edi/invoices/[id]` (`[id]` = the invoice's journal entry id) → `checkInvoice810` / `generateInvoice810` in
+`lib/edi/outbound-server.ts`; pure rules `lib/edi/build/invoice.ts` (`buildInvoice`), writer `lib/edi/x12/810.ts`; drawer
+kind `EDI_INVOICE`. `orderFactsFor` is now shared with the 856.
+
+- **An invoice line is traced to its order line through line-level links.** `invoiceFromShipments` now records ONE
+  `shipment_invoice` link per invoiced shipment line (`from_line_id` = the shipment line, `qty` base, `amount` net) beside
+  the old per-shipment link. The 810 reads those: shipment line → SO line → THEIR line number (stored 850), THEIR part
+  number and GTIN at the pack level ordered, the quantity in the order unit, the price per that unit. **An invoice made
+  before this has no line links, so it is refused** ("send it by hand"), never guessed.
+- Net, tax and total come from the invoice register row, so what is sent equals what was booked; TDS is in cents. The tax
+  TYPE is not stored, so TXI goes out as `ZZ` with the amount only. One order → PO number in BIG04; several → on each line
+  (`IT1` qualifier PO).
+- **Refused, with the reason named**: not posted; no line links; the shipment lines no longer add up to the invoice net
+  (it was edited after); an order with no customer PO number; lines that no longer match their 850; a unit with no EDI
+  code; a line for another customer; the invoice not in the receivables register.
+- **A REAL BUG FOUND AND FIXED ON THE WAY.** Since the sales-document refactor Phase 2 (a40bf772, 2026-10-21) an Invoice
+  line with no item is refused, but `invoiceFromShipments` still sent item-less lines: **"Invoice from shipment" failed
+  for every org** (found by running it on dev: "Every line needs a product or service"). The lines now name the item AND
+  carry the new `DocLineInput.costedAtShipment`, which `planDocumentInventory` honours by NOT issuing the stock or
+  booking COGS again (both were booked when the goods shipped). Pinned by `tests/invoice-from-shipments.test.ts`, proven to
+  fail on the old code. No native-accounting org was live, so nothing in production was affected.
+- Tests in `tests/edi-outbound.test.ts`; `scripts/_e2e_edi_810_out.ts` (6 checks on dev: runs the REAL
+  invoiceFromShipments, which posts one ledger entry, sends the 810, then deletes the invoice and everything else).
+- **Not built / not verified**: not clicked through in a browser. Credit notes (810 BIG07 CR), invoices not from shipments,
+  charges/allowances (SAC), and early-payment terms are not sent. **Still open, found not fixed**: deleting an invoice made
+  from shipments does not revert `shipment_lines.invoiced_qty` / the SO line's `billed_qty` (the e2e resets it by hand),
+  so the shipment looks invoiced and the order cannot be deleted.
+
 ## EDI Phase 3c: our 856 ship notice from a shipment, with its SSCC packing (2026-11-20)
 
 No migration. An icon on each row of Shipping (module `edi`) → `GET/POST /api/edi/shipments/[id]` →
@@ -3611,7 +3642,9 @@ Shipments) in the same pass.
     → **Shipment** (`sales_shipments`/`shipment_lines`, `lib/inventory/shipping.ts`
     `postShipment`: **COGS at shipment** — Dr COGS / Cr Inventory at FIFO cost)
     → **Invoice from shipment** (`invoiceFromShipments`: Dr A/R / Cr Revenue;
-    invoice lines carry no `itemId` so COGS is NOT re-posted). UI:
+    its lines name the item but carry `costedAtShipment: true`, so the engine resolves the income account and does NOT
+    issue the stock or book COGS again — they were booked at the shipment. **Until 2026-11-20 the lines carried no
+    `itemId`, which the sales-document refactor (Phase 2) made a refusal, so this path failed for every org**). UI:
     `/accounting/shipping` (`shipping-console.tsx`). SOs are fulfilled via
     Shipping, never converted. Reports: Open SOs / Awaiting Invoicing / Open
     Invoices (`/api/inventory/sales-reports`, `components/sales-reports.tsx`);

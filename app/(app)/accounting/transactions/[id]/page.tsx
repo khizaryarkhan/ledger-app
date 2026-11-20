@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Loader, Receipt, ArrowRight, AlertTriangle, Check, Printer, Download, Trash2, Mail, Repeat } from "lucide-react";
+import { X, Loader, Receipt, ArrowRight, AlertTriangle, Check, Printer, Download, Trash2, Mail, Repeat, FileCode2 } from "lucide-react";
+import { EdiSendDrawer, EDI_INVOICE } from "@/components/edi-send-drawer";
+import { useData } from "@/components/data-provider";
+import { hasModule } from "@/lib/modules";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 import { NewDocumentForm, type DocType } from "@/components/new-document-form";
 import { DocumentEmailModal } from "@/components/document-email-modal";
@@ -67,6 +70,8 @@ export default function TransactionDetailPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [emailOpen, setEmailOpen] = useState(false);
+  const { orgSettings } = useData() as any;
+  const [ediOpen, setEdiOpen] = useState(false);
   const [recurringOpen, setRecurringOpen] = useState(false);
 
   async function load() {
@@ -186,6 +191,12 @@ export default function TransactionDetailPage() {
           <Mail size={14} /> Email
         </button>
       )}
+      {e && e.sourceType === "Invoice" && hasModule(orgSettings?.enabledModules, "edi") && (
+        <button onClick={() => setEdiOpen(true)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium" title="Send this invoice to the customer by EDI (810)">
+          <FileCode2 size={14} /> Send by EDI
+        </button>
+      )}
       {canRecur && (
         <button onClick={() => setRecurringOpen(true)}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
@@ -224,6 +235,7 @@ export default function TransactionDetailPage() {
             <DocumentAttachmentsPanel kind="ledger" id={e.id} />
             <DocumentAuditPanel kind="ledger" id={e.id} />
             {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
+            {ediOpen && e && <EdiSendDrawer po={{ id: e.id, docNumber: e.docNumber ?? null, partyLabel: null }} kind={EDI_INVOICE} onClose={() => setEdiOpen(false)} />}
             {recurringOpen && <MakeRecurringModal sourceEntryId={e.id} sourceType={e.sourceType} docNumber={e.docNumber} onClose={() => setRecurringOpen(false)} />}
           </>
         }
@@ -320,6 +332,7 @@ export default function TransactionDetailPage() {
         </div>
       </div>
       {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
+      {ediOpen && e && <EdiSendDrawer po={{ id: e.id, docNumber: e.docNumber ?? null, partyLabel: null }} kind={EDI_INVOICE} onClose={() => setEdiOpen(false)} />}
     </div>
   );
 }

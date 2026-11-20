@@ -222,8 +222,10 @@ export async function invoiceFromShipments(orgId: string, input: InvoiceFromShip
     if (rem <= 0) continue;
     const rate = Number(l.saleRate) || 0;
     const amount = round2(rem * rate);
-    // Revenue line — itemId omitted so the documents engine posts revenue only.
-    invLines.push({ accountId: l.incomeAccountId, itemId: null, description: l.description ?? "Goods shipped", qty: rem, rate, amount, taxRateId: l.taxRateId ?? null });
+    // Revenue line. The item IS named (an Invoice line without one has been refused since the sales-document
+    // refactor, Phase 2, so this path was failing), and costedAtShipment keeps the engine from issuing the stock
+    // and booking cost of sales again: both were posted when the goods shipped.
+    invLines.push({ accountId: l.incomeAccountId, itemId: l.itemId, costedAtShipment: true, description: l.description ?? "Goods shipped", qty: rem, rate, amount, taxRateId: l.taxRateId ?? null });
     touched.push({ lineId: l.id, shipmentId: l.shipmentId, qty: rem, amount });
   }
   if (!invLines.length) err("These shipments are already fully invoiced.");
@@ -244,6 +246,12 @@ export async function invoiceFromShipments(orgId: string, input: InvoiceFromShip
   }
   const lineById = new Map(lineRows.map(l => [l.id, l]));
   const perShipment = new Map<string, number>();
+  // One link per INVOICED shipment line (its qty in base units and its net amount): what lets a later EDI 810
+  // say which order line each invoice line is for, without guessing. The per-shipment link above stays as it was.
+  for (const t of touched) {
+    await createLink(orgId, { fromType: "Shipment", fromId: t.shipmentId, fromLineId: t.lineId, toType: "Invoice", toId: entry.id, relation: "shipment_invoice", amount: t.amount, qty: t.qty, contextEntryId: entry.id }, actorId)
+      .catch(e => console.error("[shipment_invoice line link]", e));
+  }
   for (const t of touched) {
     await db.update(shipmentLines).set({ invoicedQty: sql`${shipmentLines.invoicedQty} + ${t.qty.toString()}` })
       .where(and(eq(shipmentLines.id, t.lineId), eq(shipmentLines.orgId, orgId)));
