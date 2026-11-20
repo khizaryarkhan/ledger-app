@@ -30,6 +30,9 @@ export const organisations = pgTable("organisations", {
   addressState: varchar("address_state", { length: 128 }),
   addressPostcode: varchar("address_postcode", { length: 32 }),
   addressCountry: varchar("address_country", { length: 64 }),
+  // EDI (0139): ISO 3166-1 alpha-2 code beside the country name, and the org's GS1 GLN.
+  addressCountryCode: varchar("address_country_code", { length: 2 }),
+  gln: varchar("gln", { length: 13 }),
   phone: varchar("phone", { length: 64 }),
   email: varchar("email", { length: 255 }),
   website: varchar("website", { length: 255 }),
@@ -158,6 +161,8 @@ export const countries = pgTable("countries", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
+  // EDI (0139): the ISO 3166-1 code this name means, so a party picking from the list gets a code.
+  isoCode: varchar("iso_code", { length: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ orgIdx: index("countries_org_idx").on(t.orgId) }));
 export type Country = typeof countries.$inferSelect;
@@ -822,6 +827,10 @@ export const parties = pgTable("parties", {
   code: varchar("code", { length: 64 }),
   displayName: varchar("display_name", { length: 255 }), // supplier-only concept
   country: varchar("country", { length: 64 }),
+  // EDI (0139): ISO 3166-1 alpha-2 code for the party's address, and its GS1 GLN.
+  // On `parties` only; the customers / ap_suppliers views are not recreated.
+  countryCode: varchar("country_code", { length: 2 }),
+  gln: varchar("gln", { length: 13 }),
   currency: varchar("currency", { length: 8 }).notNull().default("EUR"),
   paymentTerms: integer("payment_terms").notNull().default(30),
   taxNumber: varchar("tax_number", { length: 64 }),
@@ -2184,6 +2193,14 @@ export const stockLocations = pgTable("stock_locations", {
   isDefault:          boolean("is_default").notNull().default(false),
   status:             varchar("status", { length: 16 }).notNull().default("Active"),
   address:            text("address"),
+  // EDI (0139): a structured address beside the free-text one, so a location can be a ship-to.
+  addressStreet:      varchar("address_street", { length: 255 }),
+  addressLine2:       varchar("address_line2", { length: 255 }),
+  addressCity:        varchar("address_city", { length: 128 }),
+  addressState:       varchar("address_state", { length: 128 }),
+  addressPostcode:    varchar("address_postcode", { length: 32 }),
+  countryCode:        varchar("country_code", { length: 2 }),
+  gln:                varchar("gln", { length: 13 }),
   note:               text("note"),
   createdAt:          timestamp("created_at").notNull().defaultNow(),
   updatedAt:          timestamp("updated_at").notNull().defaultNow(),
@@ -2959,6 +2976,8 @@ export const tradeDocuments = pgTable("trade_documents", {
   // above — the PO form already labels it "Delivery date" (new-document-form
   // .tsx's `dateLabel2`), so a separate column would just duplicate it.
   salesOrderId:     uuid("sales_order_id"),
+  // EDI (0139): where a PO's goods are to be delivered. Null = the org's default location.
+  shipToLocationId: uuid("ship_to_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   // Estimate / SalesOrder only (0133): the customer's project, carried to the invoice on conversion.
   projectId:        uuid("project_id"),
   // Confirmation (0114). partyRef = the supplier's order confirmation no. on a

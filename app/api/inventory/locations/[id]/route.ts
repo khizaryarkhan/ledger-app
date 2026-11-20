@@ -30,6 +30,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       parentId: b?.parentId,
       inventoryAccountId: b?.inventoryAccountId,
       address: b?.address, note: b?.note,
+      addressStreet: b?.addressStreet, addressLine2: b?.addressLine2, addressCity: b?.addressCity,
+      addressState: b?.addressState, addressPostcode: b?.addressPostcode, countryCode: b?.countryCode, gln: b?.gln,
       status: b?.status, isDefault: b?.isDefault,
     });
     return ok(row);

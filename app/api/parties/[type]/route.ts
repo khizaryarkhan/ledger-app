@@ -9,6 +9,7 @@
 
 import { db } from "@/db";
 import { customers, apSuppliers, employees, organisations, parties, countries } from "@/db/schema";
+import { partyEdiValues } from "@/lib/party-edi-server";
 import { leadTimeOf } from "@/lib/inventory/delivery-performance";
 import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { customerExtras } from "@/lib/party-customer-fields";
@@ -112,6 +113,13 @@ export async function POST(req: Request, { params }: { params: { type: string } 
     addressPostcode: s(body?.addressPostcode, 32), country: s(body?.country, 64),
   };
 
+  // EDI identifiers (0139): validated now, written to `parties` after the view insert.
+  const edi = params.type === "employees" ? { values: {} } : await partyEdiValues(orgId!, body);
+  if ("error" in edi) return bad(edi.error);
+  const writeEdi = async (id: string) => {
+    if (Object.keys(edi.values).length) await db.update(parties).set(edi.values).where(and(eq(parties.id, id), eq(parties.orgId, orgId!)));
+  };
+
   if (params.type === "customers") {
     const typedCode = s(body?.code, 64);
     if (typedCode) {
@@ -127,6 +135,7 @@ export async function POST(req: Request, { params }: { params: { type: string } 
       companyName: s(body?.companyName), ...contact, ...extras.values,
       ...(paymentTerms != null ? { paymentTerms } : {}),
     } as any).returning();
+    await writeEdi(row.id);
     return ok({ id: row.id, name: row.name, email: row.email ?? null, currency: row.currency, status: row.status, source: "native" });
   }
   if (params.type === "suppliers") {
@@ -138,6 +147,7 @@ export async function POST(req: Request, { params }: { params: { type: string } 
     } as any).returning();
     // ap_suppliers is a view over parties; the lead time is not in the view (0114).
     if (lead != null) await db.update(parties).set({ leadTimeDays: lead }).where(and(eq(parties.id, row.id), eq(parties.orgId, orgId!)));
+    await writeEdi(row.id);
     return ok({ id: row.id, name: row.displayName || row.name, email: row.email ?? null, currency: row.currency, status: row.status, source: "native" });
   }
   const [row] = await db.insert(employees).values({ orgId: orgId!, name, email, phone: contact.phone, currency, source: "native" } as any).returning();

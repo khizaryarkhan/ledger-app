@@ -12,7 +12,7 @@
  */
 
 import { db } from "@/db";
-import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems, itemSupplierSkus, parties, projects } from "@/db/schema";
+import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems, itemSupplierSkus, parties, projects, stockLocations } from "@/db/schema";
 import { isTracked, itemCanBeSold } from "@/lib/inventory/item-kinds";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
@@ -51,6 +51,8 @@ export type TradeDocInput = {
   // `expiryDate` field above (labeled "Delivery date" for POs) rather than a
   // separate expected-date column.
   salesOrderId?: string | null;
+  // PurchaseOrder only (0139): the stock location the goods are delivered to. Null = the org's default location.
+  shipToLocationId?: string | null;
   // Estimate / SalesOrder only — the customer's project (must belong to that customer).
   projectId?: string | null;
   // The counterparty's own reference (0114): the customer's PO number on an
@@ -94,6 +96,18 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   // offers known values; this stops a direct API call.
   const unknownUnit = raw.findIndex(l => l.orderUom && !canonicalOrderUnit(l.orderUom));
   if (unknownUnit >= 0) err(`Line ${unknownUnit + 1}: "${raw[unknownUnit].orderUom}" is not a known unit or pack type.`);
+
+  // Ship-to (0139, PurchaseOrder only): where the goods are to be delivered. A
+  // client-supplied id, so it must be one of THIS org's active locations. Null
+  // means the org's default location, which is what every earlier PO meant.
+  let shipToLocationId: string | null = null;
+  if (kind === "PurchaseOrder" && input.shipToLocationId) {
+    const [loc] = await db.select({ id: stockLocations.id, status: stockLocations.status }).from(stockLocations)
+      .where(and(eq(stockLocations.id, input.shipToLocationId), eq(stockLocations.orgId, orgId))).limit(1);
+    if (!loc) err("That ship-to location was not found.");
+    if (loc.status !== "Active") err("That ship-to location is inactive.");
+    shipToLocationId = loc.id;
+  }
 
   // A Purchase Order commits to buying, so the sourcing decision has to exist
   // before the commitment does — not later, at the Bill, when the goods are
@@ -150,6 +164,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     status: "Open", memo: input.memo?.trim() || null,
     subtotal: subtotal.toFixed(2), taxTotal: taxTotal.toFixed(2), total: total.toFixed(2),
     salesOrderId: kind === "PurchaseOrder" ? (input.salesOrderId || null) : null,
+    shipToLocationId,
     projectId,
     partyRef: input.partyRef?.trim() || null,
     createdBy: actorId,

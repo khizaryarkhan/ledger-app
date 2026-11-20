@@ -13,7 +13,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Plus, Pencil, Trash2, Star, Loader2, AlertTriangle } from "lucide-react";
 import { Button, Badge, Modal, EmptyState, Toast } from "@/components/ui";
-import { Field, SelectField, Section, control } from "@/components/form-kit";
+import { Field, SelectField, Section, controlInset } from "@/components/form-kit";
+import { CountrySelect } from "@/components/country-select";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
@@ -31,6 +32,9 @@ type Location = {
   status: string;
   address: string | null;
   note: string | null;
+  // EDI (0139): structured delivery address, ISO country code and GLN.
+  addressStreet: string | null; addressLine2: string | null; addressCity: string | null;
+  addressState: string | null; addressPostcode: string | null; countryCode: string | null; gln: string | null;
   onHandQty: number;
   lotCount: number;
 };
@@ -38,6 +42,7 @@ type Location = {
 const blank = {
   code: "", name: "", type: "Store", parentId: "",
   address: "", note: "", status: "Active", isDefault: false,
+  addressStreet: "", addressLine2: "", addressCity: "", addressState: "", addressPostcode: "", countryCode: "", gln: "",
 };
 
 export function LocationRegister() {
@@ -78,6 +83,9 @@ export function LocationRegister() {
         code: row.code, name: row.name, type: row.type,
         parentId: row.parentId ?? "", address: row.address ?? "",
         note: row.note ?? "", status: row.status, isDefault: row.isDefault,
+        addressStreet: row.addressStreet ?? "", addressLine2: row.addressLine2 ?? "", addressCity: row.addressCity ?? "",
+        addressState: row.addressState ?? "", addressPostcode: row.addressPostcode ?? "",
+        countryCode: row.countryCode ?? "", gln: row.gln ?? "",
       });
     } else {
       setEditing(null);
@@ -287,7 +295,7 @@ export function LocationRegister() {
             <div className="grid grid-cols-3 gap-3">
               <Field label="Code" required hint="Used on picking lists" className="col-span-1">
                 <input
-                  className={control}
+                  className={controlInset}
                   value={form.code}
                   onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
                   placeholder="RM-01"
@@ -296,7 +304,7 @@ export function LocationRegister() {
               </Field>
               <Field label="Name" required className="col-span-2">
                 <input
-                  className={control}
+                  className={controlInset}
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Raw Material Store"
@@ -308,7 +316,7 @@ export function LocationRegister() {
           <Section title="Behaviour">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type" hint={activeHint}>
-                <SelectField
+                <SelectField inset
                   value={form.type}
                   onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
                 >
@@ -316,7 +324,7 @@ export function LocationRegister() {
                 </SelectField>
               </Field>
               <Field label="Inside" hint="Optional — a site this sits within">
-                <SelectField
+                <SelectField inset
                   value={form.parentId}
                   onChange={e => setForm(f => ({ ...f, parentId: e.target.value }))}
                 >
@@ -347,7 +355,7 @@ export function LocationRegister() {
                   : editing.onHandQty > 0 ? `Holds ${editing.onHandQty.toLocaleString()} unit(s) — transfer them out before deactivating.`
                   : undefined
               }>
-                <SelectField
+                <SelectField inset
                   value={form.status}
                   onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
                   disabled={editing.isDefault}
@@ -359,10 +367,37 @@ export function LocationRegister() {
             )}
           </Section>
 
+          <Section title="Delivery address">
+            <p className="text-[11px] text-stone-500 -mt-1 mb-1">Used as the ship-to on purchase orders and EDI documents. Leave blank for an internal area such as a WIP floor.</p>
+            <Field label="Street">
+              <input className={controlInset} value={form.addressStreet} onChange={e => setForm(f => ({ ...f, addressStreet: e.target.value }))} />
+            </Field>
+            <Field label="Address line 2">
+              <input className={controlInset} value={form.addressLine2} onChange={e => setForm(f => ({ ...f, addressLine2: e.target.value }))} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="City / Town">
+                <input className={controlInset} value={form.addressCity} onChange={e => setForm(f => ({ ...f, addressCity: e.target.value }))} />
+              </Field>
+              <Field label="State / Province">
+                <input className={controlInset} value={form.addressState} onChange={e => setForm(f => ({ ...f, addressState: e.target.value }))} />
+              </Field>
+              <Field label="Postal code">
+                <input className={controlInset} value={form.addressPostcode} onChange={e => setForm(f => ({ ...f, addressPostcode: e.target.value }))} />
+              </Field>
+              <Field label="Country">
+                <CountrySelect inset code={form.countryCode} onChange={code => setForm(f => ({ ...f, countryCode: code }))} />
+              </Field>
+            </div>
+            <Field label="GLN (GS1 location number)" hint="13 digits. Only needed if a partner identifies this place by GLN.">
+              <input className={controlInset} inputMode="numeric" value={form.gln} onChange={e => setForm(f => ({ ...f, gln: e.target.value }))} />
+            </Field>
+          </Section>
+
           <Section title="Details">
-            <Field label="Address">
+            <Field label="Address (free text)" hint="Kept for older records. The delivery address above is what documents use.">
               <textarea
-                className={control}
+                className={controlInset}
                 rows={2}
                 value={form.address}
                 onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
@@ -370,7 +405,7 @@ export function LocationRegister() {
             </Field>
             <Field label="Note">
               <textarea
-                className={control}
+                className={controlInset}
                 rows={2}
                 value={form.note}
                 onChange={e => setForm(f => ({ ...f, note: e.target.value }))}

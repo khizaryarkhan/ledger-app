@@ -921,6 +921,36 @@ stay posted; **reopening a Cancelled order that has posted runs is refused**; pe
   The compensation and approval-claim paths have no automated test (they need a database); the happy path was exercised end to end on
   the dev branch (`scripts/_e2e_mo_substitutes.ts`). Not clicked through in a browser.
 
+## EDI foundation: unit codes, ISO countries, GLN, ship-to (2026-11-19/20)
+
+EDI is a product feature for tenants (each connects to its OWN partners), planned in `docs/prd-edi.md`. These are
+its Phase 0 foundations; no EDI file is generated yet. Every code list below was READ from a published source, not
+recalled, and a value with no exact match is left empty with a reason rather than mapped to the nearest code.
+
+- **Unit codes** (`lib/inventory/uom.ts`): X12 355 and UN/ECE Rec 20 codes for every unit and pack type (package
+  types in the Rec 20 "X" form). Gaps are null with a note (X12 keg/sachet/US teaspoon/cup; UN/ECE can of unknown
+  shape). `ediUnitCode()` refuses rather than guesses. **`order_uom` no longer stores "inner"/"outer"** for an unnamed
+  pack level (`orderUnitFor` stores the generic "pack"); production held none when this changed. Pack types, supplier
+  unit, item base unit and PO/SO order units are validated server-side and stored canonical (lowercase).
+- **Countries** (`lib/countries.ts`): now all 249 ISO 3166-1 codes (it held 221 while calling itself "full"),
+  checked against `tests/fixtures/iso-3166-1.txt` (datahub country-list). `countryCodeFromName` matches an exact name
+  or an explicit alias only. Codes sit BESIDE the existing names: `organisations.address_country_code`,
+  `parties.country_code`, `countries.iso_code` (the org's own list), `stock_locations.country_code`. A party's code
+  resolves in one order (`resolveCountryCode`): explicit pick, then its org-list entry's code, then its name.
+- **GLN** (`lib/gs1.ts` `normaliseGln`): 13 digits + GS1 check digit, on org, parties and locations.
+- **Locations have a structured delivery address** (`lib/address-fields.ts`, shared rules); the free-text `address`
+  stays. **POs carry `ship_to_location_id`** (null = default location); the picker shows only with 2+ active locations.
+- `parties.country_code` / `gln` are on `parties`, not the views: the routes write them directly after the view
+  write (like `lead_time_days`), and `GET /api/parties/[type]/[id]` reads them from `parties`.
+- **Back-fill**: `scripts/_backfill_country_codes.ts` (dry run by default; `--names-only` works before 0139).
+  Production dry run: 3,094 of 3,224 party country names match; the other 130 are NOT countries (postcodes,
+  "Att: …" lines, counties: address lines synced into the country field) and are listed for a person, never
+  guessed. Run with `--commit` on production only after 0139 deploys, and only with the owner's go-ahead.
+- **Not built / not verified**: no screen was clicked through in a browser; a saved PO does not show its ship-to
+  when reopened (the form never reloaded `salesOrderId` either); the org country list has no screen to edit an
+  entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
+  SSCC are later Phase 0 items.
+
 ## Item Ledger — the stock card (2026-11-17)
 
 Asked after the General Ledger showed one Raw Materials line per document: "if you are not crediting Raw Materials
@@ -1634,7 +1664,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0138` at `when` `1794600000000`;
+  this silently dropped a table in prod once). Latest is `0139` at `when` `1794700000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

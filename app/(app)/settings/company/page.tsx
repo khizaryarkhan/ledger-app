@@ -7,6 +7,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import { MfaCard } from "@/components/mfa-card";
 import { ChevronLeft, User, Palette, Calendar, LayoutDashboard, ChevronDown, Search, Check, Upload, FileText } from "lucide-react";
+import { CountrySelect } from "@/components/country-select";
 
 
 export default function CompanySettingsPage() {
@@ -319,7 +320,11 @@ export default function CompanySettingsPage() {
                     <Txt k="addressCity" label="City" />
                     <Txt k="addressState" label="State / Province" />
                     <Txt k="addressPostcode" label="Postal code" />
-                    <Txt k="addressCountry" label="Country" />
+                    <div>
+                      <Lbl>Country</Lbl>
+                      <CountrySelect code={companyForm.addressCountryCode} name={companyForm.addressCountry}
+                        onChange={(code, name) => setCompanyForm(p => ({ ...p, addressCountryCode: code, addressCountry: name || p.addressCountry }))} />
+                    </div>
                   </div>
                 </div>
 
@@ -331,6 +336,7 @@ export default function CompanySettingsPage() {
                     <Txt k="website" label="Website" />
                     <Txt k="taxNumber" label="Tax registration no." ph="VAT / GST / NTN" />
                     <Txt k="registrationNumber" label="Company registration no." />
+                    <Txt k="gln" label="GLN (GS1 location number)" ph="13 digits, used on EDI documents" />
                   </div>
                 </div>
 

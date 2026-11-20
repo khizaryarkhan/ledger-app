@@ -11,6 +11,7 @@ import { X, Loader, Check, AlertTriangle, Users, Building2, Contact } from "luci
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { controlInset, Drawer, SelectField } from "@/components/form-kit";
 import { useData } from "@/components/data-provider";
+import { CountrySelect } from "@/components/country-select";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; noun: string; icon: any }> = {
@@ -23,6 +24,7 @@ const empty = {
   name: "", companyName: "", firstName: "", lastName: "",
   email: "", phone: "", mobile: "", website: "",
   addressStreet: "", addressLine2: "", addressCity: "", addressState: "", addressPostcode: "", country: "",
+  countryCode: "", gln: "", // EDI (0139): ISO country code and GS1 GLN
   taxNumber: "", paymentTerms: "30", notes: "", currency: "",
   leadTimeDays: "",   // suppliers only (0114) — default when an item's own link has none
 };
@@ -71,6 +73,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
         email: d.email ?? "", phone: d.phone ?? "", mobile: d.mobile ?? "", website: d.website ?? "",
         addressStreet: d.addressStreet ?? "", addressLine2: d.addressLine2 ?? "", addressCity: d.addressCity ?? "",
         addressState: d.addressState ?? "", addressPostcode: d.addressPostcode ?? "", country: d.country ?? "",
+        countryCode: d.countryCode ?? "", gln: d.gln ?? "",
         taxNumber: d.taxNumber ?? "", paymentTerms: d.paymentTerms != null ? String(d.paymentTerms) : prev.paymentTerms,
         notes: d.notes ?? "", currency: d.currency ?? prev.currency,
         leadTimeDays: d.leadTimeDays != null ? String(d.leadTimeDays) : "",
@@ -191,7 +194,8 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
                       {orgCountries.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </SelectField>
                   ) : (
-                    <input value={f.country} onChange={e => set("country", e.target.value)} placeholder="e.g. Pakistan" className={input} />
+                    <CountrySelect inset code={f.countryCode} name={f.country}
+                      onChange={(code, name) => setF(prev => ({ ...prev, countryCode: code, country: name || prev.country }))} />
                   )}
                 </div>
               </div>
@@ -200,6 +204,11 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={label}>Payment terms (days)</label><input type="number" min="0" value={f.paymentTerms} onChange={e => set("paymentTerms", e.target.value)} className={input} /></div>
                 <div><label className={label}>Tax reg. no. (VAT/GST/NTN)</label><input value={f.taxNumber} onChange={e => set("taxNumber", e.target.value)} className={input} /></div>
+              </div>
+              <div>
+                <label className={label}>GLN (GS1 location number)</label>
+                <input value={f.gln} onChange={e => set("gln", e.target.value)} inputMode="numeric" placeholder="13 digits, optional" className={input} />
+                <p className="mt-1 text-[11px] text-stone-500">Identifies this party on EDI documents. Only needed if they trade by EDI.</p>
               </div>
               {type === "suppliers" && (
                 <div>

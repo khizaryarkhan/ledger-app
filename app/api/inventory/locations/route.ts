@@ -66,6 +66,8 @@ export async function POST(req: Request) {
       parentId: b?.parentId ?? null,
       inventoryAccountId: b?.inventoryAccountId ?? null,
       address: b?.address ?? null, note: b?.note ?? null,
+      addressStreet: b?.addressStreet, addressLine2: b?.addressLine2, addressCity: b?.addressCity,
+      addressState: b?.addressState, addressPostcode: b?.addressPostcode, countryCode: b?.countryCode, gln: b?.gln,
       status: b?.status, isDefault: !!b?.isDefault,
     });
     return ok(row);

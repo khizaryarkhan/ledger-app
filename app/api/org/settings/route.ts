@@ -6,6 +6,8 @@ import { DEFAULT_STAGES, ensureLockedStages, Stage } from "@/lib/stages";
 import { CURRENCY_CODES } from "@/lib/accounting/currencies";
 import { visibleModules } from "@/lib/roles";
 import { memberRole } from "@/lib/roles-server";
+import { countryCodeError, normaliseCountryCode, countryCodeFromName } from "@/lib/countries";
+import { glnError } from "@/lib/gs1";
 
 /**
  * Company details printed on outbound documents. One list drives the select,
@@ -15,6 +17,8 @@ import { memberRole } from "@/lib/roles-server";
 const COMPANY_FIELD_LIMITS = {
   addressStreet: 255, addressLine2: 255, addressCity: 128, addressState: 128,
   addressPostcode: 32, addressCountry: 64,
+  // EDI (0139): validated after the length check below (ISO code / GS1 check digit).
+  addressCountryCode: 2, gln: 13,
   phone: 64, email: 255, website: 255,
   taxNumber: 64, registrationNumber: 64,
   bankName: 255, bankAccountName: 255, bankAccountNumber: 64,
@@ -191,6 +195,21 @@ export async function PATCH(req: Request) {
       const val = raw === null ? null : String(raw).trim();
       if (val && val.length > limit) return bad(`${key} must be ${limit} characters or fewer`);
       updates[key] = val || null;
+    }
+    // EDI identifiers: an ISO 3166 code and a GS1 GLN, refused if invalid rather than stored as typed.
+    // A country NAME saved without a code gets the code that name exactly means (never a guess).
+    if (!updates.addressCountryCode && updates.addressCountry) {
+      updates.addressCountryCode = countryCodeFromName(updates.addressCountry);
+    }
+    if (updates.addressCountryCode) {
+      const e = countryCodeError(updates.addressCountryCode, "Country code");
+      if (e) return bad(e);
+      updates.addressCountryCode = normaliseCountryCode(updates.addressCountryCode);
+    }
+    if (updates.gln) {
+      const e = glnError(updates.gln);
+      if (e) return bad(`GLN: ${e}`);
+      updates.gln = String(updates.gln).replace(/[\s-]/g, "");
     }
   }
   if (body.displayName !== undefined) {

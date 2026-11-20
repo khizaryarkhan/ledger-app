@@ -22,6 +22,7 @@ import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { stockLocations, inventoryLotLocations, inventoryLots } from "@/db/schema";
 import { and, eq, ne, sql, asc, inArray } from "drizzle-orm";
+import { addressValues, type AddressInput } from "@/lib/address-fields";
 
 export const LOCATION_TYPES = ["Store", "WIP", "FinishedGoods", "Transit", "Quarantine"] as const;
 export type LocationType = (typeof LOCATION_TYPES)[number];
@@ -183,7 +184,7 @@ export type LocationInput = {
   code: string; name: string; type?: string; parentId?: string | null;
   inventoryAccountId?: string | null; address?: string | null; note?: string | null;
   status?: string; isDefault?: boolean;
-};
+} & AddressInput; // structured address, country code and GLN (0139), validated by lib/address-fields.ts
 
 function validate(b: LocationInput) {
   const code = String(b.code ?? "").trim();
@@ -197,6 +198,8 @@ function validate(b: LocationInput) {
 
 export async function createLocation(orgId: string, b: LocationInput): Promise<LocationRow> {
   const { code, name } = validate(b);
+  const addr = addressValues(b);
+  if ("error" in addr) fail(addr.error);
 
   // Parent must be in the same org — a client-supplied id, so the same tenancy
   // rule as resolveLocationId applies.
@@ -220,6 +223,7 @@ export async function createLocation(orgId: string, b: LocationInput): Promise<L
     parentId: b.parentId ?? null,
     inventoryAccountId: b.inventoryAccountId ?? null,
     address: b.address ?? null, note: b.note ?? null,
+    ...("values" in addr ? addr.values : {}),
     status: b.status === "Inactive" ? "Inactive" : "Active",
     isDefault: makeDefault,
   } as any).returning();
@@ -270,6 +274,10 @@ export async function updateLocation(orgId: string, id: string, b: Partial<Locat
   if (b.inventoryAccountId !== undefined) patch.inventoryAccountId = b.inventoryAccountId ?? null;
   if (b.address !== undefined) patch.address = b.address ?? null;
   if (b.note !== undefined) patch.note = b.note ?? null;
+  // Only the address fields the request mentions; an absent one is left as it is.
+  const addr = addressValues(b);
+  if ("error" in addr) fail(addr.error);
+  Object.assign(patch, "values" in addr ? addr.values : {});
 
   if (b.status != null) {
     const status = b.status === "Inactive" ? "Inactive" : "Active";

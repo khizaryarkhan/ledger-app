@@ -31,6 +31,7 @@ const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kind
 import { CREDIT_REASONS, CREDIT_TYPES, RECEIVED_DATE_TYPES } from "@/lib/accounting/entry-reasons";
 import { CalcInput, CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
+import { useStockLocations } from "@/components/location-picker";
 
 export type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
@@ -284,6 +285,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   // PurchaseOrder only — optional link to the Sales Order this purchase is
   // for, so it shows up on that order's Production Tracker.
   const [salesOrderId, setSalesOrderId] = useState("");
+  // PO ship-to (0139): blank = the org's default location. Offered only when there is a choice to make.
+  const [shipToLocationId, setShipToLocationId] = useState("");
+  const { locations: stockLocations } = useStockLocations();
   const [openSalesOrders, setOpenSalesOrders] = useState<any[]>([]);
   const [credits, setCredits] = useState<any[] | null>(null);
   const [creditAlloc, setCreditAlloc] = useState<Record<string, string>>({});
@@ -1034,6 +1038,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
       else if (cfg.trade) {
         url = `/api/trade-documents/${cfg.trade}`; payload.issueDate = date; payload.expiryDate = expiryDate || undefined;
         if (type === "PurchaseOrder") payload.salesOrderId = salesOrderId || undefined;
+        if (type === "PurchaseOrder") payload.shipToLocationId = shipToLocationId || undefined;
       }
 
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -1232,6 +1237,14 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                   <SelectField value={salesOrderId} onChange={e => setSalesOrderId(e.target.value)}>
                     <option value="">None</option>
                     {openSalesOrders.map((o: any) => <option key={o.id} value={o.id}>{o.docNumber} — {o.partyLabel}</option>)}
+                  </SelectField>
+                </Field>
+              )}
+              {type === "PurchaseOrder" && stockLocations.length > 1 && (
+                <Field label="Ship to" hint="Where the supplier delivers. Blank = your default location.">
+                  <SelectField value={shipToLocationId} onChange={e => setShipToLocationId(e.target.value)}>
+                    <option value="">Default location</option>
+                    {stockLocations.map(l => <option key={l.id} value={l.id}>{l.code} · {l.name}</option>)}
                   </SelectField>
                 </Field>
               )}

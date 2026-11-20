@@ -86,6 +86,91 @@ const REST: Country[] = [
   { code: "VA", name: "Vatican City" }, { code: "VE", name: "Venezuela" }, { code: "VN", name: "Vietnam" },
   { code: "VG", name: "Virgin Islands (British)" }, { code: "VI", name: "Virgin Islands (US)" },
   { code: "YE", name: "Yemen" }, { code: "ZM", name: "Zambia" }, { code: "ZW", name: "Zimbabwe" },
+  // Added 2026-11-20: the 28 ISO 3166-1 codes this list was missing. Checked
+  // against the datahub "country-list" dataset (ISO 3166-1 alpha-2, 249 rows,
+  // raw.githubusercontent.com/datasets/country-list/main/data.csv); names are
+  // that dataset's. tests/countries.test.ts pins the count at 249.
+  { code: "BL", name: "Saint Barthélemy" }, { code: "BQ", name: "Bonaire, Sint Eustatius and Saba" },
+  { code: "BV", name: "Bouvet Island" }, { code: "CC", name: "Cocos (Keeling) Islands" }, { code: "CK", name: "Cook Islands" },
+  { code: "CW", name: "Curaçao" }, { code: "CX", name: "Christmas Island" }, { code: "EH", name: "Western Sahara" },
+  { code: "FK", name: "Falkland Islands (Malvinas)" }, { code: "FO", name: "Faroe Islands" },
+  { code: "GS", name: "South Georgia and the South Sandwich Islands" }, { code: "HM", name: "Heard Island and McDonald Islands" },
+  { code: "IO", name: "British Indian Ocean Territory" }, { code: "KP", name: "North Korea" },
+  { code: "MF", name: "Saint Martin (French part)" }, { code: "MP", name: "Northern Mariana Islands" },
+  { code: "NF", name: "Norfolk Island" }, { code: "NU", name: "Niue" }, { code: "PM", name: "Saint Pierre and Miquelon" },
+  { code: "PN", name: "Pitcairn" }, { code: "SH", name: "Saint Helena, Ascension and Tristan da Cunha" },
+  { code: "SJ", name: "Svalbard and Jan Mayen" }, { code: "SX", name: "Sint Maarten (Dutch part)" },
+  { code: "TF", name: "French Southern Territories" }, { code: "TK", name: "Tokelau" },
+  { code: "UM", name: "United States Minor Outlying Islands" }, { code: "WF", name: "Wallis and Futuna" },
+  { code: "YT", name: "Mayotte" },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 export const COUNTRIES: Country[] = [...PINNED, ...REST];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Country CODES for documents and EDI (2026-11-20).
+//
+// EDI addresses carry an ISO 3166-1 alpha-2 code, never a name. The app stored
+// country as free text (parties.country, organisations.address_country) or as
+// a name in the org's own `countries` list, which no partner system can read
+// reliably. These helpers turn either into a code, or refuse.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BY_CODE = new Map(COUNTRIES.map(c => [c.code, c]));
+
+/** The country for a code (any case), or undefined when it is not an ISO 3166-1 code. */
+export const countryByCode = (code?: string | null): Country | undefined =>
+  code ? BY_CODE.get(String(code).trim().toUpperCase()) : undefined;
+
+/** A country code in canonical form ("gb" -> "GB"), or null when it is not an ISO code. */
+export const normaliseCountryCode = (code?: string | null): string | null => countryByCode(code)?.code ?? null;
+
+/** Why a country code the user sent cannot be stored, or null. Empty is allowed. */
+export function countryCodeError(v: unknown, label = "Country"): string | null {
+  if (v == null || String(v).trim() === "") return null;
+  return countryByCode(String(v)) ? null : `${label} "${String(v).trim()}" is not an ISO 3166 country code.`;
+}
+
+/** Case, accents, spaces and punctuation are ignored when matching a name. */
+const nameKey = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+
+/**
+ * Names that are not the friendly name above but mean exactly one country.
+ * The first block is the ISO short name wherever it differs from ours, computed
+ * against tests/fixtures/iso-3166-1.txt (and pinned by tests/countries.test.ts);
+ * the second is a short list of names people commonly type.
+ */
+const ALIASES: Record<string, string> = {
+  "Bolivia, Plurinational State of": "BO", "Brunei Darussalam": "BN", "Cabo Verde": "CV",
+  "Congo, The Democratic Republic of the": "CD", "Holy See (Vatican City State)": "VA", "Iran, Islamic Republic of": "IR",
+  "Korea, Democratic People's Republic of": "KP", "Korea, Republic of": "KR", "Lao People's Democratic Republic": "LA",
+  "Micronesia, Federated States of": "FM", "Moldova, Republic of": "MD", "Palestine, State of": "PS",
+  "Russian Federation": "RU", "Saint Kitts and Nevis": "KN", "Saint Lucia": "LC", "Saint Vincent and the Grenadines": "VC",
+  "Sao Tome and Principe": "ST", "Syrian Arab Republic": "SY", "Taiwan, Province of China": "TW",
+  "Tanzania, United Republic of": "TZ", "Turks and Caicos Islands": "TC", "Venezuela, Bolivarian Republic of": "VE",
+  "Viet Nam": "VN", "Virgin Islands, British": "VG", "Virgin Islands, U.S.": "VI",
+
+  "UK": "GB", "Great Britain": "GB", "Britain": "GB", "England": "GB", "Scotland": "GB", "Wales": "GB",
+  "Northern Ireland": "GB", "United Kingdom of Great Britain and Northern Ireland": "GB",
+  "USA": "US", "US": "US", "United States of America": "US",
+  "Republic of Ireland": "IE", "Eire": "IE", "Holland": "NL", "The Netherlands": "NL", "UAE": "AE",
+  "Turkey": "TR", "Czech Republic": "CZ", "Macedonia": "MK", "Ivory Coast": "CI", "Swaziland": "SZ", "Burma": "MM",
+  "Democratic Republic of the Congo": "CD", "DRC": "CD", "Republic of the Congo": "CG",
+};
+
+const BY_NAME = new Map<string, string>([
+  ...COUNTRIES.map(c => [nameKey(c.name), c.code] as [string, string]),
+  ...Object.entries(ALIASES).map(([n, code]) => [nameKey(n), code] as [string, string]),
+]);
+
+/**
+ * The ISO code a stored country NAME means, or null. Exact name or explicit
+ * alias only: "Ireland" -> IE, "UK" -> GB, "Viet Nam" -> VN. A name that
+ * matches nothing gets NO code rather than a nearest match, so the gap stays
+ * visible (the EDI pre-send check names it) instead of becoming a wrong
+ * country on a partner's document.
+ */
+export function countryCodeFromName(name?: string | null): string | null {
+  const k = nameKey(String(name ?? ""));
+  return k ? BY_NAME.get(k) ?? null : null;
+}

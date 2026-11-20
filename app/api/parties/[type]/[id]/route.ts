@@ -14,6 +14,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { partyReferences, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
 import { leadTimeOf } from "@/lib/inventory/delivery-performance";
+import { partyEdiValues } from "@/lib/party-edi-server";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const valid = (t: string): t is PartyType => t === "customers" || t === "suppliers" || t === "employees";
@@ -29,11 +30,16 @@ export async function GET(_req: Request, { params }: { params: { type: string; i
   const table = params.type === "customers" ? customers : params.type === "suppliers" ? apSuppliers : employees;
   const [row] = await db.select().from(table as any).where(and(eq((table as any).id, params.id), eq((table as any).orgId, orgId!))).limit(1);
   if (!row) return bad("Not found", 404);
-  // Lead time lives on parties, not the ap_suppliers view (0114).
-  const [lead] = params.type === "suppliers"
-    ? await db.select({ leadTimeDays: parties.leadTimeDays }).from(parties).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!))).limit(1)
+  // Lead time (0114), country code and GLN (0139) live on parties, not the views.
+  const [extra] = params.type !== "employees"
+    ? await db.select({ leadTimeDays: parties.leadTimeDays, countryCode: parties.countryCode, gln: parties.gln })
+        .from(parties).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!))).limit(1)
     : [];
-  return ok({ ...row, name: (row as any).displayName || row.name, leadTimeDays: lead?.leadTimeDays ?? null });
+  return ok({
+    ...row, name: (row as any).displayName || row.name,
+    leadTimeDays: params.type === "suppliers" ? extra?.leadTimeDays ?? null : null,
+    countryCode: extra?.countryCode ?? null, gln: extra?.gln ?? null,
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: { type: string; id: string } }) {
@@ -62,6 +68,9 @@ export async function PATCH(req: Request, { params }: { params: { type: string; 
     await db.update(employees).set(set).where(and(eq(employees.id, params.id), eq(employees.orgId, orgId!)));
     return ok({ id: params.id, updated: true });
   }
+  // EDI identifiers (0139): validated before anything is written, applied to `parties` after the view update.
+  const edi = await partyEdiValues(orgId!, b);
+  if ("error" in edi) return bad(edi.error);
   // customers & suppliers share the generic contact/address fields.
   for (const k of CONTACT) if (b[k] !== undefined) set[k] = s(b[k], k === "notes" ? 4000 : 255);
   if (b.companyName !== undefined) set.companyName = s(b.companyName);
@@ -84,6 +93,9 @@ export async function PATCH(req: Request, { params }: { params: { type: string; 
       if (lead === "invalid") return bad("Lead time must be a whole number of days (0–3650).");
       await db.update(parties).set({ leadTimeDays: lead }).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!)));
     }
+  }
+  if (Object.keys(edi.values).length) {
+    await db.update(parties).set(edi.values).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!)));
   }
   return ok({ id: params.id, updated: true });
 }

@@ -192,7 +192,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/communications/import", methods: ["POST"], body: ["body","customerId","customerName","date","projectId","projectName","rows"] },
   { path: "/api/contacts", methods: ["GET","POST"], params: ["customerId","projectId"], body: ["email","isEscalation","isPrimary","name","phone","receivesAuto","title","type"] },
   { path: "/api/contacts/[id]", methods: ["DELETE","PATCH"] },
-  { path: "/api/countries", methods: ["DELETE","GET","POST"] },
+  { path: "/api/countries", methods: ["DELETE","GET","PATCH","POST"] },
   { path: "/api/cron", methods: ["GET"] },
   { path: "/api/cron/forecast-snapshot", methods: ["GET"] },
   { path: "/api/cron/qbo-sync", methods: ["GET"] },

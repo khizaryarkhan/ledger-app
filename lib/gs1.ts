@@ -54,6 +54,37 @@ export function normaliseGtin(input: string | null | undefined): GtinResult {
   return { ok: true, gtin14: raw.padStart(14, "0"), format: fmt };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GLN (Global Location Number)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GlnResult = { ok: true; gln: string } | { ok: false; error: string };
+
+/**
+ * Validate a GLN: exactly 13 digits whose last digit is the GS1 mod-10 check
+ * digit (the same algorithm as a GTIN, GS1 General Specifications §7.9). EDI
+ * uses it to name a party or a place (ship-to, bill-to) unambiguously. Unlike
+ * a GTIN there are no shorter forms to pad: a 12-digit value is a typo.
+ */
+export function normaliseGln(input: string | null | undefined): GlnResult {
+  const raw = String(input ?? "").replace(/[\s-]/g, "");
+  if (!raw) return { ok: false, error: "Enter a GLN." };
+  if (!/^\d+$/.test(raw)) return { ok: false, error: "A GLN is digits only." };
+  if (raw.length !== 13) return { ok: false, error: `A GLN has 13 digits — this has ${raw.length}.` };
+  const expected = gs1CheckDigit(raw.slice(0, -1));
+  if (expected !== Number(raw.slice(-1))) {
+    return { ok: false, error: `Check digit should be ${expected}, not ${raw.slice(-1)} — the GLN was probably mistyped.` };
+  }
+  return { ok: true, gln: raw };
+}
+
+/** Why a GLN the user sent cannot be stored, or null. Empty is allowed (a GLN is optional). */
+export function glnError(v: unknown): string | null {
+  if (v == null || String(v).trim() === "") return null;
+  const r = normaliseGln(String(v));
+  return r.ok === false ? r.error : null;
+}
+
 /** Shortest standard form for display: a GTIN-14 that is really a GTIN-13/12/8 prints as that. */
 export function displayGtin(gtin14: string): string {
   if (gtin14.startsWith("000000")) return gtin14.slice(6);           // GTIN-8
