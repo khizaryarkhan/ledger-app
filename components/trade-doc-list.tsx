@@ -6,6 +6,9 @@ import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Tras
 import { PoStageChip, usePoStages, findStage, type PoStageSet } from "@/components/po-stage-chip";
 import { PoItemsPanel } from "@/components/po-items-panel";
 import { SendPoDrawer, ReviewProposalDrawer, RejectPoDrawer, ManageStagesDrawer } from "@/components/po-workflow-drawers";
+import { EdiSendDrawer } from "@/components/edi-send-drawer";
+import { useData } from "@/components/data-provider";
+import { hasModule } from "@/lib/modules";
 import { isManuallySettable } from "@/lib/accounting/po-workflow";
 import { controlCompact, controlInset, tableHead, Drawer, DrawerFooter, Field, SelectField } from "@/components/form-kit";
 import { fmt, formatDate, localToday } from "@/lib/format";
@@ -133,6 +136,10 @@ export function TradeDocList({ kind }: { kind: Kind }) {
   const [confirming, setConfirming] = useState<DocRow | null>(null);
   const { stages, reload: reloadStages } = usePoStages();
   const [sending, setSending] = useState<string[] | null>(null);
+  // EDI (module "edi"): generate the X12 850 for one PO, download, mark sent.
+  const { orgSettings } = useData() as any;
+  const ediOn = hasModule(orgSettings?.enabledModules, "edi");
+  const [ediFor, setEdiFor] = useState<DocRow | null>(null);
   const [reviewing, setReviewing] = useState<DocRow | null>(null);
   const [rejecting, setRejecting] = useState<DocRow | null>(null);
   const [managing, setManaging] = useState(false);
@@ -383,6 +390,9 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                         {isPo && stageKeyOf(r) === "Sent" && (
                           <button onClick={() => setSending([r.id])} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Email it again"><Send size={11} /> Resend</button>
                         )}
+                        {isPo && ediOn && stageKeyOf(r) !== "Rejected" && (
+                          <button onClick={() => setEdiFor(r)} className="text-[11px] font-medium text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1" title="Generate the X12 850 for this order"><Send size={11} /> Send by EDI</button>
+                        )}
                         {isPo && stageKeyOf(r) === "RevisionProposed" && (
                           <button onClick={() => setReviewing(r)} className="text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded px-2 py-1">Review changes</button>
                         )}
@@ -448,6 +458,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         </ListScroll>
       )}
 
+      {ediFor && <EdiSendDrawer po={ediFor as any} onClose={() => { setEdiFor(null); load(); }} onChanged={m => setMsg(m)} />}
       {sending && <SendPoDrawer ids={sending} onClose={() => setSending(null)} onDone={m => { setSending(null); sel.clear(); setMsg(m); load(); }} />}
       {reviewing && <ReviewProposalDrawer docId={reviewing.id} onClose={() => setReviewing(null)} onDone={m => { setReviewing(null); setMsg(m); load(); }} />}
       {rejecting && <RejectPoDrawer docId={rejecting.id} docNumber={rejecting.docNumber} onClose={() => setRejecting(null)} onDone={m => { setRejecting(null); setMsg(m); load(); }} />}

@@ -951,6 +951,41 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 1: outbound X12 850 for purchase orders, manual delivery (2026-11-20)
+
+`docs/prd-edi.md` Phase 1. Migration `0145` (additive). Opt-in module key **`edi`** (`lib/modules.ts`; admin
+turns it on per org). Screen Supply Chain → Purchasing → **EDI** (`/supply-chain/edi`, owned by `edi` via a rule
+listed ABOVE `/supply-chain`), "Send by EDI" on each PO row. API `/api/edi/**` (owner `edi`, and on the MCP
+`BLOCKED_PREFIXES`: AI connections cannot read or send trading-partner files).
+
+- **Transport is manual** (decision D1, least-cost start): the file is generated and KEPT (`edi_messages.payload`,
+  plus sha256); a person downloads it, delivers it through the partner's own portal/mailbox/SFTP, and marks it sent.
+  Marking sent stamps `trade_documents.sent_at` the same way the email path does (first send only). A file not yet
+  sent may be voided; regenerating voids the waiting one as superseded. A SENT file can never be voided.
+- **Layers**, all in `lib/edi/**`: `model.ts` (canonical `EdiOrder`, no segments), `build/purchase-order.ts` (pure,
+  PO facts → `EdiOrder`) + `purchase-order-server.ts` (loads facts), `validate.ts` (pre-send: names the line, never
+  guesses), `x12/envelope.ts` + `x12/850.ts` (wire), `partner.ts` (profile rules), `edi-server.ts` (db half).
+  `tests/edi-x12.test.ts` guards that nothing in `lib/edi` posts stock or ledger and that nothing outside `lib/edi`
+  imports the X12 adapter (both proven to fail on a real violation).
+- **Partner profile** (`edi_partners`, one per party, admin-only writes): test/live (ISA15 T/P), 004010 or 005010,
+  both ISA IDs + qualifiers, optional GS app IDs, docs out (850 only for now), "must carry their part number"
+  (default on) / "must carry a GTIN", unit-code overrides (our unit → their 2-character X12 code, checked first).
+- **Control numbers**: `edi_partners.next_control_no`, ONE `UPDATE … RETURNING`, never reused (a voided file keeps
+  its number); unique `(partner_id, direction, interchange_no)` stands behind it. ISA13 = GS06 = that number, ST02
+  0001. Taken only AFTER validation passes. (The PRD sketched an `edi_control_numbers` table; one counter column on
+  the partner does the same job for one direction.)
+- **What the 850 carries**: BEG (PO no., date), CUR, REF*11 (our account number with them), FOB (Incoterm,
+  qualifier 01, place as ZZ), ITD (net days, discount), DTM*002, N1 BY/SE/ST with GLN as `UL` + N3/N4 (a state
+  longer than 2 characters is left out, not truncated), PO1 in the ORDER unit with VP (their part number for that
+  pack level) / UP-EN-UK (GTIN for that level by its real length) / BP (our item code), PID, PO4 pack content in the
+  base unit, per-line DTM when it differs, CTT, AMT*TT. Element values are cleaned (no separators, accents dropped,
+  ASCII only). Dates are sliced from YYYY-MM-DD, never parsed. **It is a first cut**: each partner's implementation
+  guide decides the exact segments; anything partner-specific belongs in the profile, never hard-coded.
+- **Not built / not verified**: nothing clicked through in a browser (server paths exercised on the dev DB by
+  `scripts/_e2e_edi_850.ts`, which produced a real 850 from a dev PO and cleaned up). No transport other than
+  manual; no 997 or any inbound file (Phase 2); no checking against a real partner's guide or test system yet; the
+  partner screen offers suppliers only (customers come with Phase 3).
+
 ## EDI foundation: expected deliveries (2026-11-20)
 
 Phase 0 item 6, the last groundwork piece. Migration `0144` (additive, three tables). Rules
@@ -1789,7 +1824,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0144` at `when` `1795200000000`;
+  this silently dropped a table in prod once). Latest is `0145` at `when` `1795300000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

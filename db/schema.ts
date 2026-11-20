@@ -3571,6 +3571,64 @@ export const expectedDeliveryLines = pgTable("expected_delivery_lines", {
   expiryDate:         date("expiry_date"),
 }, (t) => ({ expected_delivery_lines_delivery_idx: index("expected_delivery_lines_delivery_idx").on(t.expectedDeliveryId) }));
 
+// EDI (0145): one profile per party, and every file in/out with its raw payload. lib/edi/**.
+export const ediPartners = pgTable("edi_partners", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  partyId:           uuid("party_id").notNull().references(() => parties.id, { onDelete: "cascade" }),
+  enabled:           boolean("enabled").notNull().default(true),
+  mode:              varchar("mode", { length: 4 }).notNull().default("test"),        // test | live
+  standard:          varchar("standard", { length: 8 }).notNull().default("x12"),
+  version:           varchar("version", { length: 8 }).notNull().default("004010"),  // 004010 | 005010
+  senderQualifier:   varchar("sender_qualifier", { length: 2 }).notNull(),
+  senderId:          varchar("sender_id", { length: 15 }).notNull(),
+  receiverQualifier: varchar("receiver_qualifier", { length: 2 }).notNull(),
+  receiverId:        varchar("receiver_id", { length: 15 }).notNull(),
+  senderAppId:       varchar("sender_app_id", { length: 15 }),                        // GS02; null = sender_id
+  receiverAppId:     varchar("receiver_app_id", { length: 15 }),                      // GS03; null = receiver_id
+  transport:         varchar("transport", { length: 16 }).notNull().default("manual"),
+  docsOut:           jsonb("docs_out").notNull().default(["850"]),
+  requirePartNumber: boolean("require_part_number").notNull().default(true),
+  requireGtin:       boolean("require_gtin").notNull().default(false),
+  unitOverrides:     jsonb("unit_overrides").notNull().default({}),
+  nextControlNo:     bigint("next_control_no", { mode: "number" }).notNull().default(1),
+  notes:             text("notes"),
+  createdBy:         uuid("created_by"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ edi_partners_party_uq: uniqueIndex("edi_partners_party_uq").on(t.orgId, t.partyId) }));
+
+export const ediMessages = pgTable("edi_messages", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  partnerId:     uuid("partner_id").notNull().references(() => ediPartners.id, { onDelete: "restrict" }),
+  partyId:       uuid("party_id").references(() => parties.id, { onDelete: "set null" }),
+  direction:     varchar("direction", { length: 3 }).notNull(),     // out | in
+  docType:       varchar("doc_type", { length: 8 }).notNull(),       // 850 …
+  standard:      varchar("standard", { length: 8 }).notNull(),
+  version:       varchar("version", { length: 8 }).notNull(),
+  test:          boolean("test").notNull(),
+  status:        varchar("status", { length: 16 }).notNull().default("generated"), // generated | sent | void
+  interchangeNo: bigint("interchange_no", { mode: "number" }).notNull(),
+  groupNo:       bigint("group_no", { mode: "number" }).notNull(),
+  txnNo:         varchar("txn_no", { length: 9 }).notNull(),
+  appDocType:    varchar("app_doc_type", { length: 24 }),
+  appDocId:      uuid("app_doc_id"),
+  appDocNumber:  varchar("app_doc_number", { length: 64 }),
+  fileName:      varchar("file_name", { length: 128 }).notNull(),
+  payload:       text("payload").notNull(),
+  payloadSha256: varchar("payload_sha256", { length: 64 }).notNull(),
+  error:         text("error"),
+  voidReason:    text("void_reason"),
+  createdBy:     uuid("created_by"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  sentAt:        timestamp("sent_at"),
+  sentBy:        uuid("sent_by"),
+}, (t) => ({
+  edi_messages_control_uq: uniqueIndex("edi_messages_control_uq").on(t.partnerId, t.direction, t.interchangeNo),
+  edi_messages_doc_idx: index("edi_messages_doc_idx").on(t.orgId, t.appDocId),
+}));
+
 // =========================================================================
 // TRANSACTION LINKS — the relationship graph (Estimate→Invoice, Payment→
 // Invoice, PO→Bill, …). Queryable in both directions. See lib/accounting/links.

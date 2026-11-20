@@ -11,7 +11,7 @@
  * lib/modules-server.ts so it never gets pulled into a client bundle.
  */
 
-export const MODULE_KEYS = ["receivables", "payables", "studio", "accounting", "manufacturing", "resources", "pax_console"] as const;
+export const MODULE_KEYS = ["receivables", "payables", "studio", "accounting", "manufacturing", "resources", "pax_console", "edi"] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
 export const MODULES: Record<ModuleKey, { label: string; core: boolean; description: string }> = {
@@ -22,6 +22,7 @@ export const MODULES: Record<ModuleKey, { label: string; core: boolean; descript
   manufacturing: { label: "Manufacturing & Production", core: false, description: "Bill of materials, production builds, job work, receiving, shipping, lot traceability" },
   resources:     { label: "Resource Management",    core: false, description: "Schedule people and equipment against projects and production orders" },
   pax_console:   { label: "PAX Console",            core: false, description: "Chat with your books using your own AI model, within your own permissions" },
+  edi:           { label: "EDI",                    core: false, description: "Exchange purchase orders and other trade documents with trading partners as X12 files" },
 };
 
 export function isModuleKey(v: unknown): v is ModuleKey {
@@ -128,6 +129,7 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   { path: "/reports", owner: "receivables" },
 
   // Supply Chain / Resources — see CLAUDE.md "Modules & per-org feature gating".
+  { path: "/supply-chain/edi", owner: "edi" },                // EDI partners & files: its own module, inside Supply Chain
   { path: "/supply-chain", owner: "manufacturing" },
   { path: "/resources", owner: "resources" },
   { path: "/my-time", owner: "resources" },                    // employee self-service timesheet + reports
@@ -188,6 +190,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/inventory", owner: "manufacturing" },
   { path: "/api/resources", owner: "resources" },
   { path: "/api/pax-console", owner: "pax_console" },
+  { path: "/api/edi", owner: "edi" },
 
   // Receivables — only what nothing else calls. /api/invoices, /api/customers,
   // /api/communications, /api/tasks and /api/reps are loaded by the app-wide
@@ -211,6 +214,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   resources:     "/resources/my-dashboard",
   studio:        "/batch",
   pax_console:   "/pax-console",
+  edi:           "/supply-chain/edi",
 };
 
 // Header middleware.ts stamps with the real request path on every

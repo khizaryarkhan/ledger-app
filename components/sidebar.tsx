@@ -7,7 +7,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
   CheckSquare, BarChart3, Zap, LogOut, Shield, TrendingUp, X,
-  MessageSquare, ShoppingCart, Receipt, Building2, CreditCard,
+  MessageSquare, ShoppingCart, Receipt, Building2, CreditCard, FileCode2,
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
   Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
@@ -431,6 +431,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/trade/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
         { href: "/supply-chain/receiving", label: "Goods Receipts", icon: PackageCheck },
+        // EDI is its own module (lib/modules.ts): shown only to an org that has it.
+        ...(on("edi") ? [{ href: "/supply-chain/edi", label: "EDI", icon: FileCode2 }] : []),
       ],
     },
     {

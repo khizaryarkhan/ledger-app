@@ -81,7 +81,11 @@ export type EventType =
   // Bills of materials (BOM Builder). Keyed on docType "bom" / the BOM id.
   | "bom_created"
   | "bom_edited"
-  | "bom_deleted";
+  | "bom_deleted"
+  // EDI (0145): a file generated for a document, marked sent, or voided. Keyed on docType "trade" / the PO id.
+  | "edi_generated"
+  | "edi_sent"
+  | "edi_voided";
 
 export interface LogEventArgs {
   orgId: string;
