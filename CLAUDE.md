@@ -981,8 +981,10 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   order on the shipment names the SAME one). The encoder is `lib/barcode/code128.ts`, written in-tree (no dependency was added:
   a download needs approval): subset C with FNC1 first, `00` + the SSCC = 20 digits. **`tests/code128.test.ts` guards the
   pattern table** (107 entries, each of six widths summing to 11, the stop 13, Code 128's own parity rule on the bar widths, all
-  distinct, and an encode/decode round trip; a mistyped digit was proven to fail it). **NOT verified with a real scanner**: those
-  checks catch typos, not a swapped pair of valid patterns. Print a label and scan it before a customer relies on it.
+  distinct, and an encode/decode round trip; a mistyped digit was proven to fail it). **Scanned once with a real scanner**
+  (an iPhone barcode app reading the SSCC test barcode on a laptop screen, 2026-11-20: it read `00354123450000000014`
+  correctly), which rules out a wrong pattern for the symbols that SSCC uses. A PRINTED label has not been scanned: print
+  one at 100% and scan it before a customer relies on it. (The iPhone Camera app does not read Code 128; use a scanner app.)
 - **Not done / not a gap**: a PO/SO "reopened" in the form: trade documents have no edit path at all (only ledger documents open
   with `editId`). The print/preview page (`/print/trade/[kind]/[id]`, linked from the list rows) is the read-only view, and it
   now shows the ship-to, terms and Incoterm; an EDITABLE reopen needs a PO edit path, which is a feature of its own.
