@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readInterchange } from "@/lib/edi/x12/read";
-import { parse855 } from "@/lib/edi/x12/inbound";
+import { parse855, parse856 } from "@/lib/edi/x12/inbound";
+import { write856 } from "@/lib/edi/x12/856";
+import { buildShipNotice, type ShipFacts } from "@/lib/edi/build/shipment";
 import { write855 } from "@/lib/edi/x12/855";
 import { buildOrderAck, type SoAckFacts } from "@/lib/edi/build/sales-order";
 import type { Envelope } from "@/lib/edi/x12/envelope";
@@ -83,5 +85,76 @@ describe("855 writer", () => {
     expect(segs.find(s => s[0] === "CUR")).toEqual(["CUR", "SE", "EUR"]);
     expect(segs.find(s => s[0] === "CTT")).toEqual(["CTT", "2"]);
     expect(segs.find(s => s[0] === "BAK")).toEqual(["BAK", "00", "AD", "CUST-PO-77", "20261120"]);
+  });
+});
+
+describe("856 builder and writer", () => {
+  const PALLET = "354123450000000014", CARTON = "354123450000000021";
+  const ship = (over: Partial<ShipFacts> = {}): ShipFacts => ({
+    shipment: { shipmentNo: "SHP-0009", shipDate: "2026-11-26", carrier: "DHL Freight", trackingNo: "TRK-55", posted: true },
+    shipFrom: { name: "Prime Foods Ltd", gln: "5412345000013" },
+    lines: [{ id: "SL1", soId: "S1", soLineId: "OL1", qtyBase: 600 }],
+    orders: [{ soId: "S1", poNumber: "CUST-PO-77", poDate: "2026-11-20", shipTo: { name: "Dublin DC", gln: "5412345000020", code: null },
+      soLines: [{ id: "OL1", lineNo: 1, orderUom: "carton", baseUom: "kg", unitsPerOrderUnit: 200, itemCode: "RM-RICE" }],
+      theirs: [{ lineNo: "10", unit: "CT" }] }],
+    parts: { SL1: { bp: "THEIR-9", gtin: "00012345678905" } },
+    // 400 kg (2 cartons) packed in one carton on a pallet; the other 200 kg (1 carton) is loose.
+    packages: [{ id: "P1", sscc: PALLET, parentId: null, packType: "pallet", lines: [] }, { id: "P2", sscc: CARTON, parentId: "P1", packType: "carton", lines: [{ shipmentLineId: "SL1", qtyBase: 400 }] }],
+    replaces: false,
+    ...over,
+  });
+  const asnOf = (f: ShipFacts) => { const r = buildShipNotice(f, {}); if (r.ok === false) throw new Error(JSON.stringify(r.problems)); return r.asn; };
+  const failOf = (f: ShipFacts) => { const r = buildShipNotice(f, {}); return r.ok === false ? r.problems.map(p => p.message).join(" | ") : "OK"; };
+  const sellerEnv: Envelope = { ...env, controlNo: 52 };
+
+  it("builds the packing tree in THEIR line numbers and unit, quantities in order units, the rest loose under the order", () => {
+    const a = asnOf(ship());
+    expect(a).toMatchObject({ shipmentId: "SHP-0009", purpose: "00", shipDate: "2026-11-26", carrier: "DHL Freight", trackingNo: "TRK-55" });
+    expect(a.orders[0].packages).toEqual([
+      { sscc: PALLET, level: "tare", parentSscc: null, items: [] },
+      { sscc: CARTON, level: "pack", parentSscc: PALLET, items: [{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 2, unit: "CT" }] },
+    ]);
+    expect(a.orders[0].loose).toEqual([{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 1, unit: "CT" }]);
+  });
+
+  it("is a one-set file our own parse856 reads back: shipment, order, pallet, carton with SSCC, items", () => {
+    const file = write856(asnOf(ship()), sellerEnv);
+    const ixn = readInterchange(file);
+    expect(ixn.groups[0]).toMatchObject({ functionalId: "SH" });
+    const n = parse856(ixn.groups[0].txns[0].segments);
+    expect(n).toMatchObject({ purpose: "00", shipmentId: "SHP-0009", shipDate: "2026-11-26", carrier: "DHL Freight", trackingNo: "TRK-55", problems: [] });
+    expect(n.orders[0].poNumber).toBe("CUST-PO-77");
+    expect(n.orders[0].packages).toEqual([{ sscc: CARTON, level: "pack", parentSscc: PALLET }, { sscc: PALLET, level: "tare", parentSscc: null }]);
+    expect(n.orders[0].items).toEqual([
+      { lineNo: "10", ids: { BP: "THEIR-9", UP: "012345678905", VP: "RM-RICE" }, qty: 2, unit: "CT", batch: null, productionDate: null, bestBeforeDate: null, expiryDate: null, badDates: [], sscc: CARTON },
+      { lineNo: "10", ids: { BP: "THEIR-9", UP: "012345678905", VP: "RM-RICE" }, qty: 1, unit: "CT", batch: null, productionDate: null, bestBeforeDate: null, expiryDate: null, badDates: [], sscc: null },
+    ]);
+  });
+
+  it("a notice that replaces one already sent says so (BSN01 05)", () => {
+    const n = parse856(readInterchange(write856(asnOf(ship({ replaces: true })), sellerEnv)).groups[0].txns[0].segments);
+    expect(n.purpose).toBe("05");
+  });
+
+  it("with no packing at all, everything is listed under the order", () => {
+    const a = asnOf(ship({ packages: [] }));
+    expect(a.orders[0].packages).toEqual([]);
+    expect(a.orders[0].loose).toEqual([{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 3, unit: "CT" }]);
+  });
+
+  it("never guesses: no order, no PO number, lines that no longer match, a reversed shipment, one package for two orders", () => {
+    expect(failOf(ship({ lines: [{ id: "SL1", soId: null, soLineId: null, qtyBase: 600 }] }))).toMatch(/has no Sales Order/);
+    const noPo = ship(); noPo.orders[0].poNumber = null;
+    expect(failOf(noPo)).toMatch(/no customer PO number/);
+    const moved = ship(); moved.orders[0].theirs = [{ lineNo: "10", unit: "CT" }, { lineNo: "20", unit: "CT" }];
+    expect(failOf(moved)).toMatch(/1 line\(s\), their order had 2/);
+    expect(failOf(ship({ shipment: { ...ship().shipment, posted: false } }))).toMatch(/not posted/);
+    const two = ship({
+      lines: [{ id: "SL1", soId: "S1", soLineId: "OL1", qtyBase: 400 }, { id: "SL2", soId: "S2", soLineId: "OL2", qtyBase: 200 }],
+      orders: [...ship().orders, { soId: "S2", poNumber: "CUST-PO-78", poDate: "2026-11-21", shipTo: null,
+        soLines: [{ id: "OL2", lineNo: 1, orderUom: "carton", baseUom: "kg", unitsPerOrderUnit: 200, itemCode: "RM-OATS" }], theirs: null }],
+      packages: [{ id: "P1", sscc: PALLET, parentId: null, packType: "pallet", lines: [{ shipmentLineId: "SL1", qtyBase: 400 }, { shipmentLineId: "SL2", qtyBase: 200 }] }],
+    });
+    expect(failOf(two)).toMatch(/holds goods of more than one order/);
   });
 });

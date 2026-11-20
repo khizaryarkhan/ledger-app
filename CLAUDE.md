@@ -951,6 +951,29 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 3c: our 856 ship notice from a shipment, with its SSCC packing (2026-11-20)
+
+No migration. An icon on each row of Shipping (module `edi`) → `GET/POST /api/edi/shipments/[id]` →
+`checkShipmentAsn` / `generateShipmentAsn856` in `lib/edi/outbound-server.ts`; pure rules `lib/edi/build/shipment.ts`
+(`buildShipNotice`), writer `lib/edi/x12/856.ts`. The drawer kind is `EDI_SHIP_ASN`.
+
+- **Tree per order**: `S` shipment (DTM 011, TD5 carrier, REF*CN tracking, N1*SF us) → `O` order (`PRF` THEIR PO number and
+  date, N1*ST their delivery address) → `T` pallet → `P` carton → `I` item (`LIN` THEIR line number with `BP` their part
+  number, a GTIN, `VP` our item code; `SN1` the quantity in the unit the order was placed in). A package's SSCC is
+  `MAN*GM`. Goods not packed hang under the order (an ASN with no packing is valid, so packing is optional).
+- Quantity = shipment base qty ÷ the SO line's `units_per_order_unit`; THEIR part number and GTIN are only the code for
+  the SAME pack level the line was ordered at (never the unit's code for a carton). Their line numbers come from the
+  stored 850 (positional, same count guard as the 855).
+- **BSN01** `00` for a first notice, `05` once an earlier 856 for the shipment was marked sent.
+- **Refused, with the reason named**: shipment not Posted; a line with no Sales Order; an order with no customer PO number;
+  lines that no longer match the 850; a unit with no EDI code (or different from what they ordered); **a package that
+  holds goods of two orders** (one HL tree carries one order: pack each order separately); a line for another customer.
+- Tests in `tests/edi-outbound.test.ts` (round trip through our own `parse856`); `scripts/_e2e_edi_856_out.ts` (7 checks
+  on dev: inserts a minimal Posted shipment with pallet and carton directly, no stock or ledger, then deletes it).
+- **Not built / not verified**: not clicked through in a browser. No lot, batch or expiry on the notice (shipment lines
+  do not record which lots were issued; the movements do). No weights or carton counts (`TD1`), no carrier SCAC code
+  (free-text carrier only). Marking sent stamps nothing on the shipment.
+
 ## EDI Phase 3b: our 855 order acknowledgement from a confirmed Sales Order (2026-11-20)
 
 No migration. "Acknowledge by EDI" on a Sales Order row (Sales Orders list, module `edi`) → `GET/POST

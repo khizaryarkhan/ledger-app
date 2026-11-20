@@ -15,7 +15,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
-import { Plus, RefreshCw, Truck, Trash2, FileText, ChevronLeft, ChevronRight, Boxes, Package } from "lucide-react";
+import { Plus, RefreshCw, Truck, Trash2, FileText, ChevronLeft, ChevronRight, Boxes, Package, FileCode2 } from "lucide-react";
+import { EdiSendDrawer, EDI_SHIP_ASN } from "@/components/edi-send-drawer";
+import { hasModule } from "@/lib/modules";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON } from "@/lib/inventory/round";
@@ -43,6 +45,8 @@ export function ShippingConsole() {
   const [voidErr, setVoidErr] = useState("");
   // Packing a shipment into SSCC-labelled pallets / cartons (0143).
   const [packing, setPacking] = useState<any | null>(null);
+  const ediOn = hasModule(orgSettings?.enabledModules, "edi");
+  const [ediFor, setEdiFor] = useState<any | null>(null);
 
   async function load() {
     const r = await fetch(`/api/inventory/shipping`).then(x => x.json()).catch(() => []);
@@ -127,6 +131,7 @@ export function ShippingConsole() {
 
       {showNew && <ShipDrawer customers={customers} items={items} onClose={() => { setShowNew(false); load(); }} />}
       {packing && <ShipmentPackagesDrawer shipment={packing} onClose={() => setPacking(null)} />}
+      {ediFor && <EdiSendDrawer po={{ id: ediFor.id, docNumber: ediFor.shipmentNo, partyLabel: ediFor.customerLabel }} kind={EDI_SHIP_ASN} onClose={() => { setEdiFor(null); load(); }} />}
       {invoicing && <InvoiceDrawer shipments={selected} onClose={() => setInvoicing(false)} onDone={() => { setInvoicing(false); setSel({}); load(); }} />}
 
       {rows === null ? (
@@ -161,6 +166,7 @@ export function ShippingConsole() {
                       <td className={listMoneyCell}><span className={r.open > 0.005 ? "text-amber-400 font-medium" : "text-stone-500"}>{money(r.open)}</span></td>
                       <td className="px-2 py-2 flex items-center gap-0.5">
                         <button onClick={() => setPacking(r)} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-stone-200" title="Pack into pallets / cartons (SSCC)" aria-label="Pack shipment"><Package size={13} /></button>
+                        {ediOn && <button onClick={() => setEdiFor(r)} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-cyan-400" title="Advise the customer by EDI (856 ship notice)" aria-label="Advise by EDI"><FileCode2 size={13} /></button>}
                         <button onClick={() => voidRow(r.id, r.shipmentNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void shipment"><Trash2 size={13} /></button>
                       </td>
                     </tr>

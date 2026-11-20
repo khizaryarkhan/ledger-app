@@ -19,6 +19,7 @@ type Msg = { id: string; status: string; ackStatus?: string | null; direction?: 
 export type EdiSendKind = { path: string; doc: string; noun: string };
 export const EDI_PO: EdiSendKind = { path: "purchase-orders", doc: "850", noun: "purchase order" };
 export const EDI_SO_ACK: EdiSendKind = { path: "sales-orders", doc: "855", noun: "sales order" };
+export const EDI_SHIP_ASN: EdiSendKind = { path: "shipments", doc: "856", noun: "shipment" };
 
 export function EdiSendDrawer({ po, kind = EDI_PO, onClose, onChanged }: { po: { id: string; docNumber: string | null; partyLabel?: string | null }; kind?: EdiSendKind; onClose: () => void; onChanged?: (msg: string) => void }) {
   const base = `/api/edi/${kind.path}/${po.id}`;
