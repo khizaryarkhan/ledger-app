@@ -13,6 +13,8 @@ import { controlInset, Drawer, SelectField } from "@/components/form-kit";
 import { useData } from "@/components/data-provider";
 import { CountrySelect } from "@/components/country-select";
 import { CustomerShipToList } from "@/components/customer-ship-to-list";
+import { PartyContactsList } from "@/components/party-contacts-list";
+import { INCOTERMS, incotermOf, termsLabel } from "@/lib/party-terms";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; noun: string; icon: any }> = {
@@ -28,6 +30,8 @@ const empty = {
   countryCode: "", gln: "", // EDI (0139): ISO country code and GS1 GLN
   taxNumber: "", paymentTerms: "30", notes: "", currency: "",
   leadTimeDays: "",   // suppliers only (0114) — default when an item's own link has none
+  // Trading terms (0142): copied onto each PO / SO when it is created.
+  ourAccountNumber: "", discountPercent: "", discountDays: "", incoterm: "", incotermPlace: "",
 };
 
 // Customers only — collections and credit settings. Kept apart from `empty` so
@@ -78,6 +82,8 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
         taxNumber: d.taxNumber ?? "", paymentTerms: d.paymentTerms != null ? String(d.paymentTerms) : prev.paymentTerms,
         notes: d.notes ?? "", currency: d.currency ?? prev.currency,
         leadTimeDays: d.leadTimeDays != null ? String(d.leadTimeDays) : "",
+        ourAccountNumber: d.ourAccountNumber ?? "", discountPercent: d.discountPercent != null ? String(Number(d.discountPercent)) : "",
+        discountDays: d.discountDays != null ? String(d.discountDays) : "", incoterm: d.incoterm ?? "", incotermPlace: d.incotermPlace ?? "",
       }));
       if (type === "customers") {
         setLoadedBlankCurrency(!d.currency);
@@ -211,6 +217,39 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
                 <input value={f.gln} onChange={e => set("gln", e.target.value)} inputMode="numeric" placeholder="13 digits, optional" className={input} />
                 <p className="mt-1 text-[11px] text-stone-500">Identifies this party on EDI documents. Only needed if they trade by EDI.</p>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Early-payment discount (%)</label>
+                  <input type="number" min="0" max="99.99" step="0.01" value={f.discountPercent} onChange={e => set("discountPercent", e.target.value)} placeholder="e.g. 2" className={input} />
+                </div>
+                <div>
+                  <label className={label}>If paid within (days)</label>
+                  <input type="number" min="1" step="1" value={f.discountDays} onChange={e => set("discountDays", e.target.value)} placeholder="e.g. 10" className={input} />
+                </div>
+              </div>
+              {(f.discountPercent || f.discountDays || f.paymentTerms) && (
+                <p className="-mt-2 text-[11px] text-stone-500">Reads as: {termsLabel({ paymentTermsDays: f.paymentTerms, discountPercent: f.discountPercent, discountDays: f.discountDays }) ?? "—"}</p>
+              )}
+              <div className="grid grid-cols-[1fr_1.4fr] gap-3">
+                <div>
+                  <label className={label}>Incoterm</label>
+                  <SelectField inset value={f.incoterm} onChange={e => set("incoterm", e.target.value)}>
+                    <option value="">None</option>
+                    {INCOTERMS.map(t => <option key={t.code} value={t.code}>{t.code} — {t.name}</option>)}
+                  </SelectField>
+                </div>
+                <div>
+                  <label className={label}>Named {incotermOf(f.incoterm)?.place ?? "place"}</label>
+                  <input value={f.incotermPlace} onChange={e => set("incotermPlace", e.target.value)} placeholder={f.incoterm ? "e.g. Dublin Port" : "Choose an Incoterm first"} className={input} />
+                </div>
+              </div>
+              <div>
+                <label className={label}>Our account number with them</label>
+                <input value={f.ourAccountNumber} onChange={e => set("ourAccountNumber", e.target.value)} placeholder="The number they know you by, optional" className={input} />
+              </div>
+              {type === "suppliers" && (editing && editId
+                ? <div className="pt-2"><PartyContactsList supplierId={editId} /></div>
+                : <p className="text-[11px] text-stone-500">Save the supplier first, then open it again to add contacts.</p>)}
               {type === "suppliers" && (
                 <div>
                   <label className={label}>Default lead time (days)</label>

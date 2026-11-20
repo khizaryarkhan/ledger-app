@@ -21,6 +21,7 @@ import { createLink } from "@/lib/accounting/links";
 import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
 import { resolveSalesOrderShipTo, shipToErrorOf } from "@/lib/customer-ship-to-server";
+import { termsForDocument, type DocTerms } from "@/lib/party-terms";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
 import { canonicalOrderUnit } from "@/lib/inventory/uom";
@@ -57,6 +58,9 @@ export type TradeDocInput = {
   // SalesOrder only (0141): the customer's delivery address. Undefined = the
   // customer's default (if it has one); null / "" = none.
   customerShipToId?: string | null;
+  // Incoterm + named place for THIS order (0142). Undefined = the party's own.
+  incoterm?: string | null;
+  incotermPlace?: string | null;
   // Estimate / SalesOrder only — the customer's project (must belong to that customer).
   projectId?: string | null;
   // The counterparty's own reference (0114): the customer's PO number on an
@@ -120,6 +124,17 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     catch (e) { const s = shipToErrorOf(e); if (s) err(s.message); throw e; }
   }
 
+  // Trading terms (0142), COPIED from the party so a later change to the party
+  // never rewrites what this order said. Only the Incoterm can differ per order.
+  let partyTerms: any = null;
+  if (input.partyId) {
+    [partyTerms] = await db.select({ paymentTerms: parties.paymentTerms, discountPercent: parties.discountPercent, discountDays: parties.discountDays, incoterm: parties.incoterm, incotermPlace: parties.incotermPlace })
+      .from(parties).where(and(eq(parties.id, input.partyId), eq(parties.orgId, orgId))).limit(1);
+  }
+  const docTerms = termsForDocument(partyTerms, { incoterm: input.incoterm, incotermPlace: input.incotermPlace });
+  if ("error" in docTerms) err(docTerms.error);
+  const terms = (docTerms as { terms: DocTerms }).terms;
+
   // A Purchase Order commits to buying, so the sourcing decision has to exist
   // before the commitment does — not later, at the Bill, when the goods are
   // already on their way. Checked against the UNFILTERED lines, not `raw`, so a
@@ -177,6 +192,8 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     salesOrderId: kind === "PurchaseOrder" ? (input.salesOrderId || null) : null,
     shipToLocationId,
     customerShipToId,
+    paymentTermsDays: terms.paymentTermsDays, discountPercent: terms.discountPercent, discountDays: terms.discountDays,
+    incoterm: terms.incoterm, incotermPlace: terms.incotermPlace,
     projectId,
     partyRef: input.partyRef?.trim() || null,
     createdBy: actorId,

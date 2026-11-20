@@ -33,6 +33,7 @@ import { CalcInput, CellSelect, Field, QtyUnitField, Section, SelectField, cell,
 import { localToday, ymd, fmt } from "@/lib/format";
 import { useStockLocations } from "@/components/location-picker";
 import { shipToOneLine } from "@/lib/customer-ship-to";
+import { INCOTERMS, incotermOf, termsLabel } from "@/lib/party-terms";
 
 export type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
@@ -289,6 +290,23 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   // PO ship-to (0139): blank = the org's default location. Offered only when there is a choice to make.
   const [shipToLocationId, setShipToLocationId] = useState("");
   const { locations: stockLocations } = useStockLocations();
+  // Incoterm + named place on a PO / SO (0142), pre-filled from the party's own
+  // and changeable per order. Payment and discount terms are copied by the
+  // server as they are; an order does not renegotiate them.
+  const [incoterm, setIncoterm] = useState("");
+  const [incotermPlace, setIncotermPlace] = useState("");
+  const [partyTermsText, setPartyTermsText] = useState<string | null>(null);
+  useEffect(() => {
+    setIncoterm(""); setIncotermPlace(""); setPartyTermsText(null);
+    if ((type !== "PurchaseOrder" && type !== "SalesOrder") || !partyId) return;
+    let live = true;
+    fetch(`/api/parties/${type === "PurchaseOrder" ? "suppliers" : "customers"}/${partyId}`).then(r => r.json()).then(p => {
+      if (!live || !p || p.error) return;
+      setIncoterm(p.incoterm ?? ""); setIncotermPlace(p.incotermPlace ?? "");
+      setPartyTermsText(termsLabel({ paymentTermsDays: p.paymentTerms, discountPercent: p.discountPercent, discountDays: p.discountDays }));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [type, partyId]);
   // Sales Order delivery address (0141): the customer's active addresses, its default pre-selected.
   const [shipToOptions, setShipToOptions] = useState<any[]>([]);
   const [customerShipToId, setCustomerShipToId] = useState("");
@@ -1054,6 +1072,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
         url = `/api/trade-documents/${cfg.trade}`; payload.issueDate = date; payload.expiryDate = expiryDate || undefined;
         if (type === "PurchaseOrder") payload.salesOrderId = salesOrderId || undefined;
         if (type === "PurchaseOrder") payload.shipToLocationId = shipToLocationId || undefined;
+        if (type === "PurchaseOrder" || type === "SalesOrder") { payload.incoterm = incoterm || null; payload.incotermPlace = incoterm ? (incotermPlace || null) : null; }
         // Sent only when the customer has addresses: "" then means "none" on purpose.
         if (type === "SalesOrder" && shipToOptions.length) payload.customerShipToId = customerShipToId || null;
       }
@@ -1263,6 +1282,18 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                     <option value="">Default location</option>
                     {stockLocations.map(l => <option key={l.id} value={l.id}>{l.code} · {l.name}</option>)}
                   </SelectField>
+                </Field>
+              )}
+              {(type === "PurchaseOrder" || type === "SalesOrder") && partyId && (
+                <Field label="Incoterm" hint={partyTermsText ? `Payment terms: ${partyTermsText}` : "Who carries cost and risk, to where"}>
+                  <div className="grid grid-cols-[110px_1fr] gap-2">
+                    <SelectField value={incoterm} onChange={e => setIncoterm(e.target.value)} aria-label="Incoterm">
+                      <option value="">None</option>
+                      {INCOTERMS.map(t => <option key={t.code} value={t.code} title={t.name}>{t.code}</option>)}
+                    </SelectField>
+                    <input className={input} value={incotermPlace} onChange={e => setIncotermPlace(e.target.value)} disabled={!incoterm}
+                      placeholder={incoterm ? `Named ${incotermOf(incoterm)?.place ?? "place"}` : "—"} aria-label="Incoterm named place" />
+                  </div>
                 </Field>
               )}
               {type === "SalesOrder" && shipToOptions.length > 0 && (

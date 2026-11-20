@@ -32,13 +32,18 @@ export async function GET(_req: Request, { params }: { params: { type: string; i
   if (!row) return bad("Not found", 404);
   // Lead time (0114), country code and GLN (0139) live on parties, not the views.
   const [extra] = params.type !== "employees"
-    ? await db.select({ leadTimeDays: parties.leadTimeDays, countryCode: parties.countryCode, gln: parties.gln })
+    ? await db.select({ leadTimeDays: parties.leadTimeDays, countryCode: parties.countryCode, gln: parties.gln,
+        ourAccountNumber: parties.ourAccountNumber, discountPercent: parties.discountPercent, discountDays: parties.discountDays,
+        incoterm: parties.incoterm, incotermPlace: parties.incotermPlace })
         .from(parties).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!))).limit(1)
     : [];
   return ok({
     ...row, name: (row as any).displayName || row.name,
     leadTimeDays: params.type === "suppliers" ? extra?.leadTimeDays ?? null : null,
     countryCode: extra?.countryCode ?? null, gln: extra?.gln ?? null,
+    // Trading terms (0142), from parties.
+    ourAccountNumber: extra?.ourAccountNumber ?? null, discountPercent: extra?.discountPercent ?? null, discountDays: extra?.discountDays ?? null,
+    incoterm: extra?.incoterm ?? null, incotermPlace: extra?.incotermPlace ?? null,
   });
 }
 
@@ -69,7 +74,7 @@ export async function PATCH(req: Request, { params }: { params: { type: string; 
     return ok({ id: params.id, updated: true });
   }
   // EDI identifiers (0139): validated before anything is written, applied to `parties` after the view update.
-  const edi = await partyEdiValues(orgId!, b);
+  const edi = await partyEdiValues(orgId!, b, params.id);
   if ("error" in edi) return bad(edi.error);
   // customers & suppliers share the generic contact/address fields.
   for (const k of CONTACT) if (b[k] !== undefined) set[k] = s(b[k], k === "notes" ? 4000 : 255);

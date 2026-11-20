@@ -988,6 +988,13 @@
       "when": 1794900000000,
       "tag": "0141_customer_ship_to",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "6",
+      "when": 1795000000000,
+      "tag": "0142_party_trading_terms",
+      "breakpoints": true
     }
   ]
 }

@@ -951,6 +951,28 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI foundation: trading terms and supplier contacts (2026-11-20)
+
+Phase 0 item 4. Migration `0142` (additive, nothing back-filled). Rules `lib/party-terms.ts` (pure), tests
+`tests/party-terms.test.ts`.
+
+- **On `parties`** (written directly, like `lead_time_days`; validated in `partyEdiValues`, which now takes the party
+  id on an edit so pairs are judged against what is stored): `our_account_number` (the number THEY know us by),
+  early-payment discount `discount_percent` + `discount_days` (both or neither, and the days must be before the net
+  payment terms), and a default `incoterm` + `incoterm_place` (the eleven ICC Incoterms 2020 rules; a term needs its
+  named place and a place needs a term).
+- **Copied onto every trade document when created** (`trade_documents.payment_terms_days`, `discount_*`,
+  `incoterm*`, via `termsForDocument` in `createTradeDoc`), so changing a party's terms never rewrites an order
+  already sent (checked against the dev DB). Only the Incoterm can differ per order (PO/SO form, pre-filled from the
+  party); payment and discount terms are the party's, not renegotiated per order.
+- **Supplier contacts: `party_contacts`**, deliberately NOT the collections `contacts` table (auto-chase settings,
+  keyed to the customers view). Name, role (orders / accounts / logistics / quality / EDI / other), email or phone
+  (at least one), one primary per supplier by partial unique index. Routes `/api/parties/suppliers/[id]/contacts[/id]`,
+  admin-only writes (same as editing a supplier). Shown in the supplier drawer, edit mode only.
+- **Not built / not verified**: nothing clicked through in a browser; terms are not printed on the PO/SO PDF; a
+  reopened PO/SO does not show its stored Incoterm; the discount is not applied to any payment or ageing (it is
+  recorded for documents and EDI, nothing more); customers get the terms fields but not `party_contacts`.
+
 ## EDI foundation: customer delivery addresses (2026-11-20)
 
 Phase 0 item 1's last piece. Migration `0141` (additive, nothing back-filled). `party_ship_to`: a customer's delivery
@@ -1715,7 +1737,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0141` at `when` `1794900000000`;
+  this silently dropped a table in prod once). Latest is `0142` at `when` `1795000000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

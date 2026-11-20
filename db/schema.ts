@@ -866,6 +866,15 @@ export const parties = pgTable("parties", {
   // Supplier-only (0114): default lead time when the item's supplier link has
   // none. Not exposed through the ap_suppliers view — read parties directly.
   leadTimeDays: integer("lead_time_days"),
+  // Trading terms (0142), on parties only. ourAccountNumber = the number THIS
+  // party knows us by. Early-payment discount (both or neither) and default
+  // Incoterm (ICC 2020) + named place; copied onto each PO/SO when created.
+  // Rules: lib/party-terms.ts.
+  ourAccountNumber: varchar("our_account_number", { length: 64 }),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
+  discountDays: integer("discount_days"),
+  incoterm: varchar("incoterm", { length: 3 }),
+  incotermPlace: varchar("incoterm_place", { length: 128 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -2190,6 +2199,25 @@ export const partyShipTo = pgTable("party_ship_to", {
 }));
 export type PartyShipTo = typeof partyShipTo.$inferSelect;
 
+// Supplier contacts (0142): who receives orders, handles invoices, deliveries,
+// EDI. NOT the collections `contacts` table (auto-chase, keyed to the customers
+// view). One primary per party: partial unique index in the migration.
+export const partyContacts = pgTable("party_contacts", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  partyId:   uuid("party_id").notNull().references(() => parties.id, { onDelete: "cascade" }),
+  name:      varchar("name", { length: 128 }).notNull(),
+  role:      varchar("role", { length: 16 }).notNull().default("other"),   // purchasing | accounts | logistics | quality | edi | other
+  email:     varchar("email", { length: 255 }),
+  phone:     varchar("phone", { length: 64 }),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  party_contacts_party_idx: index("party_contacts_party_idx").on(t.orgId, t.partyId),
+}));
+export type PartyContact = typeof partyContacts.$inferSelect;
+
 // =========================================================================
 // INVENTORY — FIFO COST LOTS & MOVEMENT LEDGER
 // A "lot" is a dated FIFO cost layer created when stock is received (purchase),
@@ -3045,6 +3073,13 @@ export const tradeDocuments = pgTable("trade_documents", {
   // PO, the customer's own PO no. on an SO. promisedDate = the date the
   // counterparty committed to (expiryDate stays what WE asked for).
   partyRef:         varchar("party_ref", { length: 64 }),
+  // Terms COPIED from the party when the order is created (0142), so a later
+  // change to the party's terms never rewrites what the order said.
+  paymentTermsDays: integer("payment_terms_days"),
+  discountPercent:  numeric("discount_percent", { precision: 5, scale: 2 }),
+  discountDays:     integer("discount_days"),
+  incoterm:         varchar("incoterm", { length: 3 }),
+  incotermPlace:    varchar("incoterm_place", { length: 128 }),
   sentAt:           timestamp("sent_at"),
   confirmedAt:      timestamp("confirmed_at"),
   confirmedBy:      uuid("confirmed_by"),
