@@ -951,6 +951,31 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 2b: 856 ship notices become expected deliveries (2026-11-20)
+
+No migration. Uploaded the same way as 997/855 (Supply Chain → EDI → Files → Upload). `parse856`
+(`lib/edi/x12/inbound.ts`) reads the HL tree in whatever S/O/T/P/I order it is sent: an item belongs to the
+nearest order (O, `PRF01` = our PO number) above it and is packed in the nearest pack/pallet (`MAN*GM` SSCC)
+above it. Shipment: `DTM 011` shipped, `017`/`067` delivery, carrier `TD505` (else SCAC), tracking `REF*CN`
+(else `BM`). Item: `LIN01` = our PO line number, batch `LIN LT` or `REF*LT`, `DTM 094` production, `511` best
+before, `036` expiry.
+
+- **One expected delivery per order, `source = "asn"`**, through the SAME `createExpectedDelivery` /
+  `prepareDelivery` as a typed one, so Receiving's "Fill from this delivery" and the SSCC match work unchanged.
+  Reference = `BSN02`, or `BSN02/PO` when one notice covers several orders (the unique index is per supplier).
+- **Never guesses** (`asnOrderToDelivery`, pure): the line must be a line of THAT PO by number; our item code must
+  agree when they send `BP`; the quantity must be in the line's order unit (×`units_per_order_unit` → base) or the
+  base unit, as X12 codes resolved the way our 850 wrote them (partner overrides first). Anything else records
+  NOTHING for that order and goes to review in words.
+- **BSN01**: `00`/`06` records (a shipment already on record goes to review, never a second copy); `05` replaces
+  one not yet received (old one cancelled to free the reference, new one created, old deleted; reopened if the new
+  one fails); `01`/`03` cancels one not yet received. **A received delivery is never changed from a file.**
+- Tests in `tests/edi-inbound.test.ts` (pack→base conversion proven to fail when dropped);
+  `scripts/_e2e_edi_856.ts` (7 checks on dev, cleaned up).
+- **Not built / not verified**: nothing clicked through in a browser; the dev run used a PO line with one base unit
+  per order unit, so the pack conversion is unit-tested only. No 810, no outbound 997. Item-level SSCCs with no pack
+  HL are not read (only `MAN` on T/P levels).
+
 ## EDI Phase 2a: reading what the supplier sends back — 997 and 855 (2026-11-20)
 
 First slice of `docs/prd-edi.md` Phase 2. Migration `0146` (additive: `edi_messages.ack_status`, `acked_at`,

@@ -8,19 +8,21 @@
  *    a replayed file a no-op that returns the first upload's result.
  * 4. Act on each transaction set: 997 → the answered outbound file's
  *    acknowledgement; 855 → the supplier-response path the portal uses (a
- *    change is stored for a person, never applied). Anything else, or anything
- *    unclear, is "review" with the reason in words.
+ *    change is stored for a person, never applied); 856 → an expected delivery
+ *    per order (source "asn"), which Receiving fills in from. Anything else, or
+ *    anything unclear, is "review" with the reason in words.
  *
  * Nothing here posts stock or ledger (tests/edi-x12.test.ts).
  */
 
 import { createHash } from "node:crypto";
 import { db } from "@/db";
-import { ediPartners, ediMessages, tradeDocuments, tradeDocumentLines, apItems } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { ediPartners, ediMessages, tradeDocuments, tradeDocumentLines, apItems, expectedDeliveries } from "@/db/schema";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { readInterchange, X12ReadError } from "@/lib/edi/x12/read";
-import { parse997, parse855 } from "@/lib/edi/x12/inbound";
-import { ackToResponse } from "@/lib/edi/inbound";
+import { parse997, parse855, parse856 } from "@/lib/edi/x12/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference } from "@/lib/edi/inbound";
+import { createExpectedDelivery, setDeliveryCancelled, deleteExpectedDelivery, expectedDeliveryErrorOf } from "@/lib/inventory/expected-delivery-server";
 import { x12UnitFor } from "@/lib/edi/validate";
 import { recordSupplierResponse } from "@/lib/accounting/po-supplier-server";
 import { LedgerValidationError } from "@/lib/ledger";
@@ -85,11 +87,12 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
       results.push({ setId: "*", controlNo: String(ixn.controlNo), outcome: "ignored", summary: "A test file (ISA15 = T) from a partner set to live: stored, not applied.", reasons: [] });
     } else {
       for (const g of ixn.groups) for (const t of g.txns) {
-        const r = t.setId === "997" ? await apply997(orgId, partner, messageId, t.segments, t.controlNo)
-          : t.setId === "855" ? await apply855(orgId, partner, t.segments, t.controlNo)
-          : { setId: t.setId, controlNo: t.controlNo, outcome: "review" as const, summary: `${t.setId} files are not read yet.`, reasons: [] };
-        results.push(r);
-        if (r.poId && !appDoc) {
+        const rs: TxnResult[] = t.setId === "997" ? [await apply997(orgId, partner, messageId, t.segments, t.controlNo)]
+          : t.setId === "855" ? [await apply855(orgId, partner, t.segments, t.controlNo)]
+          : t.setId === "856" ? await apply856(orgId, partner, t.segments, t.controlNo, actorId)
+          : [{ setId: t.setId, controlNo: t.controlNo, outcome: "review" as const, summary: `${t.setId} files are not read yet.`, reasons: [] }];
+        results.push(...rs);
+        for (const r of rs) if (r.poId && !appDoc) {
           const [d] = await db.select({ number: tradeDocuments.docNumber }).from(tradeDocuments).where(eq(tradeDocuments.id, r.poId)).limit(1);
           appDoc = { id: r.poId, number: d?.number ?? null };
         }
@@ -157,4 +160,73 @@ async function apply855(orgId: string, partner: Partner, segments: string[][], c
   }
   const what = out.kind === "confirm" ? "confirmed" : out.kind === "decline" ? "declined" : `proposed changes to ${out.lines.length} line(s), waiting for your decision in Purchase Orders`;
   return { setId: "855", controlNo, outcome: out.needsReview ? "review" : "applied", summary: `${po.docNumber}: the supplier ${what}.`, reasons: out.notes, poId: po.id };
+}
+
+/** The PO's lines as an 856 is matched against them, with X12 unit codes resolved the way our 850 wrote them. */
+async function asnPoLines(orgId: string, poId: string, overrides: Record<string, string>) {
+  const lines = await db.select({ id: tradeDocumentLines.id, lineNo: tradeDocumentLines.lineNo, closed: tradeDocumentLines.closed,
+    orderUom: tradeDocumentLines.orderUom, unitsPerOrderUnit: tradeDocumentLines.unitsPerOrderUnit, itemId: tradeDocumentLines.itemId,
+    itemCode: apItems.code, baseUom: apItems.baseUom })
+    .from(tradeDocumentLines).leftJoin(apItems, eq(apItems.id, tradeDocumentLines.itemId))
+    .where(and(eq(tradeDocumentLines.documentId, poId), eq(tradeDocumentLines.orgId, orgId)));
+  const code = (u: string | null) => { const r = x12UnitFor(u, overrides); return r.ok ? r.code : null; };
+  return lines.filter(l => l.itemId).map(l => ({
+    id: l.id, lineNo: l.lineNo, itemCode: l.itemCode, closed: !!l.closed,
+    orderUnitCode: code(l.orderUom || l.baseUom), baseUnitCode: code(l.baseUom), unitsPerOrderUnit: Number(l.unitsPerOrderUnit || 1),
+  }));
+}
+
+/**
+ * 856: what the supplier says is on its way, one expected delivery per order.
+ * BSN01 00 records it; 05 replaces one not yet received; 01 cancels one not
+ * yet received. A delivery already received is never changed from a file.
+ */
+async function apply856(orgId: string, partner: Partner, segments: string[][], controlNo: string, actorId: string | null): Promise<TxnResult[]> {
+  const notice = parse856(segments);
+  const review = (summary: string, reasons: string[] = [], poId: string | null = null): TxnResult => ({ setId: "856", controlNo, outcome: "review", summary, reasons, poId });
+  const purpose = asnPurpose(notice.purpose);
+  if (!purpose) return [review(`Unknown ship notice purpose "${notice.purpose}" (BSN01).`)];
+  if (!notice.orders.length) return [review(`Ship notice ${notice.shipmentId || "(no ID)"} names no order.`, notice.problems)];
+  const out: TxnResult[] = notice.problems.length ? [review(`Ship notice ${notice.shipmentId}: parts of it could not be read.`, notice.problems)] : [];
+  const overrides = partner.unitOverrides as Record<string, string>;
+
+  for (const order of notice.orders) {
+    const [po] = await db.select({ id: tradeDocuments.id, docNumber: tradeDocuments.docNumber }).from(tradeDocuments)
+      .where(and(eq(tradeDocuments.orgId, orgId), eq(tradeDocuments.kind, "PurchaseOrder"), eq(tradeDocuments.partyId, partner.partyId), eq(tradeDocuments.docNumber, order.poNumber))).limit(1);
+    if (!po) { out.push(review(`No purchase order ${order.poNumber} to this supplier.`)); continue; }
+    const reference = asnReference(notice, order.poNumber);
+    const [existing] = await db.select({ id: expectedDeliveries.id, goodsReceiptId: expectedDeliveries.goodsReceiptId }).from(expectedDeliveries)
+      .where(and(eq(expectedDeliveries.orgId, orgId), eq(expectedDeliveries.supplierId, partner.partyId), ne(expectedDeliveries.status, "cancelled"),
+        sql`upper(${expectedDeliveries.reference}) = upper(${reference})`)).limit(1);
+    const tag = `${po.docNumber}, delivery ${reference}`;
+    try {
+      if (purpose === "cancel") {
+        if (!existing) { out.push(review(`${tag}: the supplier cancelled a delivery we have no open record of.`, [], po.id)); continue; }
+        if (existing.goodsReceiptId) { out.push(review(`${tag}: the supplier cancelled it, but it has already been received. Nothing changed.`, [], po.id)); continue; }
+        await setDeliveryCancelled(orgId, existing.id, true);
+        out.push({ setId: "856", controlNo, outcome: "applied", summary: `${tag}: cancelled by the supplier.`, reasons: [], poId: po.id });
+        continue;
+      }
+      if (existing && (purpose === "create" || existing.goodsReceiptId)) {
+        out.push(review(existing.goodsReceiptId ? `${tag}: already received, so the supplier's change was not applied.`
+          : `${tag} is already recorded. The supplier must send a replacement (BSN01 05) to change it.`, [], po.id));
+        continue;
+      }
+      const mapped = asnOrderToDelivery(notice, order, await asnPoLines(orgId, po.id, overrides));
+      if (mapped.ok === false) { out.push(review(`${tag}: the ship notice could not be recorded.`, mapped.problems, po.id)); continue; }
+      // Replace: free the reference by cancelling the old one, record the new one, then remove the old; reopen it if the new one fails.
+      if (existing) await setDeliveryCancelled(orgId, existing.id, true);
+      try { await createExpectedDelivery(orgId, { ...mapped.input, poId: po.id }, actorId); }
+      catch (e) { if (existing) await setDeliveryCancelled(orgId, existing.id, false); throw e; }
+      if (existing) await deleteExpectedDelivery(orgId, existing.id);
+      const n = mapped.input.lines?.length ?? 0;
+      out.push({ setId: "856", controlNo, outcome: "applied", reasons: mapped.notes, poId: po.id,
+        summary: `${tag}: ${existing ? "replaced" : "recorded"} as an expected delivery (${n} line${n === 1 ? "" : "s"}). Receiving can fill in from it.` });
+    } catch (e) {
+      const ed = expectedDeliveryErrorOf(e);
+      if (ed) { out.push(review(`${tag}: ${ed.message}`, [], po.id)); continue; }
+      throw e;
+    }
+  }
+  return out;
 }

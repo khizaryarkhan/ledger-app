@@ -76,3 +76,33 @@ export type EdiAckLine = {
 
 /** A PO acknowledgement (X12 855 / EDIFACT ORDRSP). */
 export type EdiOrderAck = { ackType: string; poNumber: string; poDate: string | null; lines: EdiAckLine[] };
+
+/** One item in a ship notice: what is in which package, for which order line. */
+export type EdiShipItem = {
+  /** LIN01: the order line it fills, echoed back. */
+  lineNo: string;
+  /** Identifiers from LIN (qualifier → value: VP, BP, UP, EN, UK, LT …). */
+  ids: Record<string, string>;
+  qty: number | null; unit: string | null;
+  /** Supplier batch (LIN LT or REF*LT). */
+  batch: string | null;
+  productionDate: string | null; bestBeforeDate: string | null; expiryDate: string | null;
+  /** Dates as sent, when one could not be read. */
+  badDates: string[];
+  /** SSCC of the nearest pack or pallet it is in. */
+  sscc: string | null;
+};
+export type EdiShipPackage = { sscc: string; level: "tare" | "pack"; parentSscc: string | null };
+/** One order in a ship notice. */
+export type EdiShipOrder = { poNumber: string; items: EdiShipItem[]; packages: EdiShipPackage[] };
+/** An advance ship notice (X12 856 / EDIFACT DESADV). */
+export type EdiShipNotice = {
+  /** BSN01: 00 original, 05 replace, 01 cancel. */
+  purpose: string;
+  shipmentId: string;
+  shipDate: string | null; expectedDate: string | null;
+  carrier: string | null; trackingNo: string | null;
+  orders: EdiShipOrder[];
+  /** Things the reader could not place (an item with no order above it, an unreadable date). */
+  problems: string[];
+};

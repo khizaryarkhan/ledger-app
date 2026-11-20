@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { readInterchange } from "@/lib/edi/x12/read";
-import { parse997, parse855, ymdFrom } from "@/lib/edi/x12/inbound";
-import { ackToResponse, type AckPoLine } from "@/lib/edi/inbound";
+import { parse997, parse855, parse856, ymdFrom } from "@/lib/edi/x12/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, type AckPoLine, type AsnPoLine } from "@/lib/edi/inbound";
+import { prepareDelivery } from "@/lib/inventory/expected-delivery";
 import { interchange, seg, type Envelope } from "@/lib/edi/x12/envelope";
 
 // A file FROM the partner: their ID is the sender.
@@ -97,6 +98,70 @@ describe("855 → the supplier-response path", () => {
   it("reads CCYYMMDD by slicing and refuses an impossible date", () => {
     expect(ymdFrom("20260229")).toBeNull();
     expect(ymdFrom("20280229")).toBe("2028-02-29");
+  });
+});
+
+describe("856 → expected delivery", () => {
+  const SSCC_PALLET = "354123450000000014", SSCC_CASE = "354123450000000021";
+  const asnFile = (body: string[]) => interchange(env, "SH", "856", body);
+  const notice = (body: string[]) => parse856(readInterchange(asnFile(body)).groups[0].txns[0].segments);
+  // S → O → T (pallet) → P (case) → I, the usual pick-and-pack shape.
+  const standard = (over: { sn1?: string[]; lin?: string[]; dtm?: string[]; purpose?: string } = {}) => [
+    seg("BSN", over.purpose ?? "00", "ASN-7781", "20261121", "0900"),
+    seg("HL", "1", "", "S"), seg("TD5", "B", "2", "DHLX", "M", "DHL Freight"), seg("REF", "CN", "TRK123"),
+    seg("DTM", "011", "20261121"), seg("DTM", "017", "20261124"),
+    seg("HL", "2", "1", "O"), seg("PRF", "PO-0042"),
+    seg("HL", "3", "2", "T"), seg("MAN", "GM", SSCC_PALLET),
+    seg("HL", "4", "3", "P"), seg("MAN", "GM", SSCC_CASE),
+    seg("HL", "5", "4", "I"), seg("LIN", ...(over.lin ?? ["1", "VP", "SUP-88231", "BP", "RM-RICE", "LT", "B2401"])),
+    seg("SN1", ...(over.sn1 ?? ["", "40", "BG"])),
+    ...(over.dtm ?? [seg("DTM", "094", "20261101"), seg("DTM", "036", "20271101")]),
+    seg("CTT", "1"),
+  ];
+  const lines: AsnPoLine[] = [{ id: "L1", lineNo: 1, itemCode: "RM-RICE", closed: false, orderUnitCode: "BG", baseUnitCode: "KG", unitsPerOrderUnit: 25 }];
+
+  it("reads the shipment, the order, the pallet and case, and the item with batch and dates", () => {
+    const n = notice(standard());
+    expect(n).toMatchObject({ purpose: "00", shipmentId: "ASN-7781", shipDate: "2026-11-21", expectedDate: "2026-11-24", carrier: "DHL Freight", trackingNo: "TRK123", problems: [] });
+    expect(n.orders).toEqual([{ poNumber: "PO-0042",
+      items: [{ lineNo: "1", ids: { VP: "SUP-88231", BP: "RM-RICE", LT: "B2401" }, qty: 40, unit: "BG", batch: "B2401",
+        productionDate: "2026-11-01", bestBeforeDate: null, expiryDate: "2027-11-01", badDates: [], sscc: SSCC_CASE }],
+      packages: [{ sscc: SSCC_CASE, level: "pack", parentSscc: SSCC_PALLET }, { sscc: SSCC_PALLET, level: "tare", parentSscc: null }] }]);
+  });
+
+  it("becomes an ASN delivery for the PO line, the quantity in base units, packed as announced", () => {
+    const n = notice(standard());
+    const r = asnOrderToDelivery(n, n.orders[0], lines);
+    expect(r).toMatchObject({ ok: true, notes: [], input: { source: "asn", reference: "ASN-7781", shipDate: "2026-11-21", expectedDate: "2026-11-24",
+      carrier: "DHL Freight", trackingNo: "TRK123",
+      lines: [{ poLineId: "L1", qtyBase: 1000, sscc: SSCC_CASE, supplierBatchNo: "B2401", productionDate: "2026-11-01", expiryDate: "2027-11-01" }] } });
+    // And the existing delivery rules accept it as it stands.
+    expect(prepareDelivery((r as any).input, { poLines: [{ id: "L1", itemId: "I1" }] }).ok).toBe(true);
+  });
+
+  it("accepts a quantity in the base unit too", () => {
+    const n = notice(standard({ sn1: ["", "500", "KG"] }));
+    expect(asnOrderToDelivery(n, n.orders[0], lines)).toMatchObject({ ok: true, input: { lines: [{ qtyBase: 500 }] } });
+  });
+
+  it("never guesses: an unknown line, another unit, our item code disagreeing, a bad date", () => {
+    const run = (o: Parameters<typeof standard>[0]) => { const n = notice(standard(o)); return asnOrderToDelivery(n, n.orders[0], lines); };
+    expect(run({ lin: ["9", "VP", "X"] })).toEqual({ ok: false, problems: [expect.stringMatching(/Line "9" is not a line of PO-0042/)] });
+    expect(run({ sn1: ["", "40", "CA"] })).toEqual({ ok: false, problems: [expect.stringMatching(/quantity is in CA, the order line is in BG \(base KG\)/)] });
+    expect(run({ lin: ["1", "BP", "RM-OATS"] })).toEqual({ ok: false, problems: [expect.stringMatching(/they name our item RM-OATS, the order line is RM-RICE/)] });
+    expect(run({ dtm: [seg("DTM", "036", "20271340")] })).toEqual({ ok: false, problems: [expect.stringMatching(/Expiry date "20271340" is not a date/)] });
+  });
+
+  it("an item with no order above it is reported, not attached to a guess", () => {
+    const n = notice([seg("BSN", "00", "ASN-1", "20261121"), seg("HL", "1", "", "S"), seg("HL", "2", "1", "I"), seg("LIN", "1"), seg("SN1", "", "1", "BG")]);
+    expect(n.orders).toEqual([]);
+    expect(n.problems).toEqual([expect.stringMatching(/no order \(HL O\) above it/)]);
+  });
+
+  it("knows what BSN01 asks, and keys several orders by shipment and PO", () => {
+    expect([asnPurpose("00"), asnPurpose("05"), asnPurpose("01"), asnPurpose("ZZ")]).toEqual(["create", "replace", "cancel", null]);
+    const two = notice([...standard().slice(0, -1), seg("HL", "6", "1", "O"), seg("PRF", "PO-0043"), seg("HL", "7", "6", "I"), seg("LIN", "1"), seg("SN1", "", "5", "BG"), seg("CTT", "2")]);
+    expect(two.orders.map(o => asnReference(two, o.poNumber))).toEqual(["ASN-7781/PO-0042", "ASN-7781/PO-0043"]);
   });
 });
 

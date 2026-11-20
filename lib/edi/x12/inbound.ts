@@ -1,11 +1,11 @@
 /**
  * X12 inbound transaction sets → the canonical model. Pure.
- * 997 (functional acknowledgement) and 855 (PO acknowledgement).
+ * 997 (functional acknowledgement), 855 (PO acknowledgement) and 856 (ship notice).
  * Dates CCYYMMDD → YYYY-MM-DD by slicing; anything else is reported, not guessed.
  */
 
 import { el } from "@/lib/edi/x12/read";
-import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine } from "@/lib/edi/model";
+import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine, EdiShipNotice, EdiShipItem, EdiShipOrder } from "@/lib/edi/model";
 
 /** CCYYMMDD → YYYY-MM-DD, or null when it is not a real calendar date. */
 export function ymdFrom(v: string): string | null {
@@ -54,4 +54,87 @@ export function parse855(segments: string[][]): EdiOrderAck {
     } else if (s[0] === "CTT") cur = null;
   }
   return { ackType: el(bak, 2), poNumber: el(bak, 3), poDate: ymdFrom(el(bak, 4)), lines };
+}
+
+type Hl = { id: string; parent: string; level: string; segs: string[][] };
+
+/**
+ * 856 → a ship notice. The HL tree is read as sent (any of S/O/T/P/I order):
+ * an item belongs to the nearest order (O) above it and is packed in the
+ * nearest pack (P) or pallet (T) above it; a pack's pallet is the nearest T
+ * above the pack. Dates: DTM 011 shipped, 017/067 delivery; on an item 094
+ * production, 511 best before, 036 expiry.
+ */
+export function parse856(segments: string[][]): EdiShipNotice {
+  const bsn = segments.find(s => s[0] === "BSN");
+  const problems: string[] = [];
+  const hls: Hl[] = [];
+  const head: string[][] = [];
+  for (const s of segments) {
+    if (s[0] === "HL") hls.push({ id: el(s, 1), parent: el(s, 2), level: el(s, 3), segs: [] });
+    else if (hls.length) hls[hls.length - 1].segs.push(s);
+    else head.push(s);
+  }
+  const byId = new Map(hls.map(h => [h.id, h]));
+  const ancestors = (h: Hl) => {
+    const out: Hl[] = []; const seen = new Set<string>([h.id]);
+    let p = h.parent ? byId.get(h.parent) : undefined;
+    while (p && !seen.has(p.id)) { out.push(p); seen.add(p.id); p = p.parent ? byId.get(p.parent) : undefined; }
+    return out;
+  };
+  const first = (h: Hl, id: string, q?: string) => h.segs.find(s => s[0] === id && (q == null || el(s, 1) === q));
+  const date = (raw: string, label: string, bad: string[]) => {
+    if (!raw) return null;
+    const d = ymdFrom(raw);
+    if (!d) bad.push(`${label} "${raw}" is not a date`);
+    return d;
+  };
+  const ssccOf = (h: Hl) => el(h.segs.find(s => s[0] === "MAN" && el(s, 1) === "GM"), 2) || null;
+
+  const ship = hls.find(h => h.level === "S");
+  const sSegs = [...head, ...(ship?.segs ?? [])];
+  const dtm = (q: string) => el(sSegs.find(s => s[0] === "DTM" && el(s, 1) === q), 2);
+  const td5 = sSegs.find(s => s[0] === "TD5");
+  const ref = (q: string) => el(sSegs.find(s => s[0] === "REF" && el(s, 1) === q), 2);
+  const shipBad: string[] = [];
+  const shipDate = date(dtm("011"), "Ship date", shipBad);
+  const expectedDate = date(dtm("017") || dtm("067"), "Delivery date", shipBad);
+  problems.push(...shipBad);
+
+  const orders = new Map<string, EdiShipOrder>();
+  for (const h of hls.filter(x => x.level === "I")) {
+    const up = ancestors(h);
+    const o = up.find(a => a.level === "O");
+    const lin = first(h, "LIN");
+    const lineNo = el(lin, 1);
+    if (!o) { problems.push(`Item line ${lineNo || h.id} has no order (HL O) above it.`); continue; }
+    const poNumber = el(first(o, "PRF"), 1);
+    if (!poNumber) { problems.push(`Order level ${o.id} names no purchase order (PRF01).`); continue; }
+    const order = orders.get(poNumber) ?? (orders.set(poNumber, { poNumber, items: [], packages: [] }).get(poNumber)!);
+    const ids: Record<string, string> = {};
+    if (lin) for (let i = 2; i + 1 < lin.length; i += 2) if (lin[i]) ids[lin[i].trim()] = (lin[i + 1] ?? "").trim();
+    const sn1 = first(h, "SN1");
+    const iDtm = (q: string) => el(h.segs.find(s => s[0] === "DTM" && el(s, 1) === q), 2);
+    const bad: string[] = [];
+    const item: EdiShipItem = {
+      lineNo, ids, qty: el(sn1, 2) === "" ? null : Number(el(sn1, 2)), unit: el(sn1, 3) || null,
+      batch: ids.LT || el(first(h, "REF", "LT"), 2) || null,
+      productionDate: date(iDtm("094"), "Production date", bad), bestBeforeDate: date(iDtm("511"), "Best-before date", bad),
+      expiryDate: date(iDtm("036"), "Expiry date", bad), badDates: bad, sscc: null,
+    };
+    const box = up.find(a => (a.level === "P" || a.level === "T") && ssccOf(a));
+    item.sscc = box ? ssccOf(box) : null;
+    for (const a of up.filter(x => (x.level === "P" || x.level === "T") && ssccOf(x))) {
+      const code = ssccOf(a)!;
+      if (order.packages.some(p => p.sscc === code)) continue;
+      const pallet = a.level === "P" ? ancestors(a).find(x => x.level === "T" && ssccOf(x)) : undefined;
+      order.packages.push({ sscc: code, level: a.level === "T" ? "tare" : "pack", parentSscc: pallet ? ssccOf(pallet) : null });
+    }
+    order.items.push(item);
+  }
+  return {
+    purpose: el(bsn, 1), shipmentId: el(bsn, 2), shipDate, expectedDate,
+    carrier: el(td5, 5) || el(td5, 3) || null, trackingNo: ref("CN") || ref("BM") || null,
+    orders: [...orders.values()], problems,
+  };
 }

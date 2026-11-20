@@ -9,7 +9,9 @@
  * for a person to look, given in words.
  */
 
-import type { EdiOrderAck } from "@/lib/edi/model";
+import type { EdiOrderAck, EdiShipNotice, EdiShipOrder } from "@/lib/edi/model";
+import type { DeliveryInput } from "@/lib/inventory/expected-delivery";
+import { roundQty } from "@/lib/inventory/round";
 import type { SubmittedLine } from "@/lib/accounting/po-workflow";
 
 /** BAK02: the whole order rejected, or accepted with nothing to change. */
@@ -78,3 +80,63 @@ export function ackToResponse(ack: EdiOrderAck, poLines: AckPoLine[]): AckOutcom
 }
 
 const latest = (a: string | null, b: string) => (!a || b > a ? b : a);
+
+/** A PO line as an 856 is matched against it. Unit codes are X12 codes (null when ours has none). */
+export type AsnPoLine = {
+  id: string; lineNo: number; itemCode: string | null; closed: boolean;
+  orderUnitCode: string | null; baseUnitCode: string | null; unitsPerOrderUnit: number;
+};
+export type AsnOutcome = { ok: true; input: DeliveryInput; notes: string[] } | { ok: false; problems: string[] };
+
+/** BSN01: what the notice asks us to do with the delivery it names. */
+export function asnPurpose(code: string): "create" | "replace" | "cancel" | null {
+  return code === "00" || code === "06" ? "create" : code === "05" ? "replace" : code === "01" || code === "03" ? "cancel" : null;
+}
+
+/** The reference a delivery is recorded under: the shipment ID, plus the PO when one notice covers several orders. */
+export function asnReference(notice: EdiShipNotice, poNumber: string) {
+  return (notice.orders.length > 1 ? `${notice.shipmentId}/${poNumber}` : notice.shipmentId).slice(0, 64);
+}
+
+/**
+ * One order of an 856 → an expected delivery for that PO (source "asn"). It
+ * is a claim, never stock: Receiving fills in from it and a person counts.
+ * Never guesses: the line must be a line of this PO (LIN01), our item code
+ * must agree when they send it (BP), and the quantity must be in the line's
+ * order unit (converted to base) or in the base unit. Anything else is a
+ * reason for a person to look, and nothing is recorded for that order.
+ */
+export function asnOrderToDelivery(notice: EdiShipNotice, order: EdiShipOrder, poLines: AsnPoLine[]): AsnOutcome {
+  const problems: string[] = [];
+  const notes: string[] = [];
+  if (!notice.shipmentId.trim()) problems.push("The ship notice has no shipment ID (BSN02).");
+  if (!order.items.length) problems.push(`Nothing is listed for ${order.poNumber}.`);
+  const byNo = new Map(poLines.map(l => [l.lineNo, l]));
+  const lines = order.items.map(it => {
+    const at = `Line "${it.lineNo}"`;
+    const pl = /^\d+$/.test(it.lineNo) ? byNo.get(Number(it.lineNo)) : undefined;
+    if (!pl) { problems.push(`${at} is not a line of ${order.poNumber}.`); return null; }
+    const bp = it.ids.BP;
+    if (bp && pl.itemCode && bp.trim().toUpperCase() !== pl.itemCode.trim().toUpperCase()) problems.push(`${at}: they name our item ${bp}, the order line is ${pl.itemCode}.`);
+    for (const b of it.badDates) problems.push(`${at}: ${b}.`);
+    if (it.qty == null || !Number.isFinite(it.qty) || it.qty <= 0) { problems.push(`${at}: no quantity shipped (SN1).`); return null; }
+    let qtyBase: number | null = null;
+    const unit = (it.unit ?? "").toUpperCase();
+    if (unit && unit === pl.orderUnitCode) qtyBase = roundQty(it.qty * pl.unitsPerOrderUnit);
+    else if (unit && unit === pl.baseUnitCode) qtyBase = roundQty(it.qty);
+    if (qtyBase == null) {
+      problems.push(`${at}: the quantity is in ${unit || "no unit"}, the order line is in ${pl.orderUnitCode ?? "a unit with no X12 code"}${pl.baseUnitCode && pl.baseUnitCode !== pl.orderUnitCode ? ` (base ${pl.baseUnitCode})` : ""}.`);
+      return null;
+    }
+    if (pl.closed) notes.push(`${at} is closed on the order; it is recorded as announced, Receiving will not offer it.`);
+    return { poLineId: pl.id, qtyBase, sscc: it.sscc, supplierBatchNo: it.batch, productionDate: it.productionDate,
+      bestBeforeDate: it.bestBeforeDate, expiryDate: it.expiryDate };
+  });
+  if (problems.length) return { ok: false, problems };
+  return { ok: true, notes, input: {
+    source: "asn", reference: asnReference(notice, order.poNumber), shipDate: notice.shipDate, expectedDate: notice.expectedDate,
+    carrier: notice.carrier, trackingNo: notice.trackingNo,
+    packages: order.packages.map(p => ({ sscc: p.sscc, packType: p.level === "tare" ? "pallet" : null, parentSscc: p.parentSscc })),
+    lines: lines as NonNullable<(typeof lines)[number]>[],
+  } };
+}

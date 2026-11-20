@@ -140,7 +140,7 @@ function UploadDrawer({ onClose }: { onClose: () => void }) {
     setDone(d);
   }
   return (
-    <Drawer title="Upload a received file" subtitle="An X12 file your partner sent: a 997 acknowledgement or an 855 order acknowledgement." onClose={onClose} size="lg">
+    <Drawer title="Upload a received file" subtitle="An X12 file your partner sent: a 997 acknowledgement, an 855 order acknowledgement or an 856 ship notice." onClose={onClose} size="lg">
       <div className="space-y-4">
         <input type="file" accept=".x12,.edi,.txt,.dat,text/plain" onChange={e => pick(e.target.files?.[0])} className="text-[12.5px] text-stone-300" aria-label="X12 file" />
         {file && !done && (
