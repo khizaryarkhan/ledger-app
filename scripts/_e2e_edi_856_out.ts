@@ -91,6 +91,18 @@ async function main() {
     check("the goods from the one lot carry its batch (the supplier's printed one) and dates, packed and loose", n.orders[0].items.length === 2 && n.orders[0].items.every(i => i.batch === `E2E-SB-${tag}` && i.productionDate === "2026-11-01" && i.expiryDate === "2027-11-01"), JSON.stringify(n.orders[0].items.map(i => [i.batch, i.expiryDate])));
     check("it is waiting to be sent, linked to the shipment", row.status === "generated" && row.docType === "856" && row.appDocType === "Shipment" && row.appDocId === sh.id);
 
+    // The printable labels for the same packing: one per package, each with its SSCC and its contents, and a drawn barcode.
+    const { shipmentLabels } = await import("../lib/inventory/sscc-labels-server");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const React = await import("react");
+    (globalThis as any).React = React;   // tsx compiles JSX the classic way; Next uses the automatic runtime
+    const { SsccLabelSheet } = await import("../components/sscc-label-sheet");
+    const labels = await shipmentLabels(orgId, sh.id);
+    const lc = labels.labels.find(x => x.sscc === CARTON), lp = labels.labels.find(x => x.sscc === PALLET);
+    check("the labels list the pallet and the carton with their SSCCs and contents", labels.labels.length === 2 && lc?.parentSscc === PALLET && lp?.packType === "pallet" && lc?.contents.length === 1 && lc.contents[0].qty === 5, JSON.stringify(labels.labels.map(x => [x.packType, x.contents.length])));
+    const html = renderToStaticMarkup(React.createElement(SsccLabelSheet, { data: labels as any }));
+    check("the printed labels carry the human-readable SSCC and a drawn barcode, one label per package", html.includes(`(00) ${CARTON}`) && html.includes(`(00) ${PALLET}`) && (html.match(/<svg /g) ?? []).length === 2 && html.includes("PALLET") && html.includes("CARTON"), "");
+
     await E.markMessageSent(orgId, m1.id, null);
     const m2 = await O.generateShipmentAsn856(orgId, sh.id, null);
     const [row2] = await db.select().from(S.ediMessages).where(eq(S.ediMessages.id, m2.id));
