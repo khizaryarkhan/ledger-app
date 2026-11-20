@@ -951,6 +951,27 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 2d: we send our own 997 for the partner's files (2026-11-20)
+
+No migration. `write997` (`lib/edi/x12/997.ts`, pure) writes one 997 per received functional group, all in one FA
+group (`interchangeSets` in envelope.ts; `interchange` now delegates to it with byte-identical output). Everything is
+**accepted (AK5/AK9 A)** on purpose: a 997 answers only whether our translator accepted the syntax, and a file we
+stored was read in full (a file whose counts do not add up is refused and never stored). Whether we agree with the
+CONTENT is a business answer (855/review), never a 997. **A 997 is never acknowledged** (FA groups skipped).
+
+- Partner setting: "997" in `docs_out` (`EDI_DOCS_OUT`; partner drawer checkbox). When on, `receiveEdiFile` makes our
+  997 for every received file (`ack` in its result); a failure is logged and never fails the upload. Otherwise a
+  person uses "Make our 997 for this file" on the received file (`PATCH /api/edi/messages/[id] { action: "ack" }`).
+- `generateAck997` (`lib/edi/inbound-server.ts`): one per received file (returns the existing one unless it was
+  voided), linked by `app_doc_type = 'EdiFile'` / `app_doc_id` = the received message, takes a control number from
+  the partner's counter, goes out in the SAME test/live mode as the file it answers. Delivered like an 850:
+  download, deliver, mark sent. Sent/void audit rows now tag a PO only when the file is a PO's.
+- Tests in `tests/edi-inbound.test.ts` (our 997 read back by our own reader and parse997; never-ack-a-997 proven to
+  fail when removed); `scripts/_e2e_edi_997.ts` (6 checks on dev, cleaned up).
+- **Not built / not verified**: not clicked through in a browser. Two simultaneous "make" calls for the same file
+  could both create one (no unique index); the second can be voided. No TA1 (interchange acknowledgement), no 999
+  (5010 implementation acknowledgement), no 997 with rejections (we never store a file we would reject).
+
 ## EDI Phase 2c: 810 invoices become a bill a PERSON creates (2026-11-20)
 
 No migration. `parse810` (`lib/edi/x12/inbound.ts`): BIG (date, invoice no., PO no. in BIG04), CUR, ITD (due date
