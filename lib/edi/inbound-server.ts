@@ -17,11 +17,11 @@
 
 import { createHash } from "node:crypto";
 import { db } from "@/db";
-import { ediPartners, ediMessages, tradeDocuments, tradeDocumentLines, apItems, expectedDeliveries } from "@/db/schema";
+import { ediPartners, ediMessages, tradeDocuments, tradeDocumentLines, apItems, expectedDeliveries, goodsReceipts, goodsReceiptLines, apBills, organisations } from "@/db/schema";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { readInterchange, X12ReadError } from "@/lib/edi/x12/read";
-import { parse997, parse855, parse856 } from "@/lib/edi/x12/inbound";
-import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference } from "@/lib/edi/inbound";
+import { parse997, parse855, parse856, parse810 } from "@/lib/edi/x12/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, type BillProposal, type InvoiceMatchLine, type InvoiceReceipt, type InvoiceOutcome } from "@/lib/edi/inbound";
 import { createExpectedDelivery, setDeliveryCancelled, deleteExpectedDelivery, expectedDeliveryErrorOf } from "@/lib/inventory/expected-delivery-server";
 import { x12UnitFor } from "@/lib/edi/validate";
 import { recordSupplierResponse } from "@/lib/accounting/po-supplier-server";
@@ -33,7 +33,11 @@ const MAX_BYTES = 2_000_000;
 const isUniqueViolation = (e: any) => e?.code === "23505" || /duplicate key|unique constraint/i.test(String(e?.message ?? ""));
 
 type Partner = typeof ediPartners.$inferSelect;
-export type TxnResult = { setId: string; controlNo: string; outcome: "applied" | "review" | "ignored"; summary: string; reasons: string[]; poId?: string | null };
+export type TxnResult = {
+  setId: string; controlNo: string; outcome: "applied" | "review" | "ignored"; summary: string; reasons: string[]; poId?: string | null;
+  /** 810 only: the bill a person may create, the line-by-line match, and the bill once created. */
+  proposal?: BillProposal | null; match?: InvoiceMatchLine[]; bill?: { entryId: string; docNumber: string | null } | null;
+};
 
 /** Upload one file. Returns the stored message and what was done with each transaction set. */
 export async function receiveEdiFile(orgId: string, content: string, fileName: string, actorId: string | null) {
@@ -90,6 +94,7 @@ async function processMessage(orgId: string, partner: Partner, messageId: string
         const rs: TxnResult[] = t.setId === "997" ? [await apply997(orgId, partner, messageId, t.segments, t.controlNo)]
           : t.setId === "855" ? [await apply855(orgId, partner, t.segments, t.controlNo)]
           : t.setId === "856" ? await apply856(orgId, partner, t.segments, t.controlNo, actorId)
+          : t.setId === "810" ? [await apply810(orgId, partner, t.segments, t.controlNo)]
           : [{ setId: t.setId, controlNo: t.controlNo, outcome: "review" as const, summary: `${t.setId} files are not read yet.`, reasons: [] }];
         results.push(...rs);
         for (const r of rs) if (r.poId && !appDoc) {
@@ -229,4 +234,55 @@ async function apply856(orgId: string, partner: Partner, segments: string[][], c
     }
   }
   return out;
+}
+
+/**
+ * An 810 matched against our records as they stand now: the PO it names, its
+ * receipts not yet billed, and any bill already recorded under the invoice
+ * number. Used on upload and again just before a person creates the bill.
+ */
+export async function matchInvoice(orgId: string, partner: Partner, segments: string[][]): Promise<{ poId: string | null; poNumber: string; invoiceNo: string; outcome: InvoiceOutcome; existingBill: string | null }> {
+  const inv = parse810(segments);
+  const none = (problems: string[]) => ({ poId: null, poNumber: inv.poNumber, invoiceNo: inv.invoiceNo, existingBill: null, outcome: { ok: false as const, problems, lines: [] } });
+  if (!inv.poNumber) return none(["The invoice names no purchase order (BIG04). Bill it by hand."]);
+  const [po] = await db.select({ id: tradeDocuments.id, currency: tradeDocuments.currency }).from(tradeDocuments)
+    .where(and(eq(tradeDocuments.orgId, orgId), eq(tradeDocuments.kind, "PurchaseOrder"), eq(tradeDocuments.partyId, partner.partyId), eq(tradeDocuments.docNumber, inv.poNumber))).limit(1);
+  if (!po) return none([`No purchase order ${inv.poNumber} to this supplier.`]);
+
+  const [org] = await db.select({ home: organisations.currency }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const home = (org?.home ?? "PKR").toUpperCase();
+  const billCurrency = (inv.currency || po.currency || home).toUpperCase();
+  const receiptIds = [...new Set((await db.select({ id: goodsReceiptLines.receiptId }).from(goodsReceiptLines)
+    .where(and(eq(goodsReceiptLines.orgId, orgId), eq(goodsReceiptLines.poId, po.id)))).map(r => r.id))];
+  const heads = receiptIds.length ? await db.select().from(goodsReceipts)
+    .where(and(eq(goodsReceipts.orgId, orgId), inArray(goodsReceipts.id, receiptIds), eq(goodsReceipts.supplierId, partner.partyId), eq(goodsReceipts.status, "Posted"))) : [];
+  const inCurrency = heads.filter(h => (h.currency || home).toUpperCase() === billCurrency);
+  const lines = inCurrency.length ? await db.select().from(goodsReceiptLines)
+    .where(and(eq(goodsReceiptLines.orgId, orgId), inArray(goodsReceiptLines.receiptId, inCurrency.map(h => h.id)))) : [];
+  const receipts: InvoiceReceipt[] = inCurrency.map(h => {
+    const fx = billCurrency === home ? 1 : Number(h.exchangeRate) || 1;
+    return { id: h.id, receiptNo: h.receiptNo, receiptDate: String(h.receiptDate), currency: billCurrency,
+      lines: lines.filter(l => l.receiptId === h.id).map(l => ({ id: l.id, poLineId: l.poLineId,
+        unbilledQty: Math.max(0, Number(l.qtyBase) - Number(l.billedQty)), price: Number(l.unitCost) / fx })) };
+  });
+  const outcome = invoiceToBill(inv, await asnPoLines(orgId, po.id, partner.unitOverrides as Record<string, string>), receipts, billCurrency);
+  const [dup] = inv.invoiceNo ? await db.select({ billNumber: apBills.billNumber }).from(apBills)
+    .where(and(eq(apBills.orgId, orgId), eq(apBills.supplierId, partner.partyId), sql`upper(${apBills.reference}) = upper(${inv.invoiceNo.trim()})`)).limit(1) : [];
+  return { poId: po.id, poNumber: inv.poNumber, invoiceNo: inv.invoiceNo, outcome, existingBill: dup ? (dup.billNumber || "a bill") : null };
+}
+
+/** The segments of one 810 inside a stored file, found by its ST control number. */
+export function invoiceSegmentsIn(payload: string, controlNo: string): string[][] | null {
+  return readInterchange(payload).groups.flatMap(g => g.txns).find(t => t.setId === "810" && t.controlNo === controlNo)?.segments ?? null;
+}
+
+/** 810: the supplier's invoice. Matched and proposed as a bill; a person creates it. Nothing posts from the file. */
+async function apply810(orgId: string, partner: Partner, segments: string[][], controlNo: string): Promise<TxnResult> {
+  const m = await matchInvoice(orgId, partner, segments);
+  const tag = `Invoice ${m.invoiceNo || "(no number)"} for ${m.poNumber || "no PO"}`;
+  if (m.existingBill) return { setId: "810", controlNo, outcome: "review", poId: m.poId, summary: `${tag} is already recorded as ${m.existingBill}. Nothing to do.`, reasons: [] };
+  if (m.outcome.ok === false) return { setId: "810", controlNo, outcome: "review", poId: m.poId, summary: `${tag}: bill it by hand.`, reasons: m.outcome.problems, match: m.outcome.lines };
+  const p = m.outcome.proposal;
+  return { setId: "810", controlNo, outcome: "review", poId: m.poId, proposal: p, match: m.outcome.lines, reasons: m.outcome.notes,
+    summary: `${tag} matches ${p.receiptNos.join(", ")} (goods ${p.goods} ${p.currency}). Check it and create the bill.` };
 }

@@ -106,3 +106,19 @@ export type EdiShipNotice = {
   /** Things the reader could not place (an item with no order above it, an unreadable date). */
   problems: string[];
 };
+
+/** One line of a supplier invoice. */
+export type EdiInvoiceLine = { lineNo: string; qty: number | null; unit: string | null; price: number | null; ids: Record<string, string> };
+/** A supplier invoice (X12 810 / EDIFACT INVOIC). Amounts in the invoice currency. */
+export type EdiInvoice = {
+  invoiceNo: string; invoiceDate: string | null; poNumber: string; currency: string | null;
+  dueDate: string | null; netDays: number | null;
+  lines: EdiInvoiceLine[];
+  /** TDS01, the invoice total. */
+  total: number | null;
+  /** TXI amounts, summed. */
+  tax: number | null;
+  /** SAC charges (+) and allowances (-). */
+  charges: { code: string; amount: number }[];
+  problems: string[];
+};

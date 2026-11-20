@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { readInterchange } from "@/lib/edi/x12/read";
-import { parse997, parse855, parse856, ymdFrom } from "@/lib/edi/x12/inbound";
-import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, type AckPoLine, type AsnPoLine } from "@/lib/edi/inbound";
+import { parse997, parse855, parse856, parse810, ymdFrom } from "@/lib/edi/x12/inbound";
+import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, type AckPoLine, type AsnPoLine, type InvoiceReceipt } from "@/lib/edi/inbound";
 import { prepareDelivery } from "@/lib/inventory/expected-delivery";
 import { interchange, seg, type Envelope } from "@/lib/edi/x12/envelope";
 
@@ -162,6 +162,59 @@ describe("856 → expected delivery", () => {
     expect([asnPurpose("00"), asnPurpose("05"), asnPurpose("01"), asnPurpose("ZZ")]).toEqual(["create", "replace", "cancel", null]);
     const two = notice([...standard().slice(0, -1), seg("HL", "6", "1", "O"), seg("PRF", "PO-0043"), seg("HL", "7", "6", "I"), seg("LIN", "1"), seg("SN1", "", "5", "BG"), seg("CTT", "2")]);
     expect(two.orders.map(o => asnReference(two, o.poNumber))).toEqual(["ASN-7781/PO-0042", "ASN-7781/PO-0043"]);
+  });
+});
+
+describe("810 → a bill a person approves", () => {
+  const inv = (it1: string[][], extra: string[] = []) => parse810(readInterchange(interchange(env, "IN", "810", [
+    seg("BIG", "20261125", "INV-501", "", "PO-0042"), seg("CUR", "SE", "EUR"), seg("ITD", "01", "3", "", "", "", "", "30"),
+    ...it1.map(a => seg("IT1", ...a)), ...extra, seg("CTT", String(it1.length)),
+  ])).groups[0].txns[0].segments);
+  const poLines: AsnPoLine[] = [
+    { id: "L1", lineNo: 1, itemCode: "RM-RICE", closed: false, orderUnitCode: "BG", baseUnitCode: "KG", unitsPerOrderUnit: 25 },
+    { id: "L2", lineNo: 2, itemCode: "RM-OATS", closed: false, orderUnitCode: "KG", baseUnitCode: "KG", unitsPerOrderUnit: 1 },
+  ];
+  // Two receipts on the PO: GRN-1 has 400 kg of rice, GRN-2 the other 600 kg and 50 kg of oats. Receipt price 0.5/kg rice, 2/kg oats.
+  const receipts: InvoiceReceipt[] = [
+    { id: "R2", receiptNo: "GRN-2", receiptDate: "2026-11-22", currency: "EUR", lines: [{ id: "g2a", poLineId: "L1", unbilledQty: 600, price: 0.5 }, { id: "g2b", poLineId: "L2", unbilledQty: 50, price: 2 }] },
+    { id: "R1", receiptNo: "GRN-1", receiptDate: "2026-11-20", currency: "EUR", lines: [{ id: "g1", poLineId: "L1", unbilledQty: 400, price: 0.5 }] },
+  ];
+
+  it("reads the invoice: number, date, PO, currency, lines, net days, total in cents, tax and charges", () => {
+    const i = inv([["1", "16", "BG", "12.5", "", "VP", "SUP-1", "BP", "RM-RICE"]], [seg("TDS", "22500"), seg("TXI", "VA", "25"), seg("SAC", "C", "D240", "", "", "1500")]);
+    expect(i).toMatchObject({ invoiceNo: "INV-501", invoiceDate: "2026-11-25", poNumber: "PO-0042", currency: "EUR", netDays: 30, total: 225, tax: 25, charges: [{ code: "D240", amount: 15 }], problems: [] });
+    expect(i.lines).toEqual([{ lineNo: "1", qty: 16, unit: "BG", price: 12.5, ids: { VP: "SUP-1", BP: "RM-RICE" } }]);
+  });
+
+  it("matches the oldest receipt that covers the invoice exactly, in base units, due 30 days on", () => {
+    const r = invoiceToBill(inv([["1", "16", "BG", "12.5"]]), poLines, receipts, "EUR");
+    expect(r).toMatchObject({ ok: true, notes: [], proposal: { invoiceNo: "INV-501", invoiceDate: "2026-11-25", dueDate: "2026-12-25",
+      receiptIds: ["R1"], receiptNos: ["GRN-1"], prices: [], goods: 200 } });
+  });
+
+  it("takes a run of receipts when one is not enough, and only when nothing else on them is unbilled", () => {
+    const both = invoiceToBill(inv([["1", "40", "BG", "12.5"], ["2", "50", "KG", "2"]]), poLines, receipts, "EUR");
+    expect(both).toMatchObject({ ok: true, proposal: { receiptIds: ["R1", "R2"], goods: 600 } });
+    // Rice for both receipts but no oats: GRN-2 would bill the oats too, so it is refused rather than over-billed.
+    const riceOnly = invoiceToBill(inv([["1", "40", "BG", "12.5"]]), poLines, receipts, "EUR");
+    expect(riceOnly).toMatchObject({ ok: false, problems: [expect.stringMatching(/do not match what has been received/)] });
+  });
+
+  it("carries a different invoice price as a per-base-unit price for that line, and says what it does", () => {
+    const r = invoiceToBill(inv([["1", "16", "BG", "13"]]), poLines, receipts, "EUR");
+    expect(r).toMatchObject({ ok: true, proposal: { prices: [{ lineId: "g1", unitCost: 0.52 }], goods: 208 }, notes: [expect.stringMatching(/purchase price variance/)] });
+  });
+
+  it("asks for the tax rate and names charges and a total that does not add up", () => {
+    const r = invoiceToBill(inv([["1", "16", "BG", "12.5"]], [seg("TDS", "99900"), seg("TXI", "VA", "46"), seg("SAC", "C", "D240", "", "", "1500")]), poLines, receipts, "EUR");
+    expect(r.ok && r.notes).toEqual([expect.stringMatching(/tax of 46: choose the tax rate/), expect.stringMatching(/charges or allowances of 15/), expect.stringMatching(/total is 999; goods 200 plus tax and charges come to 261/)]);
+  });
+
+  it("never guesses: another currency, an unknown line, another unit, nothing received", () => {
+    expect(invoiceToBill(inv([["1", "16", "BG", "12.5"]]), poLines, receipts, "USD")).toMatchObject({ ok: false, problems: [expect.stringMatching(/in EUR, the goods were received in USD/)] });
+    expect(invoiceToBill(inv([["7", "1", "BG", "1"]]), poLines, receipts, "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/Line "7" is not a line of PO-0042/)] });
+    expect(invoiceToBill(inv([["1", "1", "CA", "1"]]), poLines, receipts, "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/invoiced in CA/)] });
+    expect(invoiceToBill(inv([["1", "16", "BG", "12.5"]]), poLines, [], "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/Nothing received against PO-0042/)] });
   });
 });
 

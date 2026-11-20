@@ -1,11 +1,11 @@
 /**
  * X12 inbound transaction sets → the canonical model. Pure.
- * 997 (functional acknowledgement), 855 (PO acknowledgement) and 856 (ship notice).
+ * 997 (functional acknowledgement), 855 (PO acknowledgement), 856 (ship notice) and 810 (invoice).
  * Dates CCYYMMDD → YYYY-MM-DD by slicing; anything else is reported, not guessed.
  */
 
 import { el } from "@/lib/edi/x12/read";
-import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine, EdiShipNotice, EdiShipItem, EdiShipOrder } from "@/lib/edi/model";
+import type { EdiFunctionalAck, EdiOrderAck, EdiAckLine, EdiShipNotice, EdiShipItem, EdiShipOrder, EdiInvoice, EdiInvoiceLine } from "@/lib/edi/model";
 
 /** CCYYMMDD → YYYY-MM-DD, or null when it is not a real calendar date. */
 export function ymdFrom(v: string): string | null {
@@ -136,5 +136,44 @@ export function parse856(segments: string[][]): EdiShipNotice {
     purpose: el(bsn, 1), shipmentId: el(bsn, 2), shipDate, expectedDate,
     carrier: el(td5, 5) || el(td5, 3) || null, trackingNo: ref("CN") || ref("BM") || null,
     orders: [...orders.values()], problems,
+  };
+}
+
+/**
+ * 810 → a supplier invoice. BIG: date, invoice number, PO number (BIG04).
+ * IT1: line number (ours, echoed), qty, unit, unit price, identifiers. TDS01 is
+ * the total in cents (implied 2 decimals); SAC05 likewise; TXI02 is a decimal.
+ */
+export function parse810(segments: string[][]): EdiInvoice {
+  const big = segments.find(s => s[0] === "BIG");
+  const problems: string[] = [];
+  const num = (v: string) => (v === "" ? null : Number(v));
+  const cents = (v: string, label: string) => {
+    if (v === "") return null;
+    if (!/^-?\d+$/.test(v)) { problems.push(`${label} "${v}" is not a whole number of cents`); return null; }
+    return Number(v) / 100;
+  };
+  const rawDate = el(big, 1);
+  const invoiceDate = rawDate ? ymdFrom(rawDate) : null;
+  if (rawDate && !invoiceDate) problems.push(`Invoice date "${rawDate}" is not a date`);
+  const itd = segments.find(s => s[0] === "ITD");
+  const rawDue = el(itd, 6);
+  const dueDate = rawDue ? ymdFrom(rawDue) : null;
+  if (rawDue && !dueDate) problems.push(`Due date "${rawDue}" is not a date`);
+  const lines: EdiInvoiceLine[] = segments.filter(s => s[0] === "IT1").map(s => {
+    const ids: Record<string, string> = {};
+    for (let i = 6; i + 1 < s.length; i += 2) if (s[i]) ids[s[i].trim()] = (s[i + 1] ?? "").trim();
+    return { lineNo: el(s, 1), qty: num(el(s, 2)), unit: el(s, 3) || null, price: num(el(s, 4)), ids };
+  });
+  const txi = segments.filter(s => s[0] === "TXI" && el(s, 2) !== "");
+  const charges = segments.filter(s => s[0] === "SAC").flatMap(s => {
+    const amt = cents(el(s, 5), `Charge ${el(s, 2)}`);
+    return amt == null ? [] : [{ code: el(s, 2), amount: el(s, 1) === "A" ? -amt : amt }];
+  });
+  return {
+    invoiceNo: el(big, 2), invoiceDate, poNumber: el(big, 4), currency: el(segments.find(s => s[0] === "CUR"), 2) || null,
+    dueDate, netDays: el(itd, 7) === "" ? null : Number(el(itd, 7)),
+    lines, total: cents(el(segments.find(s => s[0] === "TDS"), 1), "Total"),
+    tax: txi.length ? txi.reduce((a, s) => a + Number(el(s, 2)), 0) : null, charges, problems,
   };
 }

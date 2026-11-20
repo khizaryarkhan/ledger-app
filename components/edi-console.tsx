@@ -140,7 +140,7 @@ function UploadDrawer({ onClose }: { onClose: () => void }) {
     setDone(d);
   }
   return (
-    <Drawer title="Upload a received file" subtitle="An X12 file your partner sent: a 997 acknowledgement, an 855 order acknowledgement or an 856 ship notice." onClose={onClose} size="lg">
+    <Drawer title="Upload a received file" subtitle="An X12 file your partner sent: a 997 acknowledgement, an 855 order acknowledgement, an 856 ship notice or an 810 invoice." onClose={onClose} size="lg">
       <div className="space-y-4">
         <input type="file" accept=".x12,.edi,.txt,.dat,text/plain" onChange={e => pick(e.target.files?.[0])} className="text-[12.5px] text-stone-300" aria-label="X12 file" />
         {file && !done && (
@@ -152,7 +152,7 @@ function UploadDrawer({ onClose }: { onClose: () => void }) {
         {done && (
           <div className="space-y-2">
             {done.duplicate && <p className="text-[12.5px] text-stone-300">This file was already received (same partner and interchange number), so nothing changed. Its first result:</p>}
-            <Results results={done.results ?? []} />
+            <Results results={done.results ?? []} messageId={done.message?.id} onBilled={results => setDone({ ...done, results })} />
           </div>
         )}
       </div>
@@ -160,7 +160,7 @@ function UploadDrawer({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Results({ results }: { results: any[] }) {
+function Results({ results, messageId, onBilled }: { results: any[]; messageId?: string; onBilled?: (results: any[]) => void }) {
   if (!results.length) return <p className="text-[12.5px] text-stone-500">Nothing to report.</p>;
   return (
     <div className="space-y-2">
@@ -168,8 +168,76 @@ function Results({ results }: { results: any[] }) {
         <div key={i} className={`rounded-lg border px-3.5 py-2.5 text-[12.5px] ${r.outcome === "review" ? "border-amber-900/60 bg-amber-950/20" : "border-stone-800"}`}>
           <div className="text-stone-200"><span className="font-mono text-stone-500 mr-1.5">{r.setId}</span>{r.summary}</div>
           {(r.reasons ?? []).map((x: string, j: number) => <div key={j} className="text-stone-400 mt-0.5">{x}</div>)}
+          {Array.isArray(r.match) && r.match.length > 0 && <InvoiceMatch lines={r.match} />}
+          {r.proposal && !r.bill && messageId && <CreateBill messageId={messageId} index={i} proposal={r.proposal} onBilled={onBilled} />}
+          {r.bill && <a href={`/accounting/transactions/${r.bill.entryId}`} className="inline-block mt-1.5 text-[12px] text-sky-400 hover:text-sky-300">Open {r.bill.docNumber ?? "the bill"}</a>}
         </div>
       ))}
+    </div>
+  );
+}
+
+const q6 = (n: number | null | undefined) => (n == null ? "—" : String(Math.round(n * 1e6) / 1e6));
+
+/** The invoice line by line against what was received and not yet billed (base units, prices per base unit). */
+function InvoiceMatch({ lines }: { lines: any[] }) {
+  return (
+    <table className="w-full mt-2 text-[12px]">
+      <thead><tr className="text-stone-500 text-left">
+        <th className="font-medium py-1">Line</th><th className="font-medium text-right">Invoiced</th><th className="font-medium text-right">Received, not billed</th>
+        <th className="font-medium text-right">Invoice price</th><th className="font-medium text-right">Receipt price</th>
+      </tr></thead>
+      <tbody>
+        {lines.map((l, i) => {
+          const qtyOff = l.invoicedQty != null && Math.abs(l.invoicedQty - l.unbilledQty) > 1e-6;
+          const priceOff = l.invoicePrice != null && l.receiptPrice != null && Math.abs(l.invoicePrice - l.receiptPrice) > 1e-6;
+          return (
+            <tr key={i} className="border-t border-stone-800 text-stone-300">
+              <td className="py-1 font-mono">{l.lineNo}</td>
+              <td className={`text-right ${qtyOff ? "text-amber-400" : ""}`}>{q6(l.invoicedQty)}</td>
+              <td className="text-right">{q6(l.unbilledQty)}</td>
+              <td className={`text-right ${priceOff ? "text-amber-400" : ""}`}>{q6(l.invoicePrice)}</td>
+              <td className="text-right">{q6(l.receiptPrice)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** A person creates the bill the invoice proposes. Tax is chosen here when the invoice carries it. */
+function CreateBill({ messageId, index, proposal, onBilled }: { messageId: string; index: number; proposal: any; onBilled?: (results: any[]) => void }) {
+  const [taxes, setTaxes] = useState<any[]>([]);
+  const [taxRateId, setTaxRateId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!proposal.tax) return;
+    fetch("/api/accounting/tax-rates").then(x => x.json()).then(r => setTaxes(Array.isArray(r) ? r : [])).catch(() => setErr("Could not load tax rates."));
+  }, [proposal.tax]);
+  async function create() {
+    if (proposal.tax && !taxRateId) { setErr("Choose the tax rate the invoice charges."); return; }
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/edi/messages/${messageId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bill", index, taxRateId: taxRateId || null }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setErr(d?.error || "Could not create the bill."); return; }
+    onBilled?.(Array.isArray(d?.message?.result) ? d.message.result : []);
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {proposal.tax ? (
+        <div className="w-56"><SelectField inset value={taxRateId} onChange={e => setTaxRateId(e.target.value)} aria-label="Tax rate">
+          <option value="">Tax rate…</option>
+          {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>)}
+        </SelectField></div>
+      ) : null}
+      <button onClick={create} disabled={busy} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-medium disabled:opacity-50">
+        {busy && <Loader size={13} className="animate-spin" />} Create bill {proposal.invoiceNo}
+      </button>
+      {err && <span className="text-[12px] text-rose-400">{err}</span>}
     </div>
   );
 }
@@ -187,7 +255,7 @@ function ResultDrawer({ message, onClose, onChanged }: { message: any; onClose: 
   return (
     <Drawer title={`Received · ${message.fileName}`} subtitle={`${message.partyName ?? ""} · control no. ${message.interchangeNo}`} onClose={onClose} size="lg">
       <div className="space-y-3">
-        <Results results={Array.isArray(message.result) ? message.result : []} />
+        <Results results={Array.isArray(message.result) ? message.result : []} messageId={message.id} onBilled={() => onChanged()} />
         {message.status === "error" && (
           <button onClick={reprocess} disabled={busy} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-stone-600 text-[12.5px] text-stone-200 hover:bg-stone-800 disabled:opacity-50">
             {busy && <Loader size={13} className="animate-spin" />} Process it again

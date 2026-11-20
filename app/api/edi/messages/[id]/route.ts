@@ -2,10 +2,14 @@
  * GET   /api/edi/messages/[id]             → the message with its payload
  * GET   /api/edi/messages/[id]?download=1  → the file itself, to deliver to the partner
  * PATCH /api/edi/messages/[id] { action: "sent" } | { action: "void", reason } | { action: "reprocess" } (an inbound file that failed)
+ *                               | { action: "bill", index, taxRateId? } (a person creates the bill an 810 proposes)
  */
 import { ok, bad, requireOrg } from "@/lib/api";
 import { getMessage, markMessageSent, voidMessage } from "@/lib/edi/edi-server";
 import { reprocessMessage } from "@/lib/edi/inbound-server";
+import { createBillFromEdiInvoice } from "@/lib/accounting/edi-bill-server";
+import { requireModule } from "@/lib/modules-server";
+import { LedgerValidationError } from "@/lib/ledger";
 import { ediGuard, ediFail } from "../../_shared";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -32,6 +36,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (b?.action === "sent") return ok(await markMessageSent(g.orgId!, params.id, g.actorId));
     if (b?.action === "void") return ok(await voidMessage(g.orgId!, params.id, String(b.reason ?? ""), g.actorId));
     if (b?.action === "reprocess") return ok(await reprocessMessage(g.orgId!, params.id, g.actorId));
-    return bad("action must be sent, void or reprocess");
+    if (b?.action === "bill") {
+      // A bill from receipts: the receipts live in Manufacturing, as on the Receiving screen.
+      const { error: modErr } = await requireModule(g.orgId!, "manufacturing");
+      if (modErr) return modErr;
+      const index = Number(b.index);
+      if (!Number.isInteger(index) || index < 0) return bad("index must be the invoice's position in the file's result");
+      try {
+        return ok(await createBillFromEdiInvoice(g.orgId!, params.id, index, b.taxRateId ? String(b.taxRateId) : null, g.actorId));
+      } catch (e) {
+        if (e instanceof LedgerValidationError) return bad(e.message);
+        throw e;
+      }
+    }
+    return bad("action must be sent, void, reprocess or bill");
   } catch (e) { return ediFail(e); }
 }

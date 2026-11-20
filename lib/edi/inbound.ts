@@ -9,7 +9,7 @@
  * for a person to look, given in words.
  */
 
-import type { EdiOrderAck, EdiShipNotice, EdiShipOrder } from "@/lib/edi/model";
+import type { EdiOrderAck, EdiShipNotice, EdiShipOrder, EdiInvoice } from "@/lib/edi/model";
 import type { DeliveryInput } from "@/lib/inventory/expected-delivery";
 import { roundQty } from "@/lib/inventory/round";
 import type { SubmittedLine } from "@/lib/accounting/po-workflow";
@@ -139,4 +139,122 @@ export function asnOrderToDelivery(notice: EdiShipNotice, order: EdiShipOrder, p
     packages: order.packages.map(p => ({ sscc: p.sscc, packType: p.level === "tare" ? "pallet" : null, parentSscc: p.parentSscc })),
     lines: lines as NonNullable<(typeof lines)[number]>[],
   } };
+}
+
+/** A receipt as an 810 is matched against it: its lines not yet billed, prices in the receipt currency per base unit. */
+export type InvoiceReceipt = {
+  id: string; receiptNo: string | null; receiptDate: string; currency: string;
+  lines: { id: string; poLineId: string | null; unbilledQty: number; price: number }[];
+};
+export type InvoiceMatchLine = {
+  lineNo: string; poLineId: string | null; invoicedQty: number | null; invoicePrice: number | null;
+  unbilledQty: number; receiptPrice: number | null;
+};
+/** What a person is asked to approve: bill these receipts, at these invoice prices. Nothing is posted from the file. */
+export type BillProposal = {
+  invoiceNo: string; invoiceDate: string; dueDate: string | null; currency: string;
+  receiptIds: string[]; receiptNos: string[]; prices: { lineId: string; unitCost: number }[];
+  goods: number; total: number | null; tax: number | null; charges: number;
+};
+export type InvoiceOutcome =
+  | { ok: true; proposal: BillProposal; lines: InvoiceMatchLine[]; notes: string[] }
+  | { ok: false; problems: string[]; lines: InvoiceMatchLine[] };
+
+const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
+const money = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * An 810 against our records. A bill from receipts bills each receipt WHOLE
+ * (every line not yet billed), so the invoice is matched to the oldest run of
+ * the PO's receipts whose unbilled quantities equal what is invoiced, line for
+ * line, with nothing else unbilled on them. Never guesses: a line we cannot
+ * place, a quantity in another unit, or quantities that match no run of
+ * receipts is a reason for a person to bill it by hand in Receiving.
+ */
+export function invoiceToBill(inv: EdiInvoice, poLines: AsnPoLine[], receipts: InvoiceReceipt[], billCurrency: string): InvoiceOutcome {
+  const problems = [...inv.problems];
+  const notes: string[] = [];
+  if (!inv.invoiceNo.trim()) problems.push("The invoice has no number (BIG02).");
+  if (!inv.invoiceDate) problems.push("The invoice has no date (BIG01).");
+  if (!inv.lines.length) problems.push("The invoice lists no lines (IT1).");
+  if (inv.currency && inv.currency.toUpperCase() !== billCurrency.toUpperCase()) problems.push(`The invoice is in ${inv.currency}, the goods were received in ${billCurrency}.`);
+
+  const byNo = new Map(poLines.map(l => [l.lineNo, l]));
+  const wanted = new Map<string, { qty: number; price: number }>();
+  const view: InvoiceMatchLine[] = [];
+  for (const il of inv.lines) {
+    const at = `Line "${il.lineNo}"`;
+    const pl = /^\d+$/.test(il.lineNo) ? byNo.get(Number(il.lineNo)) : undefined;
+    const row: InvoiceMatchLine = { lineNo: il.lineNo, poLineId: pl?.id ?? null, invoicedQty: null, invoicePrice: null, unbilledQty: 0, receiptPrice: null };
+    view.push(row);
+    if (!pl) { problems.push(`${at} is not a line of ${inv.poNumber}.`); continue; }
+    const bp = il.ids.BP;
+    if (bp && pl.itemCode && bp.trim().toUpperCase() !== pl.itemCode.trim().toUpperCase()) problems.push(`${at}: they name our item ${bp}, the order line is ${pl.itemCode}.`);
+    if (il.qty == null || !Number.isFinite(il.qty) || il.qty <= 0) { problems.push(`${at}: no quantity invoiced.`); continue; }
+    if (il.price == null || !Number.isFinite(il.price) || il.price < 0) { problems.push(`${at}: no unit price.`); continue; }
+    const unit = (il.unit ?? "").toUpperCase();
+    const per = unit && unit === pl.orderUnitCode ? pl.unitsPerOrderUnit : unit && unit === pl.baseUnitCode ? 1 : null;
+    if (per == null) { problems.push(`${at}: invoiced in ${unit || "no unit"}, the order line is in ${pl.orderUnitCode ?? "a unit with no X12 code"}.`); continue; }
+    if (wanted.has(pl.id)) { problems.push(`${at} is invoiced twice.`); continue; }
+    const q = { qty: il.qty * per, price: il.price / per };
+    wanted.set(pl.id, q);
+    row.invoicedQty = q.qty; row.invoicePrice = Math.round(q.price * 1e6) / 1e6;
+  }
+
+  const ours = new Set(poLines.map(l => l.id));
+  const candidates = [...receipts]
+    .filter(r => r.lines.some(l => l.poLineId && ours.has(l.poLineId) && l.unbilledQty > 1e-6))
+    .sort((a, b) => a.receiptDate.localeCompare(b.receiptDate) || String(a.receiptNo).localeCompare(String(b.receiptNo)));
+  let chosen: InvoiceReceipt[] | null = null;
+  for (let k = 1; k <= candidates.length && !problems.length; k++) {
+    const run = candidates.slice(0, k);
+    const sums = new Map<string, number>();
+    let stray = false;
+    for (const r of run) for (const l of r.lines) {
+      if (l.unbilledQty <= 1e-6) continue;
+      if (!l.poLineId || !wanted.has(l.poLineId)) { stray = true; continue; }
+      sums.set(l.poLineId, (sums.get(l.poLineId) ?? 0) + l.unbilledQty);
+    }
+    if (!stray && [...wanted].every(([id, w]) => near(sums.get(id) ?? 0, w.qty))) { chosen = run; break; }
+  }
+  // What is waiting to be billed per PO line, across all receipts, for the person reading it.
+  for (const row of view) {
+    if (!row.poLineId) continue;
+    const ls = candidates.flatMap(r => r.lines).filter(l => l.poLineId === row.poLineId && l.unbilledQty > 1e-6);
+    row.unbilledQty = Math.round(ls.reduce((a, l) => a + l.unbilledQty, 0) * 1e6) / 1e6;
+    row.receiptPrice = ls[0]?.price ?? null;
+  }
+  if (!problems.length && !chosen) {
+    problems.push(candidates.length
+      ? "The invoiced quantities do not match what has been received and not yet billed. Bill it by hand from Receiving."
+      : `Nothing received against ${inv.poNumber} is waiting to be billed. Receive the goods first.`);
+  }
+  if (problems.length) return { ok: false, problems, lines: view };
+
+  const prices: { lineId: string; unitCost: number }[] = [];
+  let goods = 0;
+  for (const r of chosen!) for (const l of r.lines) {
+    if (l.unbilledQty <= 1e-6 || !l.poLineId) continue;
+    const w = wanted.get(l.poLineId)!;
+    goods += l.unbilledQty * w.price;
+    if (!near(w.price, l.price)) prices.push({ lineId: l.id, unitCost: Math.round(w.price * 1e6) / 1e6 });
+  }
+  goods = money(goods);
+  const charges = money(inv.charges.reduce((a, c) => a + c.amount, 0));
+  if (prices.length) notes.push(`The invoice price differs from the receipt on ${prices.length} line(s): the difference goes to purchase price variance, and the share on stock still held into its cost.`);
+  if (inv.tax) notes.push(`The invoice carries tax of ${money(inv.tax)}: choose the tax rate when you create the bill.`);
+  if (charges) notes.push(`The invoice carries charges or allowances of ${charges} (${inv.charges.map(c => c.code).join(", ")}): they are not on this bill. Post them separately.`);
+  if (inv.total != null && !near(money(goods + (inv.tax ?? 0) + charges), inv.total)) notes.push(`The invoice total is ${inv.total}; goods ${goods} plus tax and charges come to ${money(goods + (inv.tax ?? 0) + charges)}.`);
+  const dueDate = inv.dueDate ?? (inv.netDays != null && inv.invoiceDate ? addDaysYmd(inv.invoiceDate, inv.netDays) : null);
+  return { ok: true, lines: view, notes, proposal: {
+    invoiceNo: inv.invoiceNo.trim(), invoiceDate: inv.invoiceDate!, dueDate, currency: billCurrency,
+    receiptIds: chosen!.map(r => r.id), receiptNos: chosen!.map(r => r.receiptNo ?? r.id), prices,
+    goods, total: inv.total, tax: inv.tax, charges,
+  } };
+}
+
+/** YYYY-MM-DD plus n days, in UTC throughout (a date is a date). */
+function addDaysYmd(ymd: string, n: number) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }

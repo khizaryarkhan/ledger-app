@@ -951,6 +951,35 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 2c: 810 invoices become a bill a PERSON creates (2026-11-20)
+
+No migration. `parse810` (`lib/edi/x12/inbound.ts`): BIG (date, invoice no., PO no. in BIG04), CUR, ITD (due date
+ITD06 or net days ITD07), IT1 (our PO line no., qty, unit, unit price, identifiers), TDS01 total in CENTS, TXI tax,
+SAC charges (cents, A = allowance).
+
+- **Nothing posts from the file.** Upload matches and PROPOSES (`TxnResult.proposal` + `match` in
+  `edi_messages.result`); the EDI Files result shows invoiced vs received-not-billed per line and a "Create bill"
+  button → `PATCH /api/edi/messages/[id] { action: "bill", index, taxRateId? }` (also needs Manufacturing) →
+  `lib/accounting/edi-bill-server.ts`, which calls the ordinary `billFromReceipts`. It lives OUTSIDE `lib/edi`
+  so the boundary guard (nothing in lib/edi posts, nothing outside imports the X12 adapter) still holds; the guard
+  caught a first draft that imported the X12 reader directly (`invoiceSegmentsIn` now does it inside lib/edi).
+- **Matching** (`invoiceToBill`, pure): a bill from receipts bills each receipt WHOLE, so the invoice is matched to
+  the OLDEST RUN of the PO's receipts (same supplier, Posted, in the invoice's currency) whose unbilled quantities
+  equal the invoiced quantities line for line AND carry nothing else unbilled; otherwise no proposal ("bill it by
+  hand from Receiving"). Lines by PO line number, BP must agree, unit = order unit (×units per order unit) or base.
+  A different price becomes that line's invoice price → purchase price variance / lot cost (P-03). Tax: the person
+  picks the rate (the button asks when TXI is present). Charges/allowances are NOT on the bill and are named; a
+  total that does not add up is named.
+- **Twice is refused three ways**: an existing bill with that reference for the supplier (`ap_bills.reference`,
+  case-insensitive) on upload and again before posting; the message is claimed (`status → processing`) for the
+  post; `billFromReceipts` refuses receipts already billed. Before posting, the match is re-run and must propose the
+  SAME receipts as when the file was read.
+- Tests in `tests/edi-inbound.test.ts` (the "nothing else unbilled on the run" rule proven to fail when removed);
+  `scripts/_e2e_edi_810.ts` (7 checks on dev: posts a real bill, then deletes it and confirms the receipt is
+  un-billed and no ap_bills/journal row is left).
+- **Not built / not verified**: nothing clicked through in a browser; invoices against several POs, partial billing
+  of a receipt, charges onto the bill, credit memos (810 BIG07 CR) and sending our own 997 are not built.
+
 ## EDI Phase 2b: 856 ship notices become expected deliveries (2026-11-20)
 
 No migration. Uploaded the same way as 997/855 (Supply Chain → EDI → Files → Upload). `parse856`
