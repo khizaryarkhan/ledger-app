@@ -225,6 +225,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/edi/partners", methods: ["GET","POST"] },
   { path: "/api/edi/partners/[id]", methods: ["DELETE","PATCH"] },
   { path: "/api/edi/purchase-orders/[id]", methods: ["GET","POST"] },
+  { path: "/api/edi/sales-orders/[id]", methods: ["GET","POST"] },
   { path: "/api/email-templates", methods: ["GET","POST"], body: ["body","collectionStage","escalationType","isActive","name","sendIntervalDays","subject"] },
   { path: "/api/email-templates/[id]", methods: ["DELETE","PATCH"], body: ["body","collectionStage","escalationType","isActive","isDefault","name","sendIntervalDays","subject"] },
   { path: "/api/email/send", methods: ["POST"], body: ["attachInvoiceIds","body","cc","contentBase64","contentType","extraAttachments","filename","id","inReplyToOverride","invoiceId","kind","orgId","replyTo","subject","to"] },

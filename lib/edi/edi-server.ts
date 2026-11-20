@@ -84,7 +84,7 @@ export async function deletePartner(orgId: string, id: string) {
   await db.delete(ediPartners).where(and(eq(ediPartners.id, id), eq(ediPartners.orgId, orgId)));
 }
 
-async function partnerForParty(orgId: string, partyId: string | null) {
+export async function partnerForParty(orgId: string, partyId: string | null) {
   if (!partyId) return null;
   const [p] = await db.select().from(ediPartners).where(and(eq(ediPartners.orgId, orgId), eq(ediPartners.partyId, partyId))).limit(1);
   return p ?? null;
@@ -202,7 +202,7 @@ export async function markMessageSent(orgId: string, id: string, actorId: string
   const r = await db.update(ediMessages).set({ status: "sent", sentAt: now, sentBy: actorId })
     .where(and(eq(ediMessages.id, id), eq(ediMessages.orgId, orgId), eq(ediMessages.status, "generated"))).returning({ id: ediMessages.id });
   if (!r.length) fail("This file changed meanwhile. Reload and try again.", 409);
-  if (m.appDocType === "PurchaseOrder" && m.appDocId) {
+  if ((m.appDocType === "PurchaseOrder" || m.appDocType === "SalesOrder") && m.appDocId) {
     await db.update(tradeDocuments).set({ sentAt: now, updatedAt: now })
       .where(and(eq(tradeDocuments.id, m.appDocId), eq(tradeDocuments.orgId, orgId), sql`${tradeDocuments.sentAt} is null`));
   }

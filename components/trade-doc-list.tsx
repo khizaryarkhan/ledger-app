@@ -6,7 +6,7 @@ import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Tras
 import { PoStageChip, usePoStages, findStage, type PoStageSet } from "@/components/po-stage-chip";
 import { PoItemsPanel } from "@/components/po-items-panel";
 import { SendPoDrawer, ReviewProposalDrawer, RejectPoDrawer, ManageStagesDrawer } from "@/components/po-workflow-drawers";
-import { EdiSendDrawer } from "@/components/edi-send-drawer";
+import { EdiSendDrawer, EDI_PO, EDI_SO_ACK } from "@/components/edi-send-drawer";
 import { useData } from "@/components/data-provider";
 import { hasModule } from "@/lib/modules";
 import { isManuallySettable } from "@/lib/accounting/po-workflow";
@@ -390,6 +390,9 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                         {isPo && stageKeyOf(r) === "Sent" && (
                           <button onClick={() => setSending([r.id])} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Email it again"><Send size={11} /> Resend</button>
                         )}
+                        {kind === "sales-orders" && ediOn && (
+                          <button onClick={() => setEdiFor(r)} className="text-[11px] font-medium text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1" title="Generate the X12 855 order acknowledgement for this order"><Send size={11} /> Acknowledge by EDI</button>
+                        )}
                         {isPo && ediOn && stageKeyOf(r) !== "Rejected" && (
                           <button onClick={() => setEdiFor(r)} className="text-[11px] font-medium text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1" title="Generate the X12 850 for this order"><Send size={11} /> Send by EDI</button>
                         )}
@@ -458,7 +461,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         </ListScroll>
       )}
 
-      {ediFor && <EdiSendDrawer po={ediFor as any} onClose={() => { setEdiFor(null); load(); }} onChanged={m => setMsg(m)} />}
+      {ediFor && <EdiSendDrawer po={ediFor as any} kind={kind === "sales-orders" ? EDI_SO_ACK : EDI_PO} onClose={() => { setEdiFor(null); load(); }} onChanged={m => setMsg(m)} />}
       {sending && <SendPoDrawer ids={sending} onClose={() => setSending(null)} onDone={m => { setSending(null); sel.clear(); setMsg(m); load(); }} />}
       {reviewing && <ReviewProposalDrawer docId={reviewing.id} onClose={() => setReviewing(null)} onDone={m => { setReviewing(null); setMsg(m); load(); }} />}
       {rejecting && <RejectPoDrawer docId={rejecting.id} docNumber={rejecting.docNumber} onClose={() => setRejecting(null)} onDone={m => { setRejecting(null); setMsg(m); load(); }} />}

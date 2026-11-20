@@ -15,8 +15,13 @@ import { fmt } from "@/lib/format";
 type Problem = { lineNo: number | null; message: string };
 type Msg = { id: string; status: string; ackStatus?: string | null; direction?: string; interchangeNo: number; fileName: string; test: boolean; createdAt: string; sentAt: string | null; voidReason: string | null };
 
-export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; docNumber: string | null; partyLabel?: string | null }; onClose: () => void; onChanged?: (msg: string) => void }) {
-  const base = `/api/edi/purchase-orders/${po.id}`;
+/** What the drawer sends: a purchase order (850, the default), or a Sales Order (855) and later shipments and invoices. */
+export type EdiSendKind = { path: string; doc: string; noun: string };
+export const EDI_PO: EdiSendKind = { path: "purchase-orders", doc: "850", noun: "purchase order" };
+export const EDI_SO_ACK: EdiSendKind = { path: "sales-orders", doc: "855", noun: "sales order" };
+
+export function EdiSendDrawer({ po, kind = EDI_PO, onClose, onChanged }: { po: { id: string; docNumber: string | null; partyLabel?: string | null }; kind?: EdiSendKind; onClose: () => void; onChanged?: (msg: string) => void }) {
+  const base = `/api/edi/${kind.path}/${po.id}`;
   const [data, setData] = useState<{ partner: any; problems: Problem[]; messages: Msg[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -52,7 +57,7 @@ export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; do
   const blocked = !data?.partner || (data?.problems.length ?? 0) > 0;
 
   return (
-    <Drawer title={`Send by EDI · ${po.docNumber ?? "purchase order"}`} subtitle={po.partyLabel ?? undefined} onClose={onClose} size="lg">
+    <Drawer title={`Send by EDI · ${po.docNumber ?? kind.noun}`} subtitle={po.partyLabel ?? undefined} onClose={onClose} size="lg">
       <div className="space-y-4">
         {data === null && <p className="text-[12px] text-stone-500">Checking the order…</p>}
         {data?.partner && (
@@ -64,7 +69,7 @@ export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; do
         )}
         {(data?.problems.length ?? 0) > 0 && (
           <div className="rounded-lg border border-amber-900/60 bg-amber-950/20 px-3.5 py-3 space-y-1.5">
-            <div className="text-[12px] font-semibold text-amber-300">This order can't go by EDI yet</div>
+            <div className="text-[12px] font-semibold text-amber-300">This {kind.noun} can't go by EDI yet</div>
             {data!.problems.map((p, i) => (
               <div key={i} className="text-[12px] text-stone-300">{p.lineNo != null ? <span className="text-stone-500">Line {p.lineNo}: </span> : null}{p.message}</div>
             ))}
@@ -75,7 +80,7 @@ export function EdiSendDrawer({ po, onClose, onChanged }: { po: { id: string; do
         {data && !waiting && (
           <button onClick={generate} disabled={busy || blocked}
             className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md bg-primary hover:bg-primary-hover text-white text-[12.5px] font-medium disabled:opacity-50">
-            {busy ? <Loader size={13} className="animate-spin" /> : <FileCode2 size={14} />} Generate X12 850
+            {busy ? <Loader size={13} className="animate-spin" /> : <FileCode2 size={14} />} Generate X12 {kind.doc}
           </button>
         )}
 

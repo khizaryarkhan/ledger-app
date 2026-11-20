@@ -951,6 +951,29 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI Phase 3b: our 855 order acknowledgement from a confirmed Sales Order (2026-11-20)
+
+No migration. "Acknowledge by EDI" on a Sales Order row (Sales Orders list, module `edi`) → `GET/POST
+/api/edi/sales-orders/[id]` → `lib/edi/outbound-server.ts` (`checkSalesOrderAck`, `generateSalesOrderAck855`, plus the
+shared `keepOutbound` / `envelopeFor` that 3c and 3d reuse). `EdiSendDrawer` is now generic (`kind`: `EDI_PO`,
+`EDI_SO_ACK`). Pure rules `lib/edi/build/sales-order.ts` (`buildOrderAck`), writer `lib/edi/x12/855.ts`.
+
+- **We are the seller**: BAK02 `AD` (accepted with detail, nothing changed) or `AC` (accepted with changes); BAK03 = THEIR
+  PO number (`trade_documents.party_ref`), BAK04 their order date (the SO's `issue_date`, which the 850 path sets from it).
+  Per line `PO1` echoes what THEY ordered with THEIR line number, then `ACK`s: `IA` as ordered, `IQ` quantity differs,
+  `IP` price differs, `DR` promised date is not the one they asked for (date qualifier 067), `IR` a closed line.
+- **What they ordered is read back from the stored 850** the order was created from (positional: the nth `PO1` is the
+  nth SO line). Counts differ (someone added/removed a line, or a zero-amount line was dropped on creation) → refused,
+  "acknowledge it by hand": their line numbers cannot be echoed honestly. An order keyed by hand has no 850 and
+  uses its own numbers.
+- **Refused, with the reason named, until**: the order has the customer's PO number, is **Confirmed** (so the 855 states
+  what we promise), its units have an EDI code (and equal the unit they ordered in), and the partner has 855 on.
+  Regenerating voids an unsent earlier 855 as superseded; marking sent stamps the SO's `sent_at`.
+- Tests `tests/edi-outbound.test.ts` (the lines-no-longer-match guard proven to fail when removed);
+  `scripts/_e2e_edi_855_out.ts` (8 checks on dev, cleaned up).
+- **Not built / not verified**: not clicked through in a browser. A whole-order reject (BAK02 `RJ`) is not sent: reject
+  by closing lines. No partial acknowledgement per delivery date (one `ACK` carries one date).
+
 ## EDI Phase 3a: a customer's 850 becomes a Sales Order (2026-11-20)
 
 No migration. First slice of the sales cycle (`docs/prd-edi.md` Phase 3). A partner may now be a CUSTOMER (partner
