@@ -14,11 +14,15 @@
 import { db } from "@/db";
 import {
   organisations, journalEntries, journalLines, accounts, apTaxRates, apItems,
-  customers, apSuppliers, tradeDocuments, tradeDocumentLines, apBills, apBillLines,
+  customers, apSuppliers, tradeDocuments, tradeDocumentLines, apBills, apBillLines, stockLocations, partyShipTo, itemPartNumbers,
 } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { linksFor } from "@/lib/accounting/links";
 import { amountInWords } from "@/lib/accounting/amount-in-words";
+import { termsLabel, incotermLabel } from "@/lib/party-terms";
+import { shipToLines } from "@/lib/customer-ship-to";
+import { supplierPartNumbersFor } from "@/lib/inventory/part-numbers-server";
+import { partNumberForLevel, partNumbersByLevel } from "@/lib/inventory/part-numbers";
 
 const num = (v: any) => Number(v ?? 0);
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -31,6 +35,8 @@ export type PrintLine = {
   name: string | null; description: string | null;
   qty: number | null; uom: string | null; rate: number | null;
   taxLabel: string | null; taxPct: number | null; amount: number;
+  /** The counterparty's own part number for this line at the pack level it was ordered at (PO: the supplier's; SO: the customer's). */
+  partNumber?: string | null;
 };
 export type PrintVoucherLine = { account: string; name: string | null; description: string | null; debit: number; credit: number };
 export type PrintDocument = {
@@ -42,6 +48,13 @@ export type PrintDocument = {
     partyHeading: string; isPurchase: boolean;
     /** Payment terms in days, when the counterparty has them set. */
     termsDays?: number | null;
+    /** Trading terms copied onto the order when it was made ("Net 30", "2% 10, net 30") and its Incoterm ("FCA Rotterdam"). */
+    paymentTerms?: string | null;
+    incoterm?: string | null;
+    /** Where the goods are delivered: the order's own address, replacing the company-address default on a purchase order. */
+    shipTo?: { heading: string; name: string; lines: string[] } | null;
+    /** The heading of the per-line counterparty part number column text ("Supplier part no." / "Customer part no."). */
+    partNumberLabel?: string | null;
     /** Whether this document type is signed off before it's acted on. */
     needsSignature?: boolean;
     /** Overrides the accent total box's label ("Balance due"/"Total due") —
@@ -322,6 +335,28 @@ export async function loadTradeDocumentForPrint(orgId: string, id: string): Prom
   const lines = await decorateLines(orgId, rawLines);
   const party = await loadParty(orgId, doc.partyType, doc.partyId, doc.partyLabel);
 
+  // What a purchase or sales order says beyond its lines (EDI foundation): the terms copied onto it, where the goods
+  // go, and the other side's own part number for each line, at the pack level it was ordered at.
+  const isPo = doc.kind === "PurchaseOrder", isSo = doc.kind === "SalesOrder";
+  let shipTo: PrintDocument["doc"]["shipTo"] = null;
+  if (isPo) {
+    const [loc] = await db.select().from(stockLocations).where(and(eq(stockLocations.orgId, orgId),
+      doc.shipToLocationId ? eq(stockLocations.id, doc.shipToLocationId) : eq(stockLocations.isDefault, true))).limit(1);
+    if (loc && shipToLines(loc).length) shipTo = { heading: "Ship to", name: loc.name, lines: shipToLines(loc) };
+  } else if (isSo && doc.customerShipToId) {
+    const [st] = await db.select().from(partyShipTo).where(and(eq(partyShipTo.orgId, orgId), eq(partyShipTo.id, doc.customerShipToId))).limit(1);
+    if (st) shipTo = { heading: "Deliver to", name: st.name, lines: shipToLines(st) };
+  }
+  if (isPo) {
+    const maps = await supplierPartNumbersFor(orgId, [...new Set(rawLines.map(l => l.supplierSkuId).filter(Boolean) as string[])]);
+    rawLines.forEach((l, i) => { lines[i].partNumber = l.supplierSkuId ? partNumberForLevel(maps.get(l.supplierSkuId) ?? {}, l.packLevel) : null; });
+  } else if (isSo && doc.partyId) {
+    const itemIds = [...new Set(rawLines.map(l => l.itemId).filter(Boolean) as string[])];
+    const rows = itemIds.length ? await db.select().from(itemPartNumbers).where(and(eq(itemPartNumbers.orgId, orgId),
+      eq(itemPartNumbers.partyId, doc.partyId), eq(itemPartNumbers.side, "customer"), inArray(itemPartNumbers.itemId, itemIds))) : [];
+    rawLines.forEach((l, i) => { lines[i].partNumber = l.itemId ? partNumberForLevel(partNumbersByLevel(rows.filter(r => r.itemId === l.itemId && (r.itemSkuId ?? null) === (l.skuId ?? null))), l.packLevel) : null; });
+  }
+
   const subtotal = round2(num(doc.subtotal)) || round2(lines.reduce((s, l) => s + l.amount, 0));
   const taxes = taxBreakdown(lines);
   const taxTotal = round2(num(doc.taxTotal)) || round2(taxes.reduce((s, t) => s + t.amount, 0));
@@ -333,9 +368,11 @@ export async function loadTradeDocumentForPrint(orgId: string, id: string): Prom
     doc: {
       kind: doc.kind, label: meta.label, docNumber: doc.docNumber, status: doc.status,
       date: doc.issueDate, dueDate: doc.expiryDate ?? null, dueLabel: meta.due,
-      reference: null, memo: doc.memo ?? null, currency,
+      reference: doc.partyRef ?? null, memo: doc.memo ?? null, currency,
       partyHeading: meta.party, isPurchase: !!meta.purchase,
       needsSignature: doc.kind === "PurchaseOrder" || doc.kind === "Estimate",
+      paymentTerms: termsLabel(doc), incoterm: incotermLabel(doc),
+      shipTo, partNumberLabel: isPo ? "Supplier part no." : isSo ? "Customer part no." : null,
     },
     party, lines,
     totals: {

@@ -163,9 +163,13 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
 
   // On a purchase order the supplier needs to know where to deliver — which is
   // our address, not theirs. On a sales document it's the customer's.
-  const shipTo = doc.isPurchase
-    ? { heading: "Ship to", name: c.name, meta: (c.addressLines ?? []).join("\n") }
-    : null;
+  // An order that names its own delivery address (a PO's ship-to location, a sales order's customer address) shows that
+  // one; a purchase order that names none falls back to our company address, as before.
+  const shipTo = doc.shipTo
+    ? { heading: doc.shipTo.heading, name: doc.shipTo.name, meta: doc.shipTo.lines.join("\n") }
+    : doc.isPurchase
+      ? { heading: "Ship to", name: c.name, meta: (c.addressLines ?? []).join("\n") }
+      : null;
 
   return (
     <>
@@ -195,7 +199,9 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
               {doc.docNumber && <div className="r"><span className="muted">{doc.label === "INVOICE" ? "Invoice no." : "Document no."}</span><b>{doc.docNumber}</b></div>}
               <div className="r"><span className="muted">Date</span><b className="num">{doc.date}</b></div>
               {doc.dueDate && <div className="r"><span className="muted">{doc.dueLabel}</span><b className="num">{doc.dueDate}</b></div>}
-              {doc.reference && <div className="r"><span className="muted">Reference</span><b>{doc.reference}</b></div>}
+              {doc.reference && <div className="r"><span className="muted">{doc.kind === "SalesOrder" ? "Your PO no." : "Reference"}</span><b>{doc.reference}</b></div>}
+              {doc.paymentTerms && <div className="r"><span className="muted">Payment terms</span><b>{doc.paymentTerms}</b></div>}
+              {doc.incoterm && <div className="r"><span className="muted">Incoterm</span><b>{doc.incoterm}</b></div>}
               <div className="r"><span className="muted">Currency</span><b>{doc.currency}</b></div>
             </div>
           </div>
@@ -274,6 +280,7 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
                 <td>
                   <div className="item">{l.name || l.description || "—"}</div>
                   {l.name && l.description && l.description !== l.name && <div className="desc">{l.description}</div>}
+                  {l.partNumber && doc.partNumberLabel && <div className="desc">{doc.partNumberLabel} {l.partNumber}</div>}
                 </td>
                 {showQty && <td className="r num">{l.qty != null ? `${qtyFmt(l.qty)}${l.uom ? ` ${l.uom}` : ""}` : ""}</td>}
                 {showRate && <td className="r num">{l.rate != null ? money(l.rate) : ""}</td>}
