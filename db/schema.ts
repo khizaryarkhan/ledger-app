@@ -3525,6 +3525,52 @@ export const goodsReceiptPackages = pgTable("goods_receipt_packages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ goods_receipt_packages_uq: uniqueIndex("goods_receipt_packages_uq").on(t.receiptId, t.sscc) }));
 
+// EXPECTED DELIVERIES (0144): what a supplier says is coming, from an ASN (856 / DESADV) or typed by hand.
+// A claim, never stock. "Received" = goodsReceiptId set (voiding the receipt nulls it); only cancellation is stored.
+// The reference index is on upper(reference) WHERE active, declared in the SQL migration only.
+export const expectedDeliveries = pgTable("expected_deliveries", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  supplierId:     uuid("supplier_id").references(() => parties.id, { onDelete: "set null" }),
+  poId:           uuid("po_id").references(() => tradeDocuments.id, { onDelete: "set null" }),
+  source:         varchar("source", { length: 8 }).notNull().default("manual"),   // manual | asn
+  reference:      varchar("reference", { length: 64 }),                           // the supplier ASN / delivery note no.
+  shipDate:       date("ship_date"),
+  expectedDate:   date("expected_date"),
+  carrier:        varchar("carrier", { length: 64 }),
+  trackingNo:     varchar("tracking_no", { length: 64 }),
+  status:         varchar("status", { length: 12 }).notNull().default("open"),     // open | cancelled
+  goodsReceiptId: uuid("goods_receipt_id").references(() => goodsReceipts.id, { onDelete: "set null" }),
+  notes:          text("notes"),
+  createdBy:      uuid("created_by"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ expected_deliveries_org_po_idx: index("expected_deliveries_org_po_idx").on(t.orgId, t.poId) }));
+
+export const expectedDeliveryPackages = pgTable("expected_delivery_packages", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  expectedDeliveryId: uuid("expected_delivery_id").notNull().references(() => expectedDeliveries.id, { onDelete: "cascade" }),
+  sscc:               varchar("sscc", { length: 18 }).notNull(),
+  packType:           varchar("pack_type", { length: 32 }),
+  parentSscc:         varchar("parent_sscc", { length: 18 }),
+}, (t) => ({ expected_delivery_packages_uq: uniqueIndex("expected_delivery_packages_uq").on(t.expectedDeliveryId, t.sscc) }));
+
+export const expectedDeliveryLines = pgTable("expected_delivery_lines", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  expectedDeliveryId: uuid("expected_delivery_id").notNull().references(() => expectedDeliveries.id, { onDelete: "cascade" }),
+  lineNo:             integer("line_no").notNull(),
+  poLineId:           uuid("po_line_id").references(() => tradeDocumentLines.id, { onDelete: "set null" }),
+  itemId:             uuid("item_id").notNull().references(() => apItems.id, { onDelete: "restrict" }),
+  qtyBase:            numeric("qty_base", { precision: 20, scale: 6 }).notNull(),
+  sscc:               varchar("sscc", { length: 18 }),
+  supplierBatchNo:    varchar("supplier_batch_no", { length: 64 }),
+  productionDate:     date("production_date"),
+  bestBeforeDate:     date("best_before_date"),
+  expiryDate:         date("expiry_date"),
+}, (t) => ({ expected_delivery_lines_delivery_idx: index("expected_delivery_lines_delivery_idx").on(t.expectedDeliveryId) }));
+
 // =========================================================================
 // TRANSACTION LINKS — the relationship graph (Estimate→Invoice, Payment→
 // Invoice, PO→Bill, …). Queryable in both directions. See lib/accounting/links.

@@ -21,6 +21,8 @@ import { ClosePoLineDrawer } from "@/components/po-workflow-drawers";
 import { CLOSE_REASONS } from "@/lib/accounting/po-workflow";
 import { CREATE_NEW, CreateNewDrawer, createNewLabel, type CreateKind } from "@/components/create-new";
 import { ReceiptSsccDrawer } from "@/components/receipt-sscc-drawer";
+import { ExpectedDeliveriesDrawer } from "@/components/expected-deliveries-drawer";
+import { prefillFromDelivery } from "@/lib/inventory/expected-delivery";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -42,6 +44,8 @@ export function ReceivingConsole() {
   const [editingId, setEditingId] = useState<string | null>(null);
   // SSCCs read from the supplier's pallet labels (0143).
   const [ssccFor, setSsccFor] = useState<any | null>(null);
+  // What suppliers say is on its way (0144): ASNs, or typed by hand.
+  const [showExpected, setShowExpected] = useState(false);
 
   async function load() {
     const r = await fetch(`/api/inventory/receiving`).then(x => x.json()).catch(() => []);
@@ -121,6 +125,7 @@ export function ReceivingConsole() {
             <FileText size={14} /> Bill {selectedIds.length} receipt{selectedIds.length > 1 ? "s" : ""}
           </button>
         )}
+        <button onClick={() => setShowExpected(true)} className="flex items-center gap-1.5 text-[13px] font-medium text-stone-200 border border-stone-700 rounded-lg px-3 py-2 hover:bg-stone-800"><Truck size={14} /> Expected deliveries</button>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
         <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> Receive stock</button>
       </ListPageHeader>
@@ -129,6 +134,7 @@ export function ReceivingConsole() {
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} onBillReceipt={billReceipt} onOpenReceipt={openReceipt} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
       {ssccFor && <ReceiptSsccDrawer receipt={ssccFor} onClose={() => setSsccFor(null)} />}
+      {showExpected && <ExpectedDeliveriesDrawer items={items} onClose={() => setShowExpected(false)} />}
       {editingId && <EditReceiptDrawer receiptId={editingId} items={items} onClose={() => { setEditingId(null); load(); }} />}
 
       {rows === null ? (
@@ -305,6 +311,9 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
   const [postErr, setPostErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
   const [posted, setPosted] = useState<PostedInfo | null>(null);
+  // Deliveries the supplier announced for the open PO, and the one this receipt is being counted from (0144).
+  const [deliveries, setDeliveries] = useState<any[]>([]);
+  const [deliveryId, setDeliveryId] = useState("");
 
   async function fetchPos(): Promise<OpenPo[]> {
     const r = await fetch(`/api/inventory/po-open`).then(x => x.json()).catch(() => []);
@@ -319,8 +328,27 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
   const selectedPo = (view.v === "items" || view.v === "lots") ? (openPos ?? []).find(p => p.id === view.poId) ?? null : null;
   const selectedLine = view.v === "lots" ? selectedPo?.lines.find(l => l.lineId === view.lineId) ?? null : null;
 
-  function openPo(po: OpenPo) { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setView({ v: "items", poId: po.id }); }
-  function backToHub() { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setPosted(null); setView({ v: "hub" }); }
+  function openPo(po: OpenPo) {
+    setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setDeliveryId(""); setDeliveries([]);
+    setView({ v: "items", poId: po.id });
+    fetch(`/api/inventory/expected-deliveries?poId=${po.id}&state=expected`).then(x => x.json()).then(r => setDeliveries(Array.isArray(r) ? r : [])).catch(() => setDeliveries([]));
+  }
+  function backToHub() { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setPosted(null); setDeliveryId(""); setDeliveries([]); setView({ v: "hub" }); }
+
+  /** Stage what the supplier announced. Still a claim: the receiver opens any line to correct the count. */
+  function useDelivery(d: any) {
+    if (!selectedPo) return;
+    const { drafts: pre, skipped, over } = prefillFromDelivery(d.lines ?? [], selectedPo.id, selectedPo.lines);
+    setDrafts(pre as Record<string, DraftLine>);
+    setDeliveryNote(d.reference ?? "");
+    setDeliveryId(d.id);
+    setPostErr("");
+    const parts = [`Filled from ${d.reference ? `delivery ${d.reference}` : "the announced delivery"}. Count the goods and open any item to correct it.`];
+    if (skipped) parts.push(`${skipped} announced line${skipped === 1 ? " is" : "s are"} for items this order no longer expects and ${skipped === 1 ? "was" : "were"} left out.`);
+    if (over.length) parts.push(`More than still expected: ${over.join(", ")}.`);
+    setNotice(parts.join(" "));
+  }
+  function clearDelivery() { setDrafts({}); setDeliveryNote(""); setDeliveryId(""); setNotice(""); }
 
   function stageLine(lineId: string, draft: DraftLine) { setPostErr(""); setDrafts(d => ({ ...d, [lineId]: draft })); }
   function removeDraft(lineId: string) { setDrafts(d => { const n = { ...d }; delete n[lineId]; return n; }); }
@@ -359,7 +387,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
     const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       supplierId: selectedPo.partyId, supplierLabel: selectedPo.partyLabel, receiptDate: date,
       currency: selectedPo.currency, exchangeRate: selectedPo.exchangeRate, locationId: locationId || null, lines: allLines,
-      deliveryNoteNo: deliveryNote.trim() || null,
+      deliveryNoteNo: deliveryNote.trim() || null, expectedDeliveryId: deliveryId || null,
     }) });
     const d = await r.json().catch(() => ({}));
     setPosting(false);
@@ -379,7 +407,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
     }
 
     const doneRows = draftEntries.map(([, dr]) => ({ name: dr.itemName, qty: dr.qty, uom: dr.baseUom }));
-    setDrafts({});
+    setDrafts({}); setDeliveryId(""); setDeliveries(ds => ds.filter(x => x.id !== deliveryId));
     const fresh = await fetchPos();
     const still = fresh.find(p => p.id === selectedPo.id);
     setPosted({
@@ -410,6 +438,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onBillReceipt, onOpenReceipt
             drafts={drafts} onRemoveDraft={removeDraft} onAllArrived={allArrived}
             date={date} setDate={setDate} locationId={locationId} setLocationId={setLocationId} locations={locations}
             deliveryNote={deliveryNote} setDeliveryNote={setDeliveryNote}
+            deliveries={deliveries} deliveryId={deliveryId} onUseDelivery={useDelivery} onClearDelivery={clearDelivery}
             posting={posting} postErr={postErr} pendingMsg={pendingMsg} onPost={postReceipt}
             onClosed={async (msg) => {
               const fresh = await fetchPos();
@@ -714,11 +743,12 @@ function PillFooter({ saving, onClose, onSave, saveLabel = "Save", err, pendingM
 
 /* --------------------------- PO drilldown: items ------------------------- */
 
-function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, onAllArrived, date, setDate, locationId, setLocationId, locations, deliveryNote, setDeliveryNote, posting, postErr, pendingMsg, onPost }: {
+function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, onAllArrived, date, setDate, locationId, setLocationId, locations, deliveryNote, setDeliveryNote, deliveries, deliveryId, onUseDelivery, onClearDelivery, posting, postErr, pendingMsg, onPost }: {
   po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void;
   drafts: Record<string, DraftLine>; onRemoveDraft: (lineId: string) => void; onAllArrived: () => void;
   date: string; setDate: (d: string) => void; locationId: string; setLocationId: (id: string) => void; locations: any[];
   deliveryNote: string; setDeliveryNote: (v: string) => void;
+  deliveries: any[]; deliveryId: string; onUseDelivery: (d: any) => void; onClearDelivery: () => void;
   posting: boolean; postErr: string; pendingMsg: string; onPost: () => void;
 }) {
   // The same "Stop expecting this item" drawer the Purchase Orders list uses —
@@ -750,6 +780,25 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
       </div>
       <div className="p-5 space-y-5">
         {notice && <div className="text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
+
+        {deliveries.length > 0 && (
+          <div className="rounded-lg border border-cyan-900/60 bg-cyan-950/20 px-3.5 py-3 space-y-2">
+            <div className="text-[12px] font-semibold text-cyan-300 flex items-center gap-1.5"><Truck size={13} /> The supplier announced {deliveries.length === 1 ? "a delivery" : `${deliveries.length} deliveries`} for this order</div>
+            {deliveries.map(d => {
+              const using = d.id === deliveryId;
+              return (
+                <div key={d.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                  <span className="text-stone-300 min-w-0 truncate">
+                    {d.reference || "No reference"}{d.expectedDate ? ` · due ${fmt.shortDate(d.expectedDate)}` : ""} · {d.lines.length} line{d.lines.length === 1 ? "" : "s"}{d.packages.length ? ` · ${d.packages.length} SSCC` : ""}{d.source === "asn" ? " · ASN" : ""}
+                  </span>
+                  {using
+                    ? <button onClick={onClearDelivery} className="h-8 px-3 rounded-md border border-stone-600 text-[12px] text-stone-300 hover:bg-stone-800 shrink-0">Clear</button>
+                    : <button onClick={() => onUseDelivery(d)} className="h-8 px-3 rounded-md bg-cyan-700 hover:bg-cyan-600 text-white text-[12px] font-medium shrink-0">Fill from this delivery</button>}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Asked once for the whole delivery, not per item. */}
         <div className="grid grid-cols-3 gap-3">

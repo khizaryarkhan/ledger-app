@@ -1,5 +1,6 @@
 /**
- * GET    /api/inventory/receiving/[id]/sscc       → SSCCs recorded on this goods receipt
+ * GET    /api/inventory/receiving/[id]/sscc       → { recorded, expected: { deliveries, matched, missing, unexpected } }
+ *                                                   recorded SSCCs, matched against the expected delivery (0144) the receipt was counted from
  * POST   /api/inventory/receiving/[id]/sscc       { sscc } → record one, read from the supplier's pallet / carton label
  * DELETE /api/inventory/receiving/[id]/sscc?id=   → remove one
  *
@@ -10,6 +11,8 @@
 import { requireOrg, ok, bad, canPostInventoryTxn } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { receiptSsccs, addReceiptSscc, removeReceiptSscc, ssccErrorOf } from "@/lib/inventory/sscc-server";
+import { expectedSsccsForReceipt } from "@/lib/inventory/expected-delivery-server";
+import { matchSsccs } from "@/lib/inventory/expected-delivery";
 
 function fail(e: unknown) {
   const s = ssccErrorOf(e);
@@ -22,7 +25,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (error) return error;
   const { error: modErr } = await requireModule(orgId!, "manufacturing");
   if (modErr) return modErr;
-  try { return ok(await receiptSsccs(orgId!, params.id)); } catch (e) { return fail(e); }
+  try {
+    const recorded = await receiptSsccs(orgId!, params.id);
+    const exp = await expectedSsccsForReceipt(orgId!, params.id);
+    return ok({ recorded, expected: { deliveries: exp.deliveries, ...matchSsccs(exp.ssccs, recorded.map(r => r.sscc)) } });
+  } catch (e) { return fail(e); }
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {

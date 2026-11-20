@@ -1,6 +1,7 @@
 /**
  * GET  /api/inventory/receiving   → list goods receipts
  * POST /api/inventory/receiving   → post a goods receipt (Dr Inventory / Cr GR/IR)
+ *                                   { …, expectedDeliveryId? } marks that expected delivery received (0144)
  */
 
 import { db } from "@/db";
@@ -10,6 +11,7 @@ import { requireModule } from "@/lib/modules-server";
 import { eq, desc } from "drizzle-orm";
 import { postGoodsReceipt, type ReceiptInput } from "@/lib/inventory/receiving";
 import { LedgerValidationError } from "@/lib/ledger";
+import { checkDeliveryForReceipt, attachReceipt, expectedDeliveryErrorOf } from "@/lib/inventory/expected-delivery-server";
 
 export async function GET() {
   const { error, orgId } = await requireOrg();
@@ -30,9 +32,25 @@ export async function POST(req: Request) {
   const { error: modErr } = await requireModule(orgId!, "manufacturing");
   if (modErr) return modErr;
   if (!canPostInventoryTxn(role)) return bad("You don't have permission to receive stock", 403);
-  const body = (await req.json().catch(() => ({}))) as ReceiptInput;
+  const body = (await req.json().catch(() => ({}))) as ReceiptInput & { expectedDeliveryId?: string | null };
+  const deliveryId = body.expectedDeliveryId ? String(body.expectedDeliveryId) : null;
+  // Checked BEFORE posting, so a receipt never posts against a delivery that is then refused.
+  if (deliveryId) {
+    try {
+      const poIds = [...new Set((body.lines ?? []).map(l => l?.poId).filter(Boolean) as string[])];
+      await checkDeliveryForReceipt(orgId!, deliveryId, poIds);
+    } catch (e) {
+      const x = expectedDeliveryErrorOf(e);
+      if (x) return bad(x.message, x.status);
+      throw e;
+    }
+  }
   try {
-    const res = await postGoodsReceipt(orgId!, body, (session?.user as any)?.id ?? null);
+    const res: any = await postGoodsReceipt(orgId!, body, (session?.user as any)?.id ?? null);
+    // A receipt staged for approval has not posted: the delivery stays expected until it does.
+    if (deliveryId && res?.id && !res?.pending) {
+      await attachReceipt(orgId!, deliveryId, res.id).catch(e => console.error("[receiving] delivery link failed after posting", { deliveryId, e }));
+    }
     return ok(res);
   } catch (e: any) {
     if (e instanceof LedgerValidationError) return bad(e.message);

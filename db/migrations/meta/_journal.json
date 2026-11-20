@@ -1002,6 +1002,13 @@
       "when": 1795100000000,
       "tag": "0143_sscc_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "6",
+      "when": 1795200000000,
+      "tag": "0144_expected_deliveries",
+      "breakpoints": true
     }
   ]
 }

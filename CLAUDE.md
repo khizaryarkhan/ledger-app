@@ -951,6 +951,36 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI foundation: expected deliveries (2026-11-20)
+
+Phase 0 item 6, the last groundwork piece. Migration `0144` (additive, three tables). Rules
+`lib/inventory/expected-delivery.ts` (pure), server `expected-delivery-server.ts`, tests `tests/expected-delivery.test.ts`.
+
+- **An expected delivery is what a supplier SAYS is coming** (an ASN, X12 856 / DESADV, or typed from a dispatch
+  note): header (supplier, PO, their reference, ship/expected date, carrier, tracking), lines (PO line + item, base
+  qty, their batch, production/best-before/expiry, optional SSCC) and announced packages (SSCC, one nesting level).
+  **A claim, never stock**: nothing posts until the goods are counted and the receipt posts through
+  `postGoodsReceipt`. `source` = manual | asn (nothing writes asn yet).
+- **"Received" is not stored.** A delivery is received while `goods_receipt_id` points at a receipt; voiding the
+  receipt deletes its row, the FK sets the link null, and the delivery is expected again by construction. Only
+  `status = cancelled` is stored (`deliveryState`). A received delivery cannot be cancelled or deleted.
+- One reference per supplier: partial unique `(org, supplier, upper(reference)) WHERE reference IS NOT NULL AND
+  status <> 'cancelled'` (SQL only, an expression index). A delivery naming a PO takes its supplier from the PO and
+  every line must be one of that PO's lines, for that line's own item. A line's SSCC missing from the package list is
+  added as a package. Item delete is blocked by an expected-delivery line (`itemReferences`).
+- **Receiving**: Receiving → "Expected deliveries" lists and records them (against an open PO). In the receive
+  drawer, a PO with announced deliveries shows "Fill from this delivery", which stages the lines
+  (`prefillFromDelivery`: one draft per PO line, a receipt line per batch, no lot number so the server assigns one,
+  lines the PO no longer expects left out, ones over what is still expected named) and sets the delivery note. The
+  receiver still counts and corrects. `POST /api/inventory/receiving` takes `expectedDeliveryId`, checks it BEFORE
+  posting (still expected, same PO) and links it only after; a receipt staged for approval is not linked.
+- **Receipt SSCCs are matched**: `GET /api/inventory/receiving/[id]/sscc` now returns `{ recorded, expected }`
+  (`matchSsccs`: matched / not scanned yet / not on the delivery), shown in the pallet-label drawer.
+- **Not built / not verified**: nothing clicked through in a browser (server paths exercised on the dev DB by
+  `scripts/_e2e_expected_deliveries.ts`, cleaned up). A receipt that goes through approval, or is corrected with
+  Edit (void and repost), is not re-linked to its delivery. Deliveries without a PO can be created by the API but not
+  the screen, and cannot pre-fill "Receive without a PO". No inbound ASN parser yet (Phase 1+).
+
 ## EDI foundation: SSCC — packing shipments, capturing pallet labels on receipts (2026-11-20)
 
 Phase 0 item 5. Migration `0143` (additive). Rules `lib/inventory/sscc.ts` (pure), server `sscc-server.ts`, tests
@@ -1759,7 +1789,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0143` at `when` `1795100000000`;
+  this silently dropped a table in prod once). Latest is `0144` at `when` `1795200000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

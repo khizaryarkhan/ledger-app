@@ -4,6 +4,8 @@
  * Record the SSCCs on a goods receipt (0143): the pallet / carton codes on the
  * supplier's labels. Type or scan (18 digits, "(00)…" or the raw "00…" scan);
  * the check digit is verified, so a misread label is caught at the dock.
+ * When the receipt was counted from an expected delivery (0144), the codes are
+ * matched against the ones it announced: missing and unexpected are named.
  * Moves no stock. Rules: lib/inventory/sscc.ts.
  */
 
@@ -13,10 +15,12 @@ import { Drawer, controlInset } from "@/components/form-kit";
 import { normaliseSscc, showSscc } from "@/lib/inventory/sscc";
 
 type Row = { id: string; sscc: string };
+type Match = { deliveries: { id: string; reference: string | null }[]; matched: string[]; missing: string[]; unexpected: string[] };
 
 export function ReceiptSsccDrawer({ receipt, onClose }: { receipt: { id: string; receiptNo?: string | null; supplierLabel?: string | null }; onClose: () => void }) {
   const base = `/api/inventory/receiving/${receipt.id}/sscc`;
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [match, setMatch] = useState<Match | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -26,7 +30,8 @@ export function ReceiptSsccDrawer({ receipt, onClose }: { receipt: { id: string;
     const r = await fetch(base);
     const d = await r.json().catch(() => null);
     if (!r.ok) { setErr(d?.error || "Could not load."); setRows([]); return; }
-    setRows(Array.isArray(d) ? d : []);
+    setRows(Array.isArray(d?.recorded) ? d.recorded : []);
+    setMatch(d?.expected?.deliveries?.length ? d.expected : null);
   }
   useEffect(() => { load(); }, [receipt.id]);
 
@@ -70,6 +75,14 @@ export function ReceiptSsccDrawer({ receipt, onClose }: { receipt: { id: string;
           </div>
         ))}
         {rows !== null && rows.length > 0 && <p className="text-[11px] text-stone-500">{rows.length} recorded.</p>}
+        {match && (
+          <div className="rounded-lg border border-stone-800 px-3 py-2.5 space-y-1.5 text-[12px]">
+            <div className="text-stone-300">Against delivery {match.deliveries.map(d => d.reference || "without a reference").join(", ")}: {match.matched.length} of {match.matched.length + match.missing.length} announced SSCCs scanned.</div>
+            {match.missing.length > 0 && <div className="text-amber-400">Not scanned yet: <span className="font-mono">{match.missing.map(showSscc).join(" · ")}</span></div>}
+            {match.unexpected.length > 0 && <div className="text-amber-400">Not on the delivery: <span className="font-mono">{match.unexpected.map(showSscc).join(" · ")}</span></div>}
+            {!match.missing.length && !match.unexpected.length && <div className="text-emerald-400">Everything announced has been scanned.</div>}
+          </div>
+        )}
       </div>
     </Drawer>
   );

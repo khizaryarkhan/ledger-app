@@ -12,7 +12,7 @@ import { db } from "@/db";
 import {
   inventoryLots, inventoryMovements, bomLines, boms, tradeDocumentLines,
   goodsReceiptLines, shipmentLines, productionRuns,
-  journalLines, tradeDocuments, invoices, goodsReceipts, salesShipments,
+  journalLines, tradeDocuments, invoices, goodsReceipts, salesShipments, expectedDeliveryLines,
 } from "@/db/schema";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
@@ -29,7 +29,7 @@ const pack = (entries: [string, number][]): Blocker[] =>
 
 /** Dependents that block deleting an inventory item. */
 export async function itemReferences(orgId: string, itemId: string): Promise<Blocker[]> {
-  const [stock, orderLines, receipts, shipments, bomUse, bomOut, runs] = await Promise.all([
+  const [stock, orderLines, receipts, shipments, bomUse, bomOut, runs, expected] = await Promise.all([
     count(inventoryLots, and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.itemId, itemId))!),
     count(tradeDocumentLines, and(eq(tradeDocumentLines.orgId, orgId), eq(tradeDocumentLines.itemId, itemId))!),
     count(goodsReceiptLines, and(eq(goodsReceiptLines.orgId, orgId), eq(goodsReceiptLines.itemId, itemId))!),
@@ -37,6 +37,7 @@ export async function itemReferences(orgId: string, itemId: string): Promise<Blo
     count(bomLines, and(eq(bomLines.orgId, orgId), eq(bomLines.itemId, itemId))!),
     count(boms, and(eq(boms.orgId, orgId), eq(boms.outputItemId, itemId))!),
     count(productionRuns, and(eq(productionRuns.orgId, orgId), eq(productionRuns.outputItemId, itemId))!),
+    count(expectedDeliveryLines, and(eq(expectedDeliveryLines.orgId, orgId), eq(expectedDeliveryLines.itemId, itemId))!),
   ]);
   return pack([
     ["cost lots / stock movements", stock],
@@ -45,6 +46,7 @@ export async function itemReferences(orgId: string, itemId: string): Promise<Blo
     ["shipments", shipments],
     ["bills of material", bomUse + bomOut],
     ["production runs", runs],
+    ["expected deliveries", expected],
   ]);
 }
 
