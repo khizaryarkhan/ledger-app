@@ -55,10 +55,18 @@ const pad = (s: string, n: number) => s.slice(0, n).padEnd(n, " ");
 
 /** Wrap one transaction set's body segments (without ST/SE) in ST/SE, GS/GE and ISA/IEA. */
 export function interchange(env: Envelope, functionalId: string, txnSet: string, body: string[]): string {
+  return interchangeSets(env, functionalId, [{ txnSet, body }]);
+}
+
+/** Several transaction sets of one functional group in one interchange: ST control numbers 0001, 0002, … */
+export function interchangeSets(env: Envelope, functionalId: string, sets: { txnSet: string; body: string[] }[]): string {
   if (!(env.controlNo >= 1 && env.controlNo <= 999_999_999)) throw new Error("Control number out of range.");
+  if (!sets.length || sets.length > 9999) throw new Error("An interchange needs 1 to 9,999 transaction sets.");
   const ctl9 = String(env.controlNo).padStart(9, "0");
-  const st = seg("ST", txnSet, "0001");
-  const se = seg("SE", body.length + 2, "0001");
+  const txns = sets.flatMap((s, i) => {
+    const no = String(i + 1).padStart(4, "0");
+    return [seg("ST", s.txnSet, no), ...s.body, seg("SE", s.body.length + 2, no)];
+  });
   const isa = [
     "ISA", "00", pad("", 10), "00", pad("", 10),
     env.senderQualifier, pad(env.senderId, 15), env.receiverQualifier, pad(env.receiverId, 15),
@@ -67,7 +75,7 @@ export function interchange(env: Envelope, functionalId: string, txnSet: string,
     ctl9, "0", env.test ? "T" : "P", COMPONENT,
   ].join(ELEMENT) + SEGMENT;
   const gs = seg("GS", functionalId, env.senderAppId, env.receiverAppId, env.now.date, env.now.time, env.controlNo, "X", env.version);
-  return [isa, gs, st, ...body, se, seg("GE", 1, env.controlNo), seg("IEA", 1, ctl9)].join("\n") + "\n";
+  return [isa, gs, ...txns, seg("GE", sets.length, env.controlNo), seg("IEA", 1, ctl9)].join("\n") + "\n";
 }
 
 /** Split a file into segments (each as its elements), for checks and tests. */

@@ -11,7 +11,7 @@ export const X12_VERSIONS = ["004010", "005010"] as const;
 export const EDI_MODES = ["test", "live"] as const;
 /** Phase 1: the file is generated and kept here; a person delivers it. Others plug in behind lib/edi/transport. */
 export const EDI_TRANSPORTS = ["manual"] as const;
-export const EDI_DOCS_OUT = ["850"] as const;
+export const EDI_DOCS_OUT = ["850", "997"] as const;
 
 /** ISA05 / ISA07 interchange ID qualifiers in common use. */
 export const ISA_QUALIFIERS: { code: string; label: string }[] = [

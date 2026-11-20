@@ -26,7 +26,8 @@ import { createExpectedDelivery, setDeliveryCancelled, deleteExpectedDelivery, e
 import { x12UnitFor } from "@/lib/edi/validate";
 import { recordSupplierResponse } from "@/lib/accounting/po-supplier-server";
 import { LedgerValidationError } from "@/lib/ledger";
-import { EdiError } from "@/lib/edi/edi-server";
+import { EdiError, allocateControlNo, utcStamp } from "@/lib/edi/edi-server";
+import { write997 } from "@/lib/edi/x12/997";
 import { logEvent } from "@/lib/audit";
 
 const MAX_BYTES = 2_000_000;
@@ -69,7 +70,52 @@ export async function receiveEdiFile(orgId: string, content: string, fileName: s
     const [first] = await db.select().from(ediMessages).where(and(eq(ediMessages.partnerId, partner.id), eq(ediMessages.direction, "in"), eq(ediMessages.interchangeNo, ixn.controlNo))).limit(1);
     return { duplicate: true, message: first, results: (first?.result as TxnResult[] | null) ?? [] };
   }
-  return { duplicate: false, ...(await processMessage(orgId, partner, row.id, ixn, actorId)) };
+  const processed = await processMessage(orgId, partner, row.id, ixn, actorId);
+  // A partner that wants our 997 gets one ready to send for every file it sends (never for its own 997).
+  let ack: { id: string; fileName: string } | null = null;
+  if (partner.enabled && (partner.docsOut as string[]).includes("997") && ixn.groups.some(g => g.functionalId !== "FA")) {
+    ack = await generateAck997(orgId, row.id, actorId).then(r => ({ id: r.id, fileName: r.fileName }))
+      .catch(e => { console.error("[edi] the 997 for a received file could not be generated", { orgId, messageId: row.id, e }); return null; });
+  }
+  return { duplicate: false, ...processed, ack };
+}
+
+/**
+ * Our 997 for a received file, kept like any outbound file: download it,
+ * deliver it, mark it sent. One per received file (a second call returns the
+ * first unless it was voided). It goes out in the same test/live mode as the
+ * file it answers. Accepted throughout: see lib/edi/x12/997.ts.
+ */
+export async function generateAck997(orgId: string, inboundId: string, actorId: string | null) {
+  const [m] = await db.select().from(ediMessages).where(and(eq(ediMessages.id, inboundId), eq(ediMessages.orgId, orgId))).limit(1);
+  if (!m || m.direction !== "in") throw new EdiError("Inbound file not found.", 404);
+  const [existing] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"),
+    eq(ediMessages.appDocType, "EdiFile"), eq(ediMessages.appDocId, m.id), ne(ediMessages.status, "void"))).limit(1);
+  if (existing) return { ...existing, already: true };
+  const [partner] = await db.select().from(ediPartners).where(eq(ediPartners.id, m.partnerId)).limit(1);
+  if (!partner) throw new EdiError("EDI partner not found.", 404);
+  if (!partner.enabled) throw new EdiError("This partner's EDI profile is switched off.");
+  const ixn = readInterchange(m.payload);
+  const groups = ixn.groups.map(g => ({ functionalId: g.functionalId, controlNo: g.controlNo, txns: g.txns.map(t => ({ setId: t.setId, controlNo: t.controlNo })) }));
+  if (!groups.some(g => g.functionalId !== "FA")) throw new EdiError("This file is itself an acknowledgement (997); it is never acknowledged.", 409);
+
+  const controlNo = await allocateControlNo(orgId, partner.id);
+  const payload = write997(groups, {
+    version: partner.version as "004010" | "005010", test: ixn.test,
+    senderQualifier: partner.senderQualifier, senderId: partner.senderId, receiverQualifier: partner.receiverQualifier, receiverId: partner.receiverId,
+    senderAppId: partner.senderAppId || partner.senderId, receiverAppId: partner.receiverAppId || partner.receiverId,
+    controlNo, now: utcStamp(),
+  })!;
+  const fileName = `997_for_${ixn.controlNo}_${String(controlNo).padStart(9, "0")}.x12`;
+  const [row] = await db.insert(ediMessages).values({
+    orgId, partnerId: partner.id, partyId: partner.partyId, direction: "out", docType: "997", standard: "x12",
+    version: partner.version, test: ixn.test, status: "generated", interchangeNo: controlNo, groupNo: controlNo, txnNo: "0001",
+    appDocType: "EdiFile", appDocId: m.id, appDocNumber: `${m.docType} ${m.interchangeNo}`.slice(0, 64),
+    fileName, payload, payloadSha256: createHash("sha256").update(payload).digest("hex"), createdBy: actorId,
+  }).returning();
+  logEvent({ orgId, eventType: "edi_generated", docType: null, docId: null, actorId, meta: { messageId: row.id, docType: "997", controlNo, answers: m.id } })
+    .catch(e => console.error("[audit] edi_generated failed:", e));
+  return { ...row, already: false };
 }
 
 /** A file stuck in error (it failed part-way) may be processed again. Everything it does is safe to repeat. */

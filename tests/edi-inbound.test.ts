@@ -4,7 +4,8 @@ import { readInterchange } from "@/lib/edi/x12/read";
 import { parse997, parse855, parse856, parse810, ymdFrom } from "@/lib/edi/x12/inbound";
 import { ackToResponse, asnOrderToDelivery, asnPurpose, asnReference, invoiceToBill, type AckPoLine, type AsnPoLine, type InvoiceReceipt } from "@/lib/edi/inbound";
 import { prepareDelivery } from "@/lib/inventory/expected-delivery";
-import { interchange, seg, type Envelope } from "@/lib/edi/x12/envelope";
+import { interchange, interchangeSets, seg, type Envelope } from "@/lib/edi/x12/envelope";
+import { write997 } from "@/lib/edi/x12/997";
 
 // A file FROM the partner: their ID is the sender.
 const env: Envelope = { version: "004010", test: true, senderQualifier: "01", senderId: "123456789", receiverQualifier: "ZZ",
@@ -215,6 +216,37 @@ describe("810 → a bill a person approves", () => {
     expect(invoiceToBill(inv([["7", "1", "BG", "1"]]), poLines, receipts, "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/Line "7" is not a line of PO-0042/)] });
     expect(invoiceToBill(inv([["1", "1", "CA", "1"]]), poLines, receipts, "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/invoiced in CA/)] });
     expect(invoiceToBill(inv([["1", "16", "BG", "12.5"]]), poLines, [], "EUR")).toMatchObject({ ok: false, problems: [expect.stringMatching(/Nothing received against PO-0042/)] });
+  });
+});
+
+describe("our 997 for their file", () => {
+  const ours: Envelope = { ...env, senderQualifier: "ZZ", senderId: "PRIMEFOODS", receiverQualifier: "01", receiverId: "123456789",
+    senderAppId: "PRIMEFOODS", receiverAppId: "123456789", controlNo: 88 };
+  const received = readInterchange(interchangeSets(env, "IN", [
+    { txnSet: "810", body: [seg("BIG", "20261125", "INV-1", "", "PO-1")] },
+    { txnSet: "810", body: [seg("BIG", "20261125", "INV-2", "", "PO-2")] },
+  ]));
+
+  it("acknowledges each group and each set, accepted, and our own reader agrees", () => {
+    const file = write997(received.groups, ours)!;
+    const back = readInterchange(file);
+    expect(back).toMatchObject({ senderId: "PRIMEFOODS", receiverId: "123456789", controlNo: 88 });
+    expect(back.groups).toHaveLength(1);
+    expect(back.groups[0].functionalId).toBe("FA");
+    const ack = parse997(back.groups[0].txns[0].segments);
+    expect(ack).toMatchObject({ functionalId: "IN", groupControlNo: 7, groupStatus: "accepted",
+      txns: [{ setId: "810", controlNo: "0001", status: "accepted" }, { setId: "810", controlNo: "0002", status: "accepted" }] });
+    expect(back.groups[0].txns[0].segments.find(s => s[0] === "AK9")).toEqual(["AK9", "A", "2", "2", "2"]);
+  });
+
+  it("never acknowledges a 997", () => {
+    const their997 = readInterchange(interchange(env, "FA", "997", [seg("AK1", "PO", "42"), seg("AK9", "A", "1", "1", "1")]));
+    expect(write997(their997.groups, ours)).toBeNull();
+  });
+
+  it("writes several sets in one group with their own ST numbers", () => {
+    const f = interchangeSets(ours, "FA", [{ txnSet: "997", body: [seg("AK1", "IN", "1")] }, { txnSet: "997", body: [seg("AK1", "SH", "2")] }]);
+    expect(readInterchange(f).groups[0].txns.map(t => t.controlNo)).toEqual(["0001", "0002"]);
   });
 });
 

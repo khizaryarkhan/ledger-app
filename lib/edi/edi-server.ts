@@ -109,7 +109,7 @@ export async function checkPurchaseOrder(orgId: string, poId: string) {
 }
 
 /** Take the next control number for this partner. Never reused, even if the file is voided. */
-async function allocateControlNo(orgId: string, partnerId: string): Promise<number> {
+export async function allocateControlNo(orgId: string, partnerId: string): Promise<number> {
   const r: any = await db.execute(sql`
     update edi_partners set next_control_no = next_control_no + 1, updated_at = now()
     where id = ${partnerId} and org_id = ${orgId}
@@ -120,7 +120,7 @@ async function allocateControlNo(orgId: string, partnerId: string): Promise<numb
   return ctl;
 }
 
-function utcStamp(d = new Date()) {
+export function utcStamp(d = new Date()) {
   const iso = d.toISOString();
   return { date: iso.slice(0, 10).replace(/-/g, ""), time: iso.slice(11, 16).replace(":", "") };
 }
@@ -204,7 +204,7 @@ export async function markMessageSent(orgId: string, id: string, actorId: string
     await db.update(tradeDocuments).set({ sentAt: now, updatedAt: now })
       .where(and(eq(tradeDocuments.id, m.appDocId), eq(tradeDocuments.orgId, orgId), sql`${tradeDocuments.sentAt} is null`));
   }
-  logEvent({ orgId, eventType: "edi_sent", docType: "trade", docId: m.appDocId, actorId, meta: { messageId: id, controlNo: m.interchangeNo } })
+  logEvent({ orgId, eventType: "edi_sent", docType: m.appDocType === "PurchaseOrder" ? "trade" : null, docId: m.appDocType === "PurchaseOrder" ? m.appDocId : null, actorId, meta: { messageId: id, controlNo: m.interchangeNo } })
     .catch(e => console.error("[audit] edi_sent failed:", e));
   return { id, status: "sent" as const };
 }
@@ -217,7 +217,7 @@ export async function voidMessage(orgId: string, id: string, reason: string, act
   const why = reason.trim().slice(0, 500) || "Voided";
   await db.update(ediMessages).set({ status: "void", voidReason: why })
     .where(and(eq(ediMessages.id, id), eq(ediMessages.orgId, orgId), inArray(ediMessages.status, ["generated"])));
-  logEvent({ orgId, eventType: "edi_voided", docType: "trade", docId: m.appDocId, actorId, meta: { messageId: id, controlNo: m.interchangeNo, reason: why } })
+  logEvent({ orgId, eventType: "edi_voided", docType: m.appDocType === "PurchaseOrder" ? "trade" : null, docId: m.appDocType === "PurchaseOrder" ? m.appDocId : null, actorId, meta: { messageId: id, controlNo: m.interchangeNo, reason: why } })
     .catch(e => console.error("[audit] edi_voided failed:", e));
   return { id, status: "void" as const };
 }

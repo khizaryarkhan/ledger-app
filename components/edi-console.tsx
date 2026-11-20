@@ -113,6 +113,7 @@ function statusCell(m: any, open: () => void) {
   }
   if (m.status === "generated") return <span className="text-amber-400">waiting to be sent</span>;
   if (m.status === "void") return <span className="text-stone-500">void{m.voidReason ? `: ${m.voidReason}` : ""}</span>;
+  if (m.docType === "997") return <span className="text-stone-300">sent</span>; // nobody acknowledges a 997
   const ack = m.ackStatus ? ACK_WORDS[m.ackStatus] : "sent, not acknowledged yet";
   return <span className={m.ackStatus && m.ackStatus !== "accepted" ? "text-amber-400" : "text-stone-300"} title={m.error ?? undefined}>{ack}</span>;
 }
@@ -153,6 +154,7 @@ function UploadDrawer({ onClose }: { onClose: () => void }) {
           <div className="space-y-2">
             {done.duplicate && <p className="text-[12.5px] text-stone-300">This file was already received (same partner and interchange number), so nothing changed. Its first result:</p>}
             <Results results={done.results ?? []} messageId={done.message?.id} onBilled={results => setDone({ ...done, results })} />
+            {done.ack && <p className="text-[12.5px] text-stone-300">Our 997 for this file is ready: <a href={`/api/edi/messages/${done.ack.id}?download=1`} className="text-sky-400 hover:text-sky-300 font-mono">{done.ack.fileName}</a>. Deliver it and mark it sent in Files.</p>}
           </div>
         )}
       </div>
@@ -252,6 +254,15 @@ function ResultDrawer({ message, onClose, onChanged }: { message: any; onClose: 
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not process it again."); return; }
     onChanged();
   }
+  const [ack, setAck] = useState<{ id: string; fileName: string; already: boolean } | null>(null);
+  async function makeAck() {
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/edi/messages/${message.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ack" }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setErr(d?.error || "Could not make the 997."); return; }
+    setAck({ id: d.id, fileName: d.fileName, already: !!d.already });
+  }
   return (
     <Drawer title={`Received · ${message.fileName}`} subtitle={`${message.partyName ?? ""} · control no. ${message.interchangeNo}`} onClose={onClose} size="lg">
       <div className="space-y-3">
@@ -260,6 +271,12 @@ function ResultDrawer({ message, onClose, onChanged }: { message: any; onClose: 
           <button onClick={reprocess} disabled={busy} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-stone-600 text-[12.5px] text-stone-200 hover:bg-stone-800 disabled:opacity-50">
             {busy && <Loader size={13} className="animate-spin" />} Process it again
           </button>
+        )}
+        {message.docType !== "997" && (
+          ack ? <p className="text-[12.5px] text-stone-300">Our 997: <a href={`/api/edi/messages/${ack.id}?download=1`} className="text-sky-400 hover:text-sky-300 font-mono">{ack.fileName}</a>{ack.already ? " (already made; deliver it and mark it sent in Files)" : ". Deliver it and mark it sent in Files."}</p>
+          : <button onClick={makeAck} disabled={busy} className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-stone-600 text-[12.5px] text-stone-200 hover:bg-stone-800 disabled:opacity-50">
+              {busy && <Loader size={13} className="animate-spin" />} Make our 997 for this file
+            </button>
         )}
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
         <a href={`/api/edi/messages/${message.id}?download=1`} className="inline-flex items-center gap-1.5 text-[12.5px] text-stone-400 hover:text-stone-200"><Download size={13} /> Download the file</a>
@@ -276,6 +293,7 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
     senderQualifier: partner.senderQualifier ?? "ZZ", senderId: partner.senderId ?? "", receiverQualifier: partner.receiverQualifier ?? "ZZ", receiverId: partner.receiverId ?? "",
     senderAppId: partner.senderAppId ?? "", receiverAppId: partner.receiverAppId ?? "",
     requirePartNumber: partner.requirePartNumber ?? true, requireGtin: partner.requireGtin ?? false,
+    sendAck: ((partner.docsOut ?? []) as string[]).includes("997"),
     units: Object.entries(partner.unitOverrides ?? {}).map(([k, v]) => `${k}=${v}`).join("\n"), notes: partner.notes ?? "",
   }));
   const [saving, setSaving] = useState(false);
@@ -289,8 +307,9 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
       const [k, v] = line.split("=").map(s => s?.trim());
       if (k) unitOverrides[k] = v ?? "";
     }
-    const { units: _u, ...rest } = f;
-    const body = { ...rest, unitOverrides, senderAppId: f.senderAppId || null, receiverAppId: f.receiverAppId || null, notes: f.notes || null };
+    const { units: _u, sendAck, ...rest } = f;
+    const docsOut = [...((partner.docsOut ?? ["850"]) as string[]).filter(d => d !== "997"), ...(sendAck ? ["997"] : [])];
+    const body = { ...rest, docsOut, unitOverrides, senderAppId: f.senderAppId || null, receiverAppId: f.receiverAppId || null, notes: f.notes || null };
     setSaving(true); setErr("");
     const r = await fetch(isNew ? "/api/edi/partners" : `/api/edi/partners/${partner.id}`, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
@@ -332,6 +351,7 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
         <div className="space-y-2 text-[12.5px] text-stone-300">
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.requirePartNumber} onChange={e => set({ requirePartNumber: e.target.checked })} /> Every line must carry their part number</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.requireGtin} onChange={e => set({ requireGtin: e.target.checked })} /> Every line must carry a GTIN</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={f.sendAck} onChange={e => set({ sendAck: e.target.checked })} /> Make our 997 for every file they send (ask them; most partners expect one)</label>
         </div>
         <Field label="Unit codes for this partner" hint="One per line: our unit = their 2-character X12 code (e.g. case=CS). Only where theirs differs from the standard.">
           <textarea value={f.units} onChange={e => set({ units: e.target.value })} rows={3} className={`${controlInset} font-mono h-auto py-2`} placeholder="case=CS" />
