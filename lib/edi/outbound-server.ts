@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { db } from "@/db";
-import { ediMessages, ediPartners, tradeDocuments, tradeDocumentLines, apItems, organisations, parties, journalEntries, invoices, transactionLinks, salesShipments, shipmentLines, shipmentPackages, shipmentPackageLines, partyShipTo, itemPartNumbers, itemIdentifiers } from "@/db/schema";
+import { ediMessages, ediPartners, tradeDocuments, tradeDocumentLines, apItems, organisations, parties, journalEntries, invoices, transactionLinks, salesShipments, shipmentLines, shipmentPackages, shipmentPackageLines, partyShipTo, itemPartNumbers, itemIdentifiers, inventoryMovements, inventoryLots } from "@/db/schema";
 import { and, eq, desc, inArray, isNull } from "drizzle-orm";
 import { readInterchange } from "@/lib/edi/x12/read";
 import { parse850 } from "@/lib/edi/x12/inbound";
@@ -19,7 +19,7 @@ import { write855 } from "@/lib/edi/x12/855";
 import { write856 } from "@/lib/edi/x12/856";
 import { write810 } from "@/lib/edi/x12/810";
 import { buildInvoice, type InvFacts } from "@/lib/edi/build/invoice";
-import { buildShipNotice, type ShipFacts } from "@/lib/edi/build/shipment";
+import { buildShipNotice, lotsForLines, type ShipFacts } from "@/lib/edi/build/shipment";
 import { partNumberForLevel, partNumbersByLevel } from "@/lib/inventory/part-numbers";
 import { EdiError, allocateControlNo, utcStamp, partnerForParty, listMessages } from "@/lib/edi/edi-server";
 import { logEvent } from "@/lib/audit";
@@ -176,6 +176,20 @@ async function loadShipmentFacts(orgId: string, shipmentId: string): Promise<(Sh
   const customerId = sh.customerId;
   const { sos, orders, parts } = await orderFactsFor(orgId, customerId, lines);
 
+  // The lots the shipment issued: its stock movements carry the item and lot (not the shipment line), and the shipment
+  // stamps them with its journal entry id when it has one, else its own id. The batch is the supplier's printed batch
+  // when the lot has one (what is on the pack), else our lot number.
+  const moves = await db.select({ itemId: inventoryMovements.itemId, lotId: inventoryMovements.lotId, qty: inventoryMovements.qty,
+    lotNo: inventoryLots.lotNo, supplierBatchNo: inventoryLots.supplierBatchNo, productionDate: inventoryLots.productionDate,
+    bestBeforeDate: inventoryLots.bestBeforeDate, expiryDate: inventoryLots.expiryDate })
+    .from(inventoryMovements).leftJoin(inventoryLots, eq(inventoryLots.id, inventoryMovements.lotId))
+    .where(and(eq(inventoryMovements.orgId, orgId), eq(inventoryMovements.movementType, "issue_sale"), eq(inventoryMovements.refType, "Shipment"),
+      eq(inventoryMovements.refId, sh.entryId ?? shipmentId)));
+  const lots = lotsForLines(lines.map(l => ({ id: l.id, itemId: l.itemId })), moves.filter(m => m.lotId).map(m => ({
+    itemId: m.itemId, lotId: m.lotId!, qtyBase: Math.abs(Number(m.qty)), batch: m.supplierBatchNo || m.lotNo || null,
+    productionDate: m.productionDate ?? null, bestBeforeDate: m.bestBeforeDate ?? null, expiryDate: m.expiryDate ?? null,
+  })));
+
   const [sent] = await db.select({ id: ediMessages.id }).from(ediMessages)
     .where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"), eq(ediMessages.docType, "856"), eq(ediMessages.appDocId, shipmentId), eq(ediMessages.status, "sent"))).limit(1);
   return {
@@ -183,7 +197,7 @@ async function loadShipmentFacts(orgId: string, shipmentId: string): Promise<(Sh
     shipment: { shipmentNo: sh.shipmentNo, shipDate: sh.shipmentDate, carrier: sh.carrier, trackingNo: sh.trackingNo, posted: sh.status === "Posted" },
     shipFrom: { name: org?.displayName || org?.name || "", gln: org?.gln ?? null },
     lines: lines.map(l => ({ id: l.id, soId: l.soId, soLineId: l.soLineId, qtyBase: Number(l.qtyBase) })),
-    orders, parts,
+    orders, parts, lots,
     packages: pkgs.map(p => ({ id: p.id, sscc: p.sscc, parentId: p.parentId, packType: p.packType, lines: contents.filter(c => c.packageId === p.id).map(c => ({ shipmentLineId: c.shipmentLineId, qtyBase: Number(c.qtyBase) })) })),
     replaces: !!sent,
   };

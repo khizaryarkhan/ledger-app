@@ -4,7 +4,7 @@ import { parse855, parse856, parse810 } from "@/lib/edi/x12/inbound";
 import { write810 } from "@/lib/edi/x12/810";
 import { buildInvoice, type InvFacts } from "@/lib/edi/build/invoice";
 import { write856 } from "@/lib/edi/x12/856";
-import { buildShipNotice, type ShipFacts } from "@/lib/edi/build/shipment";
+import { buildShipNotice, lotsForLines, type ShipFacts, type LotIssue } from "@/lib/edi/build/shipment";
 import { write855 } from "@/lib/edi/x12/855";
 import { buildOrderAck, type SoAckFacts } from "@/lib/edi/build/sales-order";
 import type { Envelope } from "@/lib/edi/x12/envelope";
@@ -218,5 +218,42 @@ describe("810 builder and writer", () => {
     expect(failOf(moved)).toMatch(/2 line\(s\), their order had 1/);
     expect(failOf(inv({ invoice: { ...inv().invoice, posted: false } }))).toMatch(/not posted/);
     expect(failOf(inv({ invoice: { ...inv().invoice, tax: 100 } }))).toMatch(/is not the total/);
+  });
+});
+
+describe("856 lots", () => {
+  const issue = (over: Partial<LotIssue> = {}): LotIssue => ({ itemId: "I1", lotId: "LOT-A", qtyBase: 600, batch: "B2401", productionDate: "2026-11-01", bestBeforeDate: null, expiryDate: "2027-11-01", ...over });
+
+  it("a line issued from one lot carries its batch and dates", () => {
+    expect(lotsForLines([{ id: "SL1", itemId: "I1" }], [issue()])).toEqual({ SL1: { batch: "B2401", productionDate: "2026-11-01", bestBeforeDate: null, expiryDate: "2027-11-01" } });
+  });
+
+  it("never guesses: several lots, or two lines of one item, get no batch", () => {
+    expect(lotsForLines([{ id: "SL1", itemId: "I1" }], [issue(), issue({ lotId: "LOT-B", batch: "B2402" })])).toEqual({});
+    expect(lotsForLines([{ id: "SL1", itemId: "I1" }, { id: "SL2", itemId: "I1" }], [issue()])).toEqual({});
+    // a different item's lot does not leak across
+    expect(lotsForLines([{ id: "SL1", itemId: "I1" }, { id: "SL2", itemId: "I2" }], [issue(), issue({ itemId: "I2", lotId: "LOT-C", batch: "C1" })])).toMatchObject({ SL1: { batch: "B2401" }, SL2: { batch: "C1" } });
+  });
+
+  it("the notice carries the batch (LIN LT) and the dates (DTM 094/511/036) in the packed and the loose items", () => {
+    const PALLET = "354123450000000014", CARTON = "354123450000000021";
+    const f: ShipFacts = {
+      shipment: { shipmentNo: "SHP-1", shipDate: "2026-11-26", carrier: null, trackingNo: null, posted: true },
+      shipFrom: { name: "Prime Foods Ltd", gln: null },
+      lines: [{ id: "SL1", soId: "S1", soLineId: "OL1", qtyBase: 600 }],
+      orders: [{ soId: "S1", poNumber: "CUST-PO-77", poDate: "2026-11-20", shipTo: null,
+        soLines: [{ id: "OL1", lineNo: 1, orderUom: "carton", baseUom: "kg", unitsPerOrderUnit: 200, itemCode: "RM-RICE" }], theirs: null }],
+      parts: {}, lots: { SL1: { batch: "B2401", productionDate: "2026-11-01", bestBeforeDate: "2027-10-01", expiryDate: "2027-11-01" } },
+      packages: [{ id: "P1", sscc: PALLET, parentId: null, packType: "pallet", lines: [] }, { id: "P2", sscc: CARTON, parentId: "P1", packType: "carton", lines: [{ shipmentLineId: "SL1", qtyBase: 400 }] }],
+      replaces: false,
+    };
+    const r = buildShipNotice(f, {});
+    if (r.ok === false) throw new Error(JSON.stringify(r.problems));
+    const env: Envelope = { version: "004010", test: true, senderQualifier: "ZZ", senderId: "PRIMEFOODS", receiverQualifier: "ZZ", receiverId: "CUSTOMER", senderAppId: "PRIMEFOODS", receiverAppId: "CUSTOMER", controlNo: 90, now: { date: "20261126", time: "1000" } };
+    const n = parse856(readInterchange(write856(r.asn, env)).groups[0].txns[0].segments);
+    expect(n.orders[0].items).toHaveLength(2);
+    for (const it of n.orders[0].items) {
+      expect(it).toMatchObject({ batch: "B2401", productionDate: "2026-11-01", bestBeforeDate: "2027-10-01", expiryDate: "2027-11-01", badDates: [] });
+    }
   });
 });

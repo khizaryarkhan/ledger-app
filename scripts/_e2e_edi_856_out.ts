@@ -51,7 +51,7 @@ async function main() {
   const tag = Date.now().toString(36).toUpperCase();
   const poNo = `E2E-PO-${tag}`, theirPart = `E2E-BP-${tag}`;
   const sscc = (n: number) => { const body = `35412345${String(Date.now() % 1e8).padStart(8, "0")}${n}`; return body + gs1CheckDigit(body); };
-  let partnerId: string | null = null; let partNoId: string | null = null; let soId: string | null = null; const shipIds: string[] = [];
+  let partnerId: string | null = null; let partNoId: string | null = null; let soId: string | null = null; let lotId: string | null = null; const shipIds: string[] = [];
   try {
     const p = await E.createPartner(orgId, { partyId: pick.cust.id, senderQualifier: "ZZ", senderId: "E2EUS", receiverQualifier: "ZZ", receiverId: "E2ECUST" }, null);
     partnerId = p.id;
@@ -73,6 +73,12 @@ async function main() {
     const [cp] = await db.insert(S.shipmentPackages).values({ orgId, shipmentId: sh.id, parentId: pp.id, sscc: CARTON, packType: "carton" }).returning();
     await db.insert(S.shipmentPackageLines).values({ orgId, packageId: cp.id, shipmentLineId: sl.id, qtyBase: "5" });
 
+    // The one lot the shipment issued (a lot row and the issue movement; no stock or ledger posting).
+    const [lot] = await db.insert(S.inventoryLots).values({ orgId, itemId: pick.itemId, lotNo: `E2E-LOT-${tag}`, supplierBatchNo: `E2E-SB-${tag}`, origQty: "10", remainingQty: "3",
+      unitCost: "1", expiryDate: "2027-11-01", productionDate: "2026-11-01" } as any).returning();
+    lotId = lot.id;
+    await db.insert(S.inventoryMovements).values({ orgId, itemId: pick.itemId, lotId: lot.id, movementType: "issue_sale", qty: "-7", refType: "Shipment", refId: sh.id } as any);
+
     const c0 = await O.checkShipmentAsn(orgId, sh.id);
     check("a posted shipment against their order can be advised", c0.problems.length === 0 && c0.partner?.receiverId === "E2ECUST", c0.problems.map(x => x.message).join(" | "));
     const m1 = await O.generateShipmentAsn856(orgId, sh.id, null);
@@ -82,6 +88,7 @@ async function main() {
     check("the carton is nested under the pallet with their SSCCs", n.orders[0].packages.some(x => x.sscc === CARTON && x.level === "pack" && x.parentSscc === PALLET) && n.orders[0].packages.some(x => x.sscc === PALLET && x.level === "tare"));
     const packed = n.orders[0].items.find(i => i.sscc === CARTON), loose = n.orders[0].items.find(i => i.sscc === null);
     check("the packed goods are in the carton and the rest is listed under the order, in THEIR line number", packed?.qty === 5 && packed?.lineNo === "10" && packed?.ids.BP === theirPart && loose?.qty === 2 && loose?.lineNo === "10", JSON.stringify({ packed: packed?.qty, loose: loose?.qty }));
+    check("the goods from the one lot carry its batch (the supplier's printed one) and dates, packed and loose", n.orders[0].items.length === 2 && n.orders[0].items.every(i => i.batch === `E2E-SB-${tag}` && i.productionDate === "2026-11-01" && i.expiryDate === "2027-11-01"), JSON.stringify(n.orders[0].items.map(i => [i.batch, i.expiryDate])));
     check("it is waiting to be sent, linked to the shipment", row.status === "generated" && row.docType === "856" && row.appDocType === "Shipment" && row.appDocId === sh.id);
 
     await E.markMessageSent(orgId, m1.id, null);
@@ -95,6 +102,8 @@ async function main() {
     const c2 = await O.checkShipmentAsn(orgId, sh2.id);
     check("a shipment line with no Sales Order is refused", c2.problems.some(x => /has no Sales Order/.test(x.message)), c2.problems.map(x => x.message).join(" | "));
   } finally {
+    if (shipIds.length) await db.delete(S.inventoryMovements).where(and(eq(S.inventoryMovements.orgId, orgId), eq(S.inventoryMovements.refType, "Shipment"), inArray(S.inventoryMovements.refId, shipIds)));
+    if (lotId) await db.delete(S.inventoryLots).where(eq(S.inventoryLots.id, lotId));
     if (shipIds.length) await db.delete(S.salesShipments).where(inArray(S.salesShipments.id, shipIds));
     let removed = 0;
     if (soId) await deleteTradeDoc(orgId, soId, null).then(() => removed++, e => { console.error("could not delete SO", soId, e); failed++; });

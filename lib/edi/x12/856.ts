@@ -31,7 +31,12 @@ export function write856(a: ShipNoticeOut, env: Envelope): string {
     if (it.partNumber) ids.push("BP", clean(it.partNumber, 48));
     if (it.gtin) ids.push(...gtinPair(it.gtin));
     if (it.itemCode) ids.push("VP", clean(it.itemCode, 48));
-    body.push(...open(id, parent, "I", false, seg("LIN", clean(it.lineNo, 20), ...ids), seg("SN1", "", num(it.qty), it.unit)));
+    if (it.batch) ids.push("LT", clean(it.batch, 30));
+    body.push(...open(id, parent, "I", false, seg("LIN", clean(it.lineNo, 20), ...ids), seg("SN1", "", num(it.qty), it.unit),
+      ...(it.productionDate ? [seg("DTM", "094", ccyymmdd(it.productionDate))] : []),
+      ...(it.bestBeforeDate ? [seg("DTM", "511", ccyymmdd(it.bestBeforeDate))] : []),
+      ...(it.expiryDate ? [seg("DTM", "036", ccyymmdd(it.expiryDate))] : []),
+    ));
   };
 
   for (const o of a.orders) {

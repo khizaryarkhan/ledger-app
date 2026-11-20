@@ -27,12 +27,38 @@ export type ShipFacts = {
   }[];
   /** Per shipment line: THEIR part number and a GTIN for the pack level it was ordered at. */
   parts: Record<string, { bp: string | null; gtin: string | null }>;
+  /** Batch and dates per shipment line, for lines issued from a single lot (see lotsForLines). */
+  lots?: Record<string, LotInfo>;
   packages: { id: string; sscc: string; parentId: string | null; packType: string; lines: { shipmentLineId: string; qtyBase: number }[] }[];
   /** An 856 for this shipment was already sent: this one replaces it (BSN01 05). */
   replaces: boolean;
 };
 
-export type AsnItem = { lineNo: string; partNumber: string | null; gtin: string | null; itemCode: string | null; qty: number; unit: string };
+/** The batch and dates of the one lot a shipment line was issued from (what a GS1 label carries: AI 10, 11, 15, 17). */
+export type LotInfo = { batch: string | null; productionDate: string | null; bestBeforeDate: string | null; expiryDate: string | null };
+/** One lot's issue for a shipment, from the stock movements the shipment posted. */
+export type LotIssue = { itemId: string; lotId: string; qtyBase: number; batch: string | null; productionDate: string | null; bestBeforeDate: string | null; expiryDate: string | null };
+
+/**
+ * Lot data per shipment line, ONLY where it is unambiguous: the line is the only one of its item on the shipment (the
+ * movements record the item, not the line) and everything shipped of that item came from a single lot. A line issued from
+ * several lots gets none: the packing records what is in each package per line, never per lot, so naming a batch for it
+ * would be a guess.
+ */
+export function lotsForLines(lines: { id: string; itemId: string }[], issues: LotIssue[]): Record<string, LotInfo> {
+  const out: Record<string, LotInfo> = {};
+  for (const l of lines) {
+    if (lines.filter(x => x.itemId === l.itemId).length !== 1) continue;
+    const mine = issues.filter(i => i.itemId === l.itemId && i.qtyBase > 0);
+    const lots = [...new Set(mine.map(i => i.lotId))];
+    if (lots.length !== 1) continue;
+    const { batch, productionDate, bestBeforeDate, expiryDate } = mine[0];
+    out[l.id] = { batch, productionDate, bestBeforeDate, expiryDate };
+  }
+  return out;
+}
+
+export type AsnItem = { lineNo: string; partNumber: string | null; gtin: string | null; itemCode: string | null; qty: number; unit: string } & Partial<LotInfo>;
 export type AsnPackage = { sscc: string; level: "tare" | "pack"; parentSscc: string | null; items: AsnItem[] };
 export type AsnOrder = { poNumber: string; poDate: string; shipTo: { name: string | null; gln: string | null; code: string | null } | null; packages: AsnPackage[]; loose: AsnItem[] };
 export type ShipNoticeOut = {
@@ -77,7 +103,9 @@ export function buildShipNotice(f: ShipFacts, overrides: Record<string, string>)
 
   const item = (lineId: string, qtyBase: number): AsnItem => {
     const l = lineById.get(lineId)!; const info = soLineInfo.get(l.soLineId!)!; const p = f.parts[lineId] ?? { bp: null, gtin: null };
-    return { lineNo: info.theirNo, partNumber: p.bp, gtin: p.gtin, itemCode: info.itemCode, qty: q6(qtyBase / info.upo), unit: info.unit };
+    const lot = f.lots?.[lineId];
+    return { lineNo: info.theirNo, partNumber: p.bp, gtin: p.gtin, itemCode: info.itemCode, qty: q6(qtyBase / info.upo), unit: info.unit,
+      ...(lot ? { batch: lot.batch, productionDate: lot.productionDate, bestBeforeDate: lot.bestBeforeDate, expiryDate: lot.expiryDate } : {}) };
   };
 
   // Which order each package belongs to: its own contents', else its children's. One order per package.
