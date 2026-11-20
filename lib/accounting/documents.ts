@@ -25,7 +25,7 @@
  */
 
 import { db } from "@/db";
-import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines, goodsReceipts, goodsReceiptLines } from "@/db/schema";
+import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines, goodsReceipts, goodsReceiptLines, shipmentLines, salesShipments } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { logEvent } from "@/lib/audit";
@@ -1430,6 +1430,35 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
         const status = invoicedNet >= totalNet - 0.005 ? "Closed" : invoicedNet > 0.005 ? "Partial" : "Open";
         await db.update(tradeDocuments).set({ status, updatedAt: new Date() }).where(eq(tradeDocuments.id, poId));
       }
+    }
+  }
+
+  // An Invoice made from shipments (invoiceFromShipments) advanced "invoiced so far" on the shipment lines, the
+  // shipment and the order lines. Deleting it must undo exactly what IT advanced, from its own line-level links
+  // (the only record of how much each contributed), or the shipment stays "invoiced" with no invoice to show for it
+  // and can never be voided. An invoice made before those links existed has none, and is left as it was.
+  if (entry.sourceType === "Invoice") {
+    const shipLinks = await db.select().from(transactionLinks)
+      .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), eq(transactionLinks.toType, "Invoice"), eq(transactionLinks.relation, "shipment_invoice")));
+    const perShipment = new Map<string, number>();
+    for (const lk of shipLinks) {
+      if (!lk.fromLineId) continue;                      // the per-shipment link carries no line
+      const qty = roundQty(Number(lk.qty ?? 0));
+      const amount = round2(Number(lk.amount ?? 0));
+      const [sl] = await db.select().from(shipmentLines).where(and(eq(shipmentLines.id, lk.fromLineId), eq(shipmentLines.orgId, orgId))).limit(1);
+      if (!sl) continue;
+      if (qty !== 0) {
+        await db.update(shipmentLines).set({ invoicedQty: sql`greatest(0, ${shipmentLines.invoicedQty} - ${qty.toString()})` })
+          .where(and(eq(shipmentLines.id, sl.id), eq(shipmentLines.orgId, orgId)));
+        if (sl.soLineId) await db.update(tradeDocumentLines).set({ billedQty: sql`greatest(0, ${tradeDocumentLines.billedQty} - ${qty.toString()})` })
+          .where(and(eq(tradeDocumentLines.id, sl.soLineId), eq(tradeDocumentLines.orgId, orgId)));
+      }
+      perShipment.set(sl.shipmentId, round2((perShipment.get(sl.shipmentId) ?? 0) + amount));
+    }
+    for (const [sid, amt] of perShipment) {
+      if (amt === 0) continue;
+      await db.update(salesShipments).set({ invoicedAmount: sql`greatest(0, ${salesShipments.invoicedAmount} - ${amt.toString()})`, updatedAt: new Date() })
+        .where(and(eq(salesShipments.id, sid), eq(salesShipments.orgId, orgId)));
     }
   }
 

@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Eye } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { CountryIsoField } from "@/components/country-iso-field";
 import { Card, Button } from "@/components/ui";
 import {
   ChevronLeft, Users, Plus, Trash2, Shield, UserPlus,
@@ -642,6 +643,7 @@ export default function TeamSettingsPage() {
               <div className="flex items-center gap-2">
                 <Globe size={12} className="text-stone-400" />
                 <span className="text-sm text-stone-200">{c.name}</span>
+                <CountryIsoField id={c.id} code={c.isoCode ?? null} editable={!!isAdmin} onSaved={() => refresh()} />
               </div>
               {isAdmin && (
                 <button onClick={() => deleteCountry(c.id)}

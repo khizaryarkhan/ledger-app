@@ -86,16 +86,24 @@ async function main() {
     check("it is waiting to be sent, linked to the invoice", row.status === "generated" && row.docType === "810" && row.appDocType === "Invoice" && row.appDocId === entryId);
     await E.markMessageSent(orgId, m1.id, null);
 
-    await db.delete(S.transactionLinks).where(and(eq(S.transactionLinks.orgId, orgId), eq(S.transactionLinks.toId, entryId), isNotNull(S.transactionLinks.fromLineId)));
+    // Hide the line links for a moment (not delete: the invoice delete below must revert from them), then put them back.
+    const mine = and(eq(S.transactionLinks.orgId, orgId), eq(S.transactionLinks.toId, entryId), eq(S.transactionLinks.relation, "shipment_invoice"), isNotNull(S.transactionLinks.fromLineId));
+    await db.update(S.transactionLinks).set({ relation: "e2e_hidden" }).where(mine);
     const c1 = await O.checkInvoice810(orgId, entryId);
+    await db.update(S.transactionLinks).set({ relation: "shipment_invoice" }).where(and(eq(S.transactionLinks.orgId, orgId), eq(S.transactionLinks.toId, entryId), eq(S.transactionLinks.relation, "e2e_hidden")));
     check("an invoice with no line-level links is refused", c1.problems.some(x => /no line-level link to its shipments/.test(x.message)), c1.problems.map(x => x.message).join(" | "));
   } finally {
     if (entryId) await deleteDocument(orgId, entryId, null).catch(e => { console.error("could not delete the test invoice", entryId, e); failed++; });
+    // Deleting the invoice must have UN-invoiced what it advanced: the shipment line, the shipment and the order line.
+    if (entryId && shipId && soId) {
+      const [sl] = await db.select({ q: S.shipmentLines.invoicedQty }).from(S.shipmentLines).where(eq(S.shipmentLines.shipmentId, shipId));
+      const [sh] = await db.select({ a: S.salesShipments.invoicedAmount }).from(S.salesShipments).where(eq(S.salesShipments.id, shipId));
+      const [ol] = await db.select({ b: S.tradeDocumentLines.billedQty }).from(S.tradeDocumentLines).where(eq(S.tradeDocumentLines.documentId, soId));
+      check("deleting the invoice un-invoices the shipment line, the shipment and the order line", Number(sl?.q) === 0 && Number(sh?.a) === 0 && Number(ol?.b) === 0, JSON.stringify({ shipLine: sl?.q, shipment: sh?.a, orderLine: ol?.b }));
+    }
     if (shipId) await db.delete(S.salesShipments).where(eq(S.salesShipments.id, shipId));
     let removed = 0;
-    // Invoicing advanced the order lines' billed quantity (and deleting an invoice does not undo it: a known gap), so reset it first.
-    if (soId) await db.update(S.tradeDocumentLines).set({ billedQty: "0" }).where(eq(S.tradeDocumentLines.documentId, soId));
-    if (soId) await deleteTradeDoc(orgId, soId, null).then(() => removed++, e => { console.error("could not delete SO", soId, e); failed++; });
+    if (soId) await deleteTradeDoc(orgId, soId, null).then(() => removed++, e => { console.error("could not delete SO (its billed quantity was not reverted?)", soId, e); failed++; });
     if (partNoId) await deleteCustomerPartNumber(orgId, partNoId);
     if (partnerId) {
       await db.delete(S.ediMessages).where(eq(S.ediMessages.partnerId, partnerId));

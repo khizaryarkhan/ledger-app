@@ -25,6 +25,17 @@ describe("invoice from shipments", () => {
     expect(stockLines).toMatch(/!l\.costedAtShipment/);
   });
 
+  it("deleting such an invoice reverts what it advanced, from its own line links", () => {
+    const del = documents.slice(documents.indexOf("export async function deleteDocument"), documents.indexOf("export async function onEntryReversed"));
+    const block = del.slice(del.indexOf('entry.sourceType === "Invoice"'));
+    expect(block).toMatch(/relation, "shipment_invoice"/);
+    expect(block).toMatch(/shipmentLines\)\.set\(\{ invoicedQty: sql`greatest\(0,/);
+    expect(block).toMatch(/tradeDocumentLines\)\.set\(\{ billedQty: sql`greatest\(0,/);
+    expect(block).toMatch(/salesShipments\)\.set\(\{ invoicedAmount: sql`greatest\(0,/);
+    // read the links BEFORE they are deleted
+    expect(block.indexOf('"shipment_invoice"')).toBeLessThan(del.slice(del.indexOf('entry.sourceType === "Invoice"')).indexOf("db.delete(transactionLinks)"));
+  });
+
   it("keeps a line-level link per invoiced shipment line (what an EDI 810 traces to the order line)", () => {
     expect(fn).toMatch(/fromLineId:\s*t\.lineId/);
     expect(fn).toMatch(/relation:\s*"shipment_invoice"[^}]*qty:\s*t\.qty/);

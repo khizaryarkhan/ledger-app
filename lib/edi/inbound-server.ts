@@ -110,12 +110,23 @@ export async function generateAck997(orgId: string, inboundId: string, actorId: 
     controlNo, now: utcStamp(),
   })!;
   const fileName = `997_for_${ixn.controlNo}_${String(controlNo).padStart(9, "0")}.x12`;
-  const [row] = await db.insert(ediMessages).values({
-    orgId, partnerId: partner.id, partyId: partner.partyId, direction: "out", docType: "997", standard: "x12",
-    version: partner.version, test: ixn.test, status: "generated", interchangeNo: controlNo, groupNo: controlNo, txnNo: "0001",
-    appDocType: "EdiFile", appDocId: m.id, appDocNumber: `${m.docType} ${m.interchangeNo}`.slice(0, 64),
-    fileName, payload, payloadSha256: createHash("sha256").update(payload).digest("hex"), createdBy: actorId,
-  }).returning();
+  let row;
+  try {
+    [row] = await db.insert(ediMessages).values({
+      orgId, partnerId: partner.id, partyId: partner.partyId, direction: "out", docType: "997", standard: "x12",
+      version: partner.version, test: ixn.test, status: "generated", interchangeNo: controlNo, groupNo: controlNo, txnNo: "0001",
+      appDocType: "EdiFile", appDocId: m.id, appDocNumber: `${m.docType} ${m.interchangeNo}`.slice(0, 64),
+      fileName, payload, payloadSha256: createHash("sha256").update(payload).digest("hex"), createdBy: actorId,
+    }).returning();
+  } catch (e: any) {
+    // A second "make our 997" raced this one: the unique index (0147) let only one in. Return the winner; the control
+    // number taken here is simply never used, as for any file that is not kept.
+    if (e?.code !== "23505" && !/duplicate key|unique constraint/i.test(String(e?.message ?? ""))) throw e;
+    const [won] = await db.select().from(ediMessages).where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"),
+      eq(ediMessages.appDocType, "EdiFile"), eq(ediMessages.appDocId, m.id), ne(ediMessages.status, "void"))).limit(1);
+    if (!won) throw e;
+    return { ...won, already: true };
+  }
   logEvent({ orgId, eventType: "edi_generated", docType: null, docId: null, actorId, meta: { messageId: row.id, docType: "997", controlNo, answers: m.id } })
     .catch(e => console.error("[audit] edi_generated failed:", e));
   return { ...row, already: false };

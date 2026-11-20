@@ -64,6 +64,12 @@ async function main() {
     const r3: any = await I.receiveEdiFile(orgId, anInvoice(9403), "810-b.x12", null);
     const manual: any = await I.generateAck997(orgId, r3.message.id, null);
     check("without 997 switched on, none is made until a person asks", !r3.ack && manual.docType === "997" && manual.already === false);
+
+    // The race the unique index (0147) exists for: two simultaneous requests for a file that has no 997 yet.
+    const r4: any = await I.receiveEdiFile(orgId, anInvoice(9404), "810-c.x12", null);
+    const both = await Promise.all([I.generateAck997(orgId, r4.message.id, null), I.generateAck997(orgId, r4.message.id, null)]);
+    const live = await db.select({ id: S.ediMessages.id }).from(S.ediMessages).where(and(eq(S.ediMessages.partnerId, p.id), eq(S.ediMessages.appDocId, r4.message.id), eq(S.ediMessages.docType, "997")));
+    check("two simultaneous requests make exactly one 997 and both get it", live.length === 1 && both[0].id === both[1].id, `${live.length} row(s); already: ${both.map((b: any) => b.already).join("/")}`);
   } finally {
     if (partnerId) {
       await db.delete(S.ediMessages).where(eq(S.ediMessages.partnerId, partnerId));

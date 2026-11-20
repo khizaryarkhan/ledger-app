@@ -951,6 +951,23 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI small gaps (2026-11-20)
+
+- **One live 997 per received file is now a DATABASE guarantee.** Migration `0147` (a partial unique index on
+  `edi_messages (org_id, app_doc_id)` for an outbound `997` of an `EdiFile`, status not void; it voids any duplicate first so
+  the index can always build). `generateAck997` turns the index's 23505 into "return the winner" (`already: true`), so two
+  simultaneous requests make exactly one file and both get it. Proven by a real concurrent call in `scripts/_e2e_edi_997.ts`.
+- **Deleting an invoice made from shipments now un-invoices what it advanced** (`deleteDocument`, an `Invoice` block next to
+  the Bill's): `shipment_lines.invoiced_qty`, the SO line's `billed_qty` and `sales_shipments.invoiced_amount` are reduced by
+  exactly what its own line-level `shipment_invoice` links recorded (`greatest(0, …)`, links read BEFORE they are deleted). An
+  invoice made before those links existed has none and is left as it was. Pinned in `tests/invoice-from-shipments.test.ts`;
+  proven on dev by `scripts/_e2e_edi_810_out.ts`, whose Sales Order now deletes with no manual reset.
+- **ISO code on the org's country list is editable** (Settings → Team → Countries, `components/country-iso-field.tsx`, admins;
+  PATCH `/api/countries` already validated it). An entry whose name matched no code shows an amber empty box.
+- **Not done**: a PO/SO "reopened" showing its ship-to and Incoterm: trade documents have NO reopen screen at all (only ledger
+  documents open in the form with `editId`), so there is nothing to fix until one exists. Terms, ship-to and part numbers on the
+  PO/SO PDFs, and printed GS1-128 pallet labels (`buildGs1({ sscc })` has the data; no barcode is drawn), are still not built.
+
 ## EDI Phase 3d: our 810 invoice for a customer invoice made from shipments (2026-11-20)
 
 No migration. "Send by EDI" on a native Invoice's own page (`/accounting/transactions/[id]`, module `edi`) →
@@ -978,9 +995,8 @@ kind `EDI_INVOICE`. `orderFactsFor` is now shared with the 856.
 - Tests in `tests/edi-outbound.test.ts`; `scripts/_e2e_edi_810_out.ts` (6 checks on dev: runs the REAL
   invoiceFromShipments, which posts one ledger entry, sends the 810, then deletes the invoice and everything else).
 - **Not built / not verified**: not clicked through in a browser. Credit notes (810 BIG07 CR), invoices not from shipments,
-  charges/allowances (SAC), and early-payment terms are not sent. **Still open, found not fixed**: deleting an invoice made
-  from shipments does not revert `shipment_lines.invoiced_qty` / the SO line's `billed_qty` (the e2e resets it by hand),
-  so the shipment looks invoiced and the order cannot be deleted.
+  charges/allowances (SAC), and early-payment terms are not sent. (The gap noted here, that deleting an invoice made from
+  shipments left the shipment looking invoiced, was fixed the same day: see "EDI small gaps".)
 
 ## EDI Phase 3c: our 856 ship notice from a shipment, with its SSCC packing (2026-11-20)
 
@@ -1072,8 +1088,8 @@ CONTENT is a business answer (855/review), never a 997. **A 997 is never acknowl
   download, deliver, mark sent. Sent/void audit rows now tag a PO only when the file is a PO's.
 - Tests in `tests/edi-inbound.test.ts` (our 997 read back by our own reader and parse997; never-ack-a-997 proven to
   fail when removed); `scripts/_e2e_edi_997.ts` (6 checks on dev, cleaned up).
-- **Not built / not verified**: not clicked through in a browser. Two simultaneous "make" calls for the same file
-  could both create one (no unique index); the second can be voided. No TA1 (interchange acknowledgement), no 999
+- **Not built / not verified**: not clicked through in a browser. (Two simultaneous "make" calls for one file: closed by 0147,
+  see "EDI small gaps".) No TA1 (interchange acknowledgement), no 999
   (5010 implementation acknowledgement), no 997 with rejections (we never store a file we would reject).
 
 ## EDI Phase 2c: 810 invoices become a bill a PERSON creates (2026-11-20)
@@ -2040,7 +2056,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0146` at `when` `1795400000000`;
+  this silently dropped a table in prod once). Latest is `0147` at `when` `1795500000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
