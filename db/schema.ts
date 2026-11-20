@@ -3457,6 +3457,7 @@ export const salesShipments = pgTable("sales_shipments", {
   saleTotal:     numeric("sale_total", { precision: 18, scale: 4 }).notNull().default("0"),   // sale value shipped (for invoicing)
   invoicedAmount: numeric("invoiced_amount", { precision: 18, scale: 4 }).notNull().default("0"), // sale value invoiced to date
   carrier:       varchar("carrier", { length: 64 }),          // 0114
+  carrierScac:   varchar("carrier_scac", { length: 4 }),      // 0149: the carrier's SCAC, for the 856's TD5
   trackingNo:    varchar("tracking_no", { length: 128 }),     // 0114
   deliveredDate: date("delivered_date"),                      // proof of delivery (0114)
   notes:         text("notes"),
@@ -3590,6 +3591,7 @@ export const ediPartners = pgTable("edi_partners", {
   docsOut:           jsonb("docs_out").notNull().default(["850"]),
   requirePartNumber: boolean("require_part_number").notNull().default(true),
   requireGtin:       boolean("require_gtin").notNull().default(false),
+  taxType:           varchar("tax_type", { length: 2 }).notNull().default("ZZ"),      // 0148: TXI01 on our 810 (ZZ = mutually defined)
   unitOverrides:     jsonb("unit_overrides").notNull().default({}),
   nextControlNo:     bigint("next_control_no", { mode: "number" }).notNull().default(1),
   notes:             text("notes"),

@@ -420,6 +420,7 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
   }
 
   const [carrier, setCarrier] = useState("");
+  const [scac, setScac] = useState("");
   const [trackingNo, setTrackingNo] = useState("");
 
   async function submit() {
@@ -428,7 +429,7 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/shipping`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       customerId: so.partyId, customerLabel: so.partyLabel, shipmentDate: date, currency: so.currency, exchangeRate: so.exchangeRate,
-      locationId: locationId || null, carrier: carrier.trim() || null, trackingNo: trackingNo.trim() || null,
+      locationId: locationId || null, carrier: carrier.trim() || null, carrierScac: scac.trim() || null, trackingNo: trackingNo.trim() || null,
       lines: [{ itemId: line.itemId, skuId: line.skuId, soId: so.id, soLineId: line.lineId, description: line.itemName, qtyBase, saleRate: Number(saleRate) || 0, taxRateId: line.taxRateId }],
     }) });
     const d = await r.json().catch(() => ({}));
@@ -459,7 +460,7 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
               be shippable — hiding it here means nobody discovers that only
               after pressing Post. */}
           <LocationField label="Ship from" value={locationId} onChange={setLocationId} locations={locations} issueOnly allowAny hint="Leave as Anywhere to let FIFO pick across locations" />
-          <CarrierFields carrier={carrier} setCarrier={setCarrier} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
+          <CarrierFields carrier={carrier} setCarrier={setCarrier} scac={scac} setScac={setScac} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
         </div>
 
         <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
@@ -520,6 +521,7 @@ function AdhocShip({ customers: baseCustomers, items, locationId, setLocationId,
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
   const [carrier, setCarrier] = useState("");
+  const [scac, setScac] = useState("");
   const [trackingNo, setTrackingNo] = useState("");
   const customer = customers.find(c => c.id === customerId);
   // Unlike a SO-linked shipment (which inherits the SO's own currency), an
@@ -547,7 +549,7 @@ function AdhocShip({ customers: baseCustomers, items, locationId, setLocationId,
     if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/shipping`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, carrier: carrier.trim() || null, trackingNo: trackingNo.trim() || null, lines: payloadLines }) });
+      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, carrier: carrier.trim() || null, carrierScac: scac.trim() || null, trackingNo: trackingNo.trim() || null, lines: payloadLines }) });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
     if (!r.ok) { setErr(d?.error || "Could not post shipment."); return; }
@@ -580,7 +582,7 @@ function AdhocShip({ customers: baseCustomers, items, locationId, setLocationId,
             </Field>
             <Field label="Shipment date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
             <LocationField label="Ship from" value={locationId} onChange={setLocationId} locations={locations} issueOnly allowAny hint="Leave as Anywhere to let FIFO pick across locations" />
-            <CarrierFields carrier={carrier} setCarrier={setCarrier} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
+            <CarrierFields carrier={carrier} setCarrier={setCarrier} scac={scac} setScac={setScac} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
           </div>
           {orgSettings.multicurrencyEnabled && !showCcy && (
             <button onClick={() => { setForeignCcy(true); setCurrency(orgSettings.currency); }} className="mt-3 text-[11.5px] text-stone-500 hover:text-stone-300">
@@ -662,12 +664,13 @@ function InvoiceDrawer({ shipments, onClose, onDone }: { shipments: any[]; onClo
 }
 
 /** Who carried the shipment and its tracking number (0114) — two grid cells. */
-function CarrierFields({ carrier, setCarrier, trackingNo, setTrackingNo }: {
-  carrier: string; setCarrier: (v: string) => void; trackingNo: string; setTrackingNo: (v: string) => void;
+function CarrierFields({ carrier, setCarrier, scac, setScac, trackingNo, setTrackingNo }: {
+  carrier: string; setCarrier: (v: string) => void; scac: string; setScac: (v: string) => void; trackingNo: string; setTrackingNo: (v: string) => void;
 }) {
   return (
     <>
       <Field label="Carrier"><input value={carrier} onChange={e => setCarrier(e.target.value)} maxLength={64} className={controlInset} placeholder="e.g. DHL, own van" /></Field>
+      <Field label="Carrier code (SCAC)"><input value={scac} onChange={e => setScac(e.target.value.toUpperCase())} maxLength={4} className={`${controlInset} font-mono`} placeholder="Optional, e.g. UPSN" /></Field>
       <Field label="Tracking no."><input value={trackingNo} onChange={e => setTrackingNo(e.target.value)} maxLength={128} className={controlInset} placeholder="Optional" /></Field>
     </>
   );

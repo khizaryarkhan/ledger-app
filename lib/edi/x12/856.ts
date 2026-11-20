@@ -20,7 +20,10 @@ export function write856(a: ShipNoticeOut, env: Envelope): string {
   const s = next();
   body.push(...open(s, null, "S", true,
     seg("DTM", "011", ccyymmdd(a.shipDate)),
-    ...(a.carrier ? [seg("TD5", "", "", "", "M", clean(a.carrier, 35))] : []),
+    // TD1: packaging code, how many, and the gross weight (G) in kilograms, only when every top-level package was weighed.
+    ...(a.weight ? [seg("TD1", a.weight.code, a.weight.count, "", "", "", "G", num(a.weight.kg), "KG")] : []),
+    // TD5: routing sequence B + id qualifier 2 (SCAC) + the code when we have one, always "M" (motor) and the name.
+    ...(a.carrier || a.carrierScac ? [seg("TD5", a.carrierScac ? "B" : "", a.carrierScac ? "2" : "", a.carrierScac ?? "", "M", a.carrier ? clean(a.carrier, 35) : "")] : []),
     ...(a.trackingNo ? [seg("REF", "CN", clean(a.trackingNo, 30))] : []),
     seg("N1", "SF", clean(a.shipFrom.name, 60), ...(a.shipFrom.gln ? ["UL", a.shipFrom.gln] : [])),
   ));
@@ -50,7 +53,7 @@ export function write856(a: ShipNoticeOut, env: Envelope): string {
     const looseCartons = o.packages.filter(p => p.level === "pack" && !p.parentSscc);
     const pack = (p: AsnPackage, parent: number, code: "T" | "P", children: AsnPackage[]) => {
       const id = next();
-      body.push(...open(id, parent, code, p.items.length + children.length > 0, seg("MAN", "GM", p.sscc)));
+      body.push(...open(id, parent, code, p.items.length + children.length > 0, seg("MAN", "GM", p.sscc), ...(p.weightKg ? [seg("MEA", "PD", "G", num(p.weightKg), "KG")] : [])));
       for (const c of children) pack(c, id, "P", []);
       for (const it of p.items) itemLoop(it, id);
     };

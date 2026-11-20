@@ -113,8 +113,8 @@ describe("856 builder and writer", () => {
     const a = asnOf(ship());
     expect(a).toMatchObject({ shipmentId: "SHP-0009", purpose: "00", shipDate: "2026-11-26", carrier: "DHL Freight", trackingNo: "TRK-55" });
     expect(a.orders[0].packages).toEqual([
-      { sscc: PALLET, level: "tare", parentSscc: null, items: [] },
-      { sscc: CARTON, level: "pack", parentSscc: PALLET, items: [{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 2, unit: "CT" }] },
+      { sscc: PALLET, level: "tare", parentSscc: null, weightKg: null, items: [] },
+      { sscc: CARTON, level: "pack", parentSscc: PALLET, weightKg: null, items: [{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 2, unit: "CT" }] },
     ]);
     expect(a.orders[0].loose).toEqual([{ lineNo: "10", partNumber: "THEIR-9", gtin: "00012345678905", itemCode: "RM-RICE", qty: 1, unit: "CT" }]);
   });

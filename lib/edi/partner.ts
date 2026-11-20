@@ -13,6 +13,16 @@ export const EDI_MODES = ["test", "live"] as const;
 export const EDI_TRANSPORTS = ["manual"] as const;
 export const EDI_DOCS_OUT = ["850", "855", "856", "810", "997"] as const;
 
+/** TXI01 tax type codes an 810 may carry. An invoice stores only the tax AMOUNT, so which kind it is is the partner's rule. */
+export const EDI_TAX_TYPES: { code: string; label: string }[] = [
+  { code: "ZZ", label: "ZZ · Mutually defined (amount only)" },
+  { code: "VA", label: "VA · Value-added tax" },
+  { code: "GS", label: "GS · Goods and services tax" },
+  { code: "ST", label: "ST · State sales tax" },
+  { code: "LS", label: "LS · Local sales tax" },
+  { code: "CT", label: "CT · County or parish sales tax" },
+];
+
 /** ISA05 / ISA07 interchange ID qualifiers in common use. */
 export const ISA_QUALIFIERS: { code: string; label: string }[] = [
   { code: "01", label: "01 · DUNS" },
@@ -35,14 +45,14 @@ export type PartnerInput = {
   partyId?: unknown; enabled?: unknown; mode?: unknown; standard?: unknown; version?: unknown;
   senderQualifier?: unknown; senderId?: unknown; receiverQualifier?: unknown; receiverId?: unknown;
   senderAppId?: unknown; receiverAppId?: unknown; transport?: unknown; docsOut?: unknown;
-  requirePartNumber?: unknown; requireGtin?: unknown; unitOverrides?: unknown; notes?: unknown;
+  requirePartNumber?: unknown; requireGtin?: unknown; taxType?: unknown; unitOverrides?: unknown; notes?: unknown;
 };
 
 export type PartnerValues = {
   enabled: boolean; mode: (typeof EDI_MODES)[number]; standard: "x12"; version: (typeof X12_VERSIONS)[number];
   senderQualifier: string; senderId: string; receiverQualifier: string; receiverId: string;
   senderAppId: string | null; receiverAppId: string | null; transport: (typeof EDI_TRANSPORTS)[number];
-  docsOut: string[]; requirePartNumber: boolean; requireGtin: boolean; unitOverrides: Record<string, string>; notes: string | null;
+  docsOut: string[]; requirePartNumber: boolean; requireGtin: boolean; taxType: string; unitOverrides: Record<string, string>; notes: string | null;
 };
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -97,6 +107,8 @@ export function partnerValues(input: PartnerInput): Result<PartnerValues> {
     if (!Array.isArray(docsRaw)) refuse("Documents must be a list.");
     const docsOut = [...new Set((docsRaw as unknown[]).map(String))];
     for (const d of docsOut) if (!(EDI_DOCS_OUT as readonly string[]).includes(d)) refuse(`${d} is not a document we can send yet.`);
+    const taxType = String(input.taxType ?? "ZZ").trim().toUpperCase() || "ZZ";
+    if (!EDI_TAX_TYPES.some(t => t.code === taxType)) refuse("Choose a tax type from the list.");
     const notes = input.notes == null ? null : String(input.notes).trim().slice(0, 2000) || null;
     return { ok: true, value: {
       enabled: input.enabled == null ? true : Boolean(input.enabled), mode, standard: "x12", version,
@@ -109,6 +121,7 @@ export function partnerValues(input: PartnerInput): Result<PartnerValues> {
       transport, docsOut,
       requirePartNumber: input.requirePartNumber == null ? true : Boolean(input.requirePartNumber),
       requireGtin: Boolean(input.requireGtin),
+      taxType,
       unitOverrides: unitOverrideValues(input.unitOverrides),
       notes,
     } };

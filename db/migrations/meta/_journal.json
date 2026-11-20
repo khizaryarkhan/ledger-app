@@ -1030,6 +1030,20 @@
       "when": 1795500000000,
       "tag": "0147_edi_one_997_per_file",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "6",
+      "when": 1795600000000,
+      "tag": "0148_edi_partner_tax_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "6",
+      "when": 1795700000000,
+      "tag": "0149_shipment_carrier_scac",
+      "breakpoints": true
     }
   ]
 }

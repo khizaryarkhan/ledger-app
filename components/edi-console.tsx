@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { Plus, Download, RefreshCw, Pencil, Trash2, Upload, Loader } from "lucide-react";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset } from "@/components/form-kit";
 import { ListPage, ListPageHeader } from "@/components/list-view";
-import { ISA_QUALIFIERS, X12_VERSIONS } from "@/lib/edi/partner";
+import { ISA_QUALIFIERS, X12_VERSIONS, EDI_TAX_TYPES } from "@/lib/edi/partner";
 
 type Tab = "files" | "partners";
 
@@ -292,7 +292,7 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
     partyId: partner.partyId ?? "", enabled: partner.enabled ?? true, mode: partner.mode ?? "test", version: partner.version ?? "004010",
     senderQualifier: partner.senderQualifier ?? "ZZ", senderId: partner.senderId ?? "", receiverQualifier: partner.receiverQualifier ?? "ZZ", receiverId: partner.receiverId ?? "",
     senderAppId: partner.senderAppId ?? "", receiverAppId: partner.receiverAppId ?? "",
-    requirePartNumber: partner.requirePartNumber ?? true, requireGtin: partner.requireGtin ?? false,
+    requirePartNumber: partner.requirePartNumber ?? true, requireGtin: partner.requireGtin ?? false, taxType: partner.taxType ?? "ZZ",
     sendAck: ((partner.docsOut ?? []) as string[]).includes("997"),
     units: Object.entries(partner.unitOverrides ?? {}).map(([k, v]) => `${k}=${v}`).join("\n"), notes: partner.notes ?? "",
   }));
@@ -365,6 +365,7 @@ function PartnerDrawer({ partner, onClose, onSaved }: { partner: any; onClose: (
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.requireGtin} onChange={e => set({ requireGtin: e.target.checked })} /> Every line must carry a GTIN</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={f.sendAck} onChange={e => set({ sendAck: e.target.checked })} /> Make our 997 for every file they send (ask them; most partners expect one)</label>
         </div>
+        <Field label="Tax type on our invoices (810)" hint="Which kind of tax the amount is. Ask the partner; ZZ sends the amount only."><SelectField inset value={f.taxType} onChange={e => set({ taxType: e.target.value })} aria-label="Tax type">{EDI_TAX_TYPES.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}</SelectField></Field>
         <Field label="Unit codes for this partner" hint="One per line: our unit = their 2-character X12 code (e.g. case=CS). Only where theirs differs from the standard.">
           <textarea value={f.units} onChange={e => set({ units: e.target.value })} rows={3} className={`${controlInset} font-mono h-auto py-2`} placeholder="case=CS" />
         </Field>

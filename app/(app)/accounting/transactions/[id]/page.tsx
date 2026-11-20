@@ -191,7 +191,7 @@ export default function TransactionDetailPage() {
           <Mail size={14} /> Email
         </button>
       )}
-      {e && e.sourceType === "Invoice" && hasModule(orgSettings?.enabledModules, "edi") && (
+      {e && (e.sourceType === "Invoice" || e.sourceType === "CreditNote") && hasModule(orgSettings?.enabledModules, "edi") && (
         <button onClick={() => setEdiOpen(true)}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium" title="Send this invoice to the customer by EDI (810)">
           <FileCode2 size={14} /> Send by EDI

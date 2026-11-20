@@ -13,6 +13,7 @@ import { controlInset, Drawer, SelectField } from "@/components/form-kit";
 import { useData } from "@/components/data-provider";
 import { CountrySelect } from "@/components/country-select";
 import { CustomerShipToList } from "@/components/customer-ship-to-list";
+import { CustomerPartImport } from "@/components/customer-part-import";
 import { PartyContactsList } from "@/components/party-contacts-list";
 import { INCOTERMS, incotermOf, termsLabel } from "@/lib/party-terms";
 
@@ -292,7 +293,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
                 </>
               )}
               {isCustomer && (editing && editId
-                ? <div className="pt-2"><CustomerShipToList customerId={editId} /></div>
+                ? <div className="pt-2 space-y-4"><CustomerShipToList customerId={editId} /><CustomerPartImport customerId={editId} /></div>
                 : <p className="text-[11px] text-stone-500 pt-2">Save the customer first, then open it again to add delivery addresses.</p>)}
               <div><label className={label}>Notes</label><textarea value={f.notes} onChange={e => set("notes", e.target.value)} rows={2} className={input} /></div>
             </>

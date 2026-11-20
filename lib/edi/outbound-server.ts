@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { db } from "@/db";
-import { ediMessages, ediPartners, tradeDocuments, tradeDocumentLines, apItems, organisations, parties, journalEntries, invoices, transactionLinks, salesShipments, shipmentLines, shipmentPackages, shipmentPackageLines, partyShipTo, itemPartNumbers, itemIdentifiers, inventoryMovements, inventoryLots } from "@/db/schema";
+import { ediMessages, ediPartners, tradeDocuments, tradeDocumentLines, apItems, organisations, parties, journalEntries, invoices, transactionLinks, salesShipments, shipmentLines, shipmentPackages, shipmentPackageLines, partyShipTo, itemPartNumbers, itemIdentifiers, inventoryMovements, inventoryLots, journalLines } from "@/db/schema";
 import { and, eq, desc, inArray, isNull } from "drizzle-orm";
 import { readInterchange } from "@/lib/edi/x12/read";
 import { parse850 } from "@/lib/edi/x12/inbound";
@@ -18,8 +18,8 @@ import { buildOrderAck, type SoAckFacts, type AckProblem } from "@/lib/edi/build
 import { write855 } from "@/lib/edi/x12/855";
 import { write856 } from "@/lib/edi/x12/856";
 import { write810 } from "@/lib/edi/x12/810";
-import { buildInvoice, type InvFacts } from "@/lib/edi/build/invoice";
-import { buildShipNotice, lotsForLines, type ShipFacts } from "@/lib/edi/build/shipment";
+import { buildInvoice, buildCreditNote, type InvFacts, type CreditFacts } from "@/lib/edi/build/invoice";
+import { buildShipNotice, lotsForLines, lotSplitsForLines, type ShipFacts } from "@/lib/edi/build/shipment";
 import { partNumberForLevel, partNumbersByLevel } from "@/lib/inventory/part-numbers";
 import { EdiError, allocateControlNo, utcStamp, partnerForParty, listMessages } from "@/lib/edi/edi-server";
 import { logEvent } from "@/lib/audit";
@@ -53,7 +53,7 @@ export async function keepOutbound(orgId: string, partner: Partner, o: {
     fileName: o.fileName, payload: o.payload, payloadSha256: createHash("sha256").update(o.payload).digest("hex"), createdBy: o.actorId,
   }).returning({ id: ediMessages.id, fileName: ediMessages.fileName, interchangeNo: ediMessages.interchangeNo, status: ediMessages.status, test: ediMessages.test });
   const isTrade = o.appDocType === "SalesOrder" || o.appDocType === "PurchaseOrder";
-  const isLedger = o.appDocType === "Invoice";
+  const isLedger = o.appDocType === "Invoice" || o.appDocType === "CreditNote";
   logEvent({ orgId, eventType: "edi_generated", docType: isTrade ? "trade" : isLedger ? "ledger" : null, docId: isTrade || isLedger ? o.appDocId : null, actorId: o.actorId, meta: { messageId: row.id, docType: o.docType, appDocType: o.appDocType, appDocId: o.appDocId, controlNo: o.controlNo, test: row.test } })
     .catch(e => console.error("[audit] edi_generated failed:", e));
   return row;
@@ -185,20 +185,23 @@ async function loadShipmentFacts(orgId: string, shipmentId: string): Promise<(Sh
     .from(inventoryMovements).leftJoin(inventoryLots, eq(inventoryLots.id, inventoryMovements.lotId))
     .where(and(eq(inventoryMovements.orgId, orgId), eq(inventoryMovements.movementType, "issue_sale"), eq(inventoryMovements.refType, "Shipment"),
       eq(inventoryMovements.refId, sh.entryId ?? shipmentId)));
-  const lots = lotsForLines(lines.map(l => ({ id: l.id, itemId: l.itemId })), moves.filter(m => m.lotId).map(m => ({
+  const issues = moves.filter(m => m.lotId).map(m => ({
     itemId: m.itemId, lotId: m.lotId!, qtyBase: Math.abs(Number(m.qty)), batch: m.supplierBatchNo || m.lotNo || null,
     productionDate: m.productionDate ?? null, bestBeforeDate: m.bestBeforeDate ?? null, expiryDate: m.expiryDate ?? null,
-  })));
+  }));
+  const lineKeys = lines.map(l => ({ id: l.id, itemId: l.itemId }));
+  const lots = lotsForLines(lineKeys, issues);
+  const lotSplits = lotSplitsForLines(lineKeys, issues);
 
   const [sent] = await db.select({ id: ediMessages.id }).from(ediMessages)
     .where(and(eq(ediMessages.orgId, orgId), eq(ediMessages.direction, "out"), eq(ediMessages.docType, "856"), eq(ediMessages.appDocId, shipmentId), eq(ediMessages.status, "sent"))).limit(1);
   return {
     customerId, orderCustomers: sos.map(s => s.partyId),
-    shipment: { shipmentNo: sh.shipmentNo, shipDate: sh.shipmentDate, carrier: sh.carrier, trackingNo: sh.trackingNo, posted: sh.status === "Posted" },
+    shipment: { shipmentNo: sh.shipmentNo, shipDate: sh.shipmentDate, carrier: sh.carrier, carrierScac: sh.carrierScac, trackingNo: sh.trackingNo, posted: sh.status === "Posted" },
     shipFrom: { name: org?.displayName || org?.name || "", gln: org?.gln ?? null },
     lines: lines.map(l => ({ id: l.id, soId: l.soId, soLineId: l.soLineId, qtyBase: Number(l.qtyBase) })),
-    orders, parts, lots,
-    packages: pkgs.map(p => ({ id: p.id, sscc: p.sscc, parentId: p.parentId, packType: p.packType, lines: contents.filter(c => c.packageId === p.id).map(c => ({ shipmentLineId: c.shipmentLineId, qtyBase: Number(c.qtyBase) })) })),
+    orders, parts, lots, lotSplits,
+    packages: pkgs.map(p => ({ id: p.id, sscc: p.sscc, parentId: p.parentId, packType: p.packType, weightKg: p.grossWeightKg != null ? Number(p.grossWeightKg) : null, lines: contents.filter(c => c.packageId === p.id).map(c => ({ shipmentLineId: c.shipmentLineId, qtyBase: Number(c.qtyBase) })) })),
     replaces: !!sent,
   };
 }
@@ -258,19 +261,65 @@ async function loadInvoiceFacts(orgId: string, entryId: string): Promise<(InvFac
     customer: { name: cust?.name ?? "", gln: cust?.gln ?? null }, us: { name: org?.displayName || org?.name || "", gln: org?.gln ?? null },
     lines: links.map(l => { const sl = shipLines.find(x => x.id === l.fromLineId); return { shipLineId: l.fromLineId!, soId: sl?.soId ?? null, soLineId: sl?.soLineId ?? null,
       qtyBase: Number(l.qty ?? 0), amount: Number(l.amount), ratePerBase: Number(sl?.saleRate ?? 0) }; }),
-    orders, parts,
+    orders, parts, extras: (await splitPayloadLines(orgId, e.sourcePayload)).extras,
+  };
+}
+
+/**
+ * An invoice's or credit's own lines, split into goods and charges: a line whose item is of the "Other Charge" kind
+ * (freight, fees, a discount) is a charge (positive) or allowance (negative); the rest is goods. Read from the form
+ * input stored with the entry, the same record the document page reopens.
+ */
+async function splitPayloadLines(orgId: string, payload: unknown) {
+  const lines: any[] = Array.isArray((payload as any)?.lines) ? (payload as any).lines : [];
+  const itemIds = [...new Set(lines.map(l => l?.itemId).filter(Boolean) as string[])];
+  const items = itemIds.length ? await db.select({ id: apItems.id, name: apItems.name, code: apItems.code, baseUom: apItems.baseUom, productType: apItems.productType })
+    .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds))) : [];
+  const charge = new Set(items.filter(i => i.productType === "OtherCharge").map(i => i.id));
+  return {
+    items, goods: lines.filter(l => l?.itemId && !charge.has(l.itemId)),
+    extras: lines.filter(l => l?.itemId && charge.has(l.itemId)).map(l => ({ description: String(l.description || items.find(i => i.id === l.itemId)?.name || ""), amount: Number(l.amount) || 0 })),
+  };
+}
+
+/** A posted credit note's facts for an 810 credit memo (BIG07 CR). `entryId` is its journal entry. */
+async function loadCreditFacts(orgId: string, entryId: string): Promise<(CreditFacts & { customerId: string | null; foreign: boolean }) | null> {
+  const [e] = await db.select().from(journalEntries).where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
+  if (!e || e.sourceType !== "CreditNote") return null;
+  const p: any = e.sourcePayload ?? {};
+  const customerId: string | null = p.partyId ?? null;
+  const [org] = await db.select({ name: organisations.name, displayName: organisations.displayName, gln: organisations.gln }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const [cust] = customerId ? await db.select({ name: parties.name, gln: parties.gln }).from(parties).where(and(eq(parties.id, customerId), eq(parties.orgId, orgId))).limit(1) : [];
+  const split = await splitPayloadLines(orgId, p);
+  const itemIds = split.items.map(i => i.id);
+  const partRows = itemIds.length && customerId ? await db.select().from(itemPartNumbers).where(and(eq(itemPartNumbers.orgId, orgId), eq(itemPartNumbers.partyId, customerId), eq(itemPartNumbers.side, "customer"), isNull(itemPartNumbers.itemSkuId), inArray(itemPartNumbers.itemId, itemIds))) : [];
+  const idRows = itemIds.length ? await db.select().from(itemIdentifiers).where(and(eq(itemIdentifiers.orgId, orgId), eq(itemIdentifiers.scheme, "GTIN"), isNull(itemIdentifiers.supplierSkuId), isNull(itemIdentifiers.itemSkuId), inArray(itemIdentifiers.itemId, itemIds))) : [];
+  const jl = await db.select({ credit: journalLines.credit, nameType: journalLines.nameType }).from(journalLines).where(and(eq(journalLines.entryId, entryId), eq(journalLines.orgId, orgId)));
+  const total = c2(jl.filter(l => l.nameType === "Customer").reduce((s, l) => s + Number(l.credit), 0));
+  const goods = split.goods.map(l => {
+    const it = split.items.find(i => i.id === l.itemId);
+    return { description: String(l.description || it?.name || "Item"), itemCode: it?.code ?? null, baseUom: it?.baseUom ?? null, qty: Number(l.qty) || 0, rate: Number(l.rate) || 0, amount: c2(Number(l.amount) || 0),
+      bp: partNumberForLevel(partNumbersByLevel(partRows.filter(r => r.itemId === l.itemId)), "unit"), gtin: partNumberForLevel(partNumbersByLevel(idRows.filter(r => r.itemId === l.itemId)), "unit") };
+  });
+  const net = c2(goods.reduce((s, l) => s + l.amount, 0) + split.extras.reduce((s, x) => s + x.amount, 0));
+  return {
+    customerId, foreign: p.exchangeRate != null && Number(p.exchangeRate) !== 1,
+    credit: { docNumber: e.docNumber, date: e.entryDate, currency: p.currency ?? null, net, tax: c2(total - net), total, posted: e.status === "Posted" },
+    customer: { name: cust?.name ?? "", gln: cust?.gln ?? null }, us: { name: org?.displayName || org?.name || "", gln: org?.gln ?? null },
+    lines: goods, extras: split.extras,
   };
 }
 const c2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** Can this invoice be sent by EDI (810), and what has been sent. */
 export async function checkInvoice810(orgId: string, entryId: string) {
+  if (await isCreditNote(orgId, entryId)) return checkCredit810(orgId, entryId);
   const facts = await loadInvoiceFacts(orgId, entryId);
   if (!facts) fail("Invoice not found.", 404);
   const partner = await partnerForParty(orgId, facts!.customerId);
   const messages = (await listMessages(orgId, { appDocId: entryId })).filter(m => m.direction === "out");
   if (!partner) return { partner: null, problems: [{ lineNo: null, message: "This customer has no EDI profile. Set one up in Supply Chain → EDI." }] as AckProblem[], messages };
-  const built = buildInvoice(facts!, partner.unitOverrides as Record<string, string>);
+  const built = buildInvoice(facts!, partner.unitOverrides as Record<string, string>, partner.taxType);
   const problems: AckProblem[] = built.ok === false ? [...built.problems] : [];
   if (!facts!.hasInvoiceRow) problems.unshift({ lineNo: null, message: "This invoice is not in the receivables register, so its totals are unknown." });
   if (facts!.orderCustomers.some(c => c !== partner.partyId)) problems.unshift({ lineNo: null, message: "A line is for another customer's order." });
@@ -280,6 +329,7 @@ export async function checkInvoice810(orgId: string, entryId: string) {
 }
 
 export async function generateInvoice810(orgId: string, entryId: string, actorId: string | null) {
+  if (await isCreditNote(orgId, entryId)) return generateCredit810(orgId, entryId, actorId);
   const facts = await loadInvoiceFacts(orgId, entryId);
   if (!facts) fail("Invoice not found.", 404);
   const partner = await partnerForParty(orgId, facts!.customerId);
@@ -288,12 +338,52 @@ export async function generateInvoice810(orgId: string, entryId: string, actorId
   if (!(partner!.docsOut as string[]).includes("810")) fail("Invoices (810) are not switched on for this partner.");
   if (!facts!.hasInvoiceRow) fail("This invoice is not in the receivables register, so its totals are unknown.", 422);
   if (facts!.orderCustomers.some(c => c !== partner!.partyId)) fail("A line is for another customer's order.", 422);
-  const built = buildInvoice(facts!, partner!.unitOverrides as Record<string, string>);
+  const built = buildInvoice(facts!, partner!.unitOverrides as Record<string, string>, partner!.taxType);
   if (built.ok === false) fail("The invoice cannot be sent by EDI yet.", 422, built.problems as any);
   const controlNo = await allocateControlNo(orgId, partner!.id);
   const payload = write810((built as { ok: true; invoice: any }).invoice, envelopeFor(partner!, controlNo));
   return keepOutbound(orgId, partner!, {
     docType: "810", appDocType: "Invoice", appDocId: entryId, appDocNumber: facts!.invoice.docNumber,
     fileName: `810_${safe(facts!.invoice.docNumber, entryId.slice(0, 8))}_${String(controlNo).padStart(9, "0")}.x12`, payload, controlNo, actorId,
+  });
+}
+
+/* ------------------------- 810 credit memo: credit notes ------------------------- */
+
+async function isCreditNote(orgId: string, entryId: string): Promise<boolean> {
+  const [e] = await db.select({ t: journalEntries.sourceType }).from(journalEntries).where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
+  return e?.t === "CreditNote";
+}
+
+/** Can this credit note go by EDI (810 credit memo), and what has been sent. Same shape as the invoice's check. */
+async function checkCredit810(orgId: string, entryId: string) {
+  const facts = await loadCreditFacts(orgId, entryId);
+  if (!facts) fail("Credit note not found.", 404);
+  const partner = await partnerForParty(orgId, facts!.customerId);
+  const messages = (await listMessages(orgId, { appDocId: entryId })).filter(m => m.direction === "out");
+  if (!partner) return { partner: null, problems: [{ lineNo: null, message: "This customer has no EDI profile. Set one up in Supply Chain → EDI." }] as AckProblem[], messages };
+  const built = buildCreditNote(facts!, partner.unitOverrides as Record<string, string>, partner.taxType);
+  const problems: AckProblem[] = built.ok === false ? [...built.problems] : [];
+  if (facts!.foreign) problems.unshift({ lineNo: null, message: "This credit note is in a foreign currency, so its home-currency total is not the amount to send. Send it by hand." });
+  if (!partner.enabled) problems.unshift({ lineNo: null, message: "This partner's EDI profile is switched off." });
+  if (!(partner.docsOut as string[]).includes("810")) problems.unshift({ lineNo: null, message: "Invoices (810) are not switched on for this partner." });
+  return { partner: { id: partner.id, mode: partner.mode, version: partner.version, receiverId: partner.receiverId, transport: partner.transport }, problems, messages };
+}
+
+async function generateCredit810(orgId: string, entryId: string, actorId: string | null) {
+  const facts = await loadCreditFacts(orgId, entryId);
+  if (!facts) fail("Credit note not found.", 404);
+  const partner = await partnerForParty(orgId, facts!.customerId);
+  if (!partner) fail("This customer has no EDI profile. Set one up in Supply Chain → EDI.");
+  if (!partner!.enabled) fail("This partner's EDI profile is switched off.");
+  if (!(partner!.docsOut as string[]).includes("810")) fail("Invoices (810) are not switched on for this partner.");
+  if (facts!.foreign) fail("This credit note is in a foreign currency, so its home-currency total is not the amount to send. Send it by hand.", 422);
+  const built = buildCreditNote(facts!, partner!.unitOverrides as Record<string, string>, partner!.taxType);
+  if (built.ok === false) fail("The credit note cannot be sent by EDI yet.", 422, built.problems as any);
+  const controlNo = await allocateControlNo(orgId, partner!.id);
+  const payload = write810((built as { ok: true; invoice: any }).invoice, envelopeFor(partner!, controlNo));
+  return keepOutbound(orgId, partner!, {
+    docType: "810", appDocType: "CreditNote", appDocId: entryId, appDocNumber: facts!.credit.docNumber,
+    fileName: `810cr_${safe(facts!.credit.docNumber, entryId.slice(0, 8))}_${String(controlNo).padStart(9, "0")}.x12`, payload, controlNo, actorId,
   });
 }

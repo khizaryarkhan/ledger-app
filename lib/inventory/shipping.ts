@@ -19,6 +19,7 @@ import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
+import { normaliseScac } from "@/lib/edi/scac";
 import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 
@@ -46,6 +47,8 @@ export type ShipmentInput = {
   notes?: string | null;
   /** Carrier and tracking number (0114). */
   carrier?: string | null;
+  /** The carrier's SCAC (2-4 letters), for the EDI ship notice (0149). */
+  carrierScac?: string | null;
   trackingNo?: string | null;
   /**
    * Which location the goods ship FROM. Omitted means "wherever FIFO finds
@@ -61,6 +64,8 @@ export type ShipmentInput = {
 export async function postShipment(orgId: string, input: ShipmentInput, actorId: string | null, opts?: { skipApprovalCheck?: boolean }) {
   const date = input.shipmentDate;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) err("A valid shipment date is required.");
+  const scacR = normaliseScac(input.carrierScac);   // checked before anything posts: a bad code must not leave a half shipment
+  if (scacR.ok === false) err(scacR.error);
   const rows = (input.lines ?? []).filter(l => l.itemId && Math.abs(Number(l.qtyBase) || 0) > 0);
   if (!rows.length) err("Add at least one line with an item and a shipped quantity.");
 
@@ -156,7 +161,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     shipmentDate: date, currency, exchangeRate: rate.toString(), status: "Posted",
     entryId, cogsTotal: cogsTotal.toString(), saleTotal: saleTotal.toString(), invoicedAmount: "0",
     locationId: headerLocationId,
-    carrier: input.carrier?.trim().slice(0, 64) || null,
+    carrier: input.carrier?.trim().slice(0, 64) || null, carrierScac: scacR.ok ? scacR.scac : null,
     trackingNo: input.trackingNo?.trim().slice(0, 128) || null,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning({ id: salesShipments.id });

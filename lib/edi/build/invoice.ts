@@ -28,6 +28,11 @@ export type InvFacts = {
     theirs: { lineNo: string; unit: string | null }[] | null;
   }[];
   parts: Record<string, { bp: string | null; gtin: string | null }>;
+  /**
+   * Lines on the invoice that are not goods: freight, fees, discounts (items of the "Other Charge" kind). Positive is a
+   * charge, negative an allowance. They count toward the net beside the shipment lines.
+   */
+  extras?: { description: string; amount: number }[];
 };
 
 export type InvoiceItem = { lineNo: string; partNumber: string | null; gtin: string | null; itemCode: string | null; qty: number; unit: string; price: number; poNumber: string };
@@ -37,13 +42,19 @@ export type InvoiceOut = {
   poNumber: string | null; poDate: string | null;
   customer: { name: string; gln: string | null }; us: { name: string; gln: string | null };
   items: InvoiceItem[]; net: number; tax: number; total: number;
+  /** "invoice" (BIG07 DI) or "credit" (BIG07 CR, a credit memo). */
+  kind: "invoice" | "credit";
+  /** TXI01 tax type, the partner's rule (ZZ = amount only). */
+  taxType: string;
+  /** Charges (C) and allowances (A) as positive amounts, sent as SAC segments. */
+  charges: { kind: "C" | "A"; description: string; amount: number }[];
 };
 export type InvProblem = { lineNo: number | null; message: string };
 
 const q6 = (n: number) => Math.round(n * 1e6) / 1e6;
 const c2 = (n: number) => Math.round(n * 100) / 100;
 
-export function buildInvoice(f: InvFacts, overrides: Record<string, string>): { ok: true; invoice: InvoiceOut } | { ok: false; problems: InvProblem[] } {
+export function buildInvoice(f: InvFacts, overrides: Record<string, string>, taxType = "ZZ"): { ok: true; invoice: InvoiceOut } | { ok: false; problems: InvProblem[] } {
   const problems: InvProblem[] = [];
   const bad = (message: string) => problems.push({ lineNo: null, message });
   if (!f.invoice.posted) bad("This invoice is not posted.");
@@ -53,7 +64,10 @@ export function buildInvoice(f: InvFacts, overrides: Record<string, string>): { 
     return { ok: false, problems };
   }
   const goods = c2(f.lines.reduce((s, l) => s + l.amount, 0));
-  if (Math.abs(goods - f.invoice.net) > 0.01) bad(`The shipment lines add up to ${goods}, the invoice net is ${f.invoice.net}: the invoice was edited after it was made. Send it by hand.`);
+  const extras = f.extras ?? [];
+  const extrasTotal = c2(extras.reduce((s, x) => s + x.amount, 0));
+  if (Math.abs(goods + extrasTotal - f.invoice.net) > 0.01) bad(`The shipment lines${extras.length ? " and charges" : ""} add up to ${c2(goods + extrasTotal)}, the invoice net is ${f.invoice.net}: the invoice was edited after it was made. Send it by hand.`);
+  if (extras.some(x => Math.abs(x.amount) < 0.005)) bad("A charge or discount line on the invoice has no amount.");
   if (f.invoice.tax < -0.005) bad("The invoice tax is negative.");
   if (Math.abs(f.invoice.net + f.invoice.tax - f.invoice.total) > 0.01) bad(`Net ${f.invoice.net} plus tax ${f.invoice.tax} is not the total ${f.invoice.total}.`);
 
@@ -88,5 +102,46 @@ export function buildInvoice(f: InvFacts, overrides: Record<string, string>): { 
     invoiceNo: f.invoice.docNumber!.trim(), date: f.invoice.date, dueDate: f.invoice.dueDate, currency: f.invoice.currency,
     poNumber: single ? single.poNumber!.trim() : null, poDate: single ? single.poDate : null,
     customer: f.customer, us: f.us, items, net: f.invoice.net, tax: f.invoice.tax, total: f.invoice.total,
+    kind: "invoice", taxType, charges: chargesOf(extras),
+  } };
+}
+
+/** Charges and allowances as the 810 states them: a positive amount with C or A. */
+function chargesOf(extras: { description: string; amount: number }[]): InvoiceOut["charges"] {
+  return extras.map(x => ({ kind: x.amount < 0 ? "A" as const : "C" as const, description: (x.description || (x.amount < 0 ? "Discount" : "Charge")).slice(0, 80), amount: c2(Math.abs(x.amount)) }));
+}
+
+/** A posted credit note: the lines come from the credit itself (no order line to echo), so line numbers are 1..n. */
+export type CreditFacts = {
+  credit: { docNumber: string | null; date: string; currency: string | null; net: number; tax: number; total: number; posted: boolean };
+  customer: { name: string; gln: string | null }; us: { name: string; gln: string | null };
+  lines: { description: string; itemCode: string | null; baseUom: string | null; qty: number; rate: number; amount: number; bp: string | null; gtin: string | null }[];
+  extras?: { description: string; amount: number }[];
+};
+
+export function buildCreditNote(f: CreditFacts, overrides: Record<string, string>, taxType = "ZZ"): { ok: true; invoice: InvoiceOut } | { ok: false; problems: InvProblem[] } {
+  const problems: InvProblem[] = [];
+  const bad = (message: string) => problems.push({ lineNo: null, message });
+  if (!f.credit.posted) bad("This credit note is not posted.");
+  if (!f.credit.docNumber?.trim()) bad("The credit note has no number.");
+  if (!f.lines.length) bad("The credit note has no goods lines. Only credits for stocked or sold items can be sent by EDI.");
+  if (f.credit.tax < -0.005) bad("The credit note tax is negative.");
+  const extras = f.extras ?? [];
+  const goods = c2(f.lines.reduce((s, l) => s + l.amount, 0));
+  const extrasTotal = c2(extras.reduce((s, x) => s + x.amount, 0));
+  if (Math.abs(goods + extrasTotal - f.credit.net) > 0.01) bad(`The lines add up to ${c2(goods + extrasTotal)}, the credit net is ${f.credit.net}. Send it by hand.`);
+  if (Math.abs(f.credit.net + f.credit.tax - f.credit.total) > 0.01) bad(`Net ${f.credit.net} plus tax ${f.credit.tax} is not the total ${f.credit.total}.`);
+  const items: InvoiceItem[] = [];
+  f.lines.forEach((l, i) => {
+    if (!(l.qty > 0)) { bad(`Line ${i + 1}: the quantity must be above zero.`); return; }
+    const u = x12UnitFor(l.baseUom, overrides);
+    if (u.ok === false) { bad(`Line ${i + 1} (${l.description}): unit: ${u.reason}`); return; }
+    items.push({ lineNo: String(i + 1), partNumber: l.bp, gtin: l.gtin, itemCode: l.itemCode, qty: q6(l.qty), unit: u.code, price: q6(l.rate), poNumber: "" });
+  });
+  if (problems.length) return { ok: false, problems };
+  return { ok: true, invoice: {
+    invoiceNo: f.credit.docNumber!.trim(), date: f.credit.date, dueDate: null, currency: f.credit.currency, poNumber: null, poDate: null,
+    customer: f.customer, us: f.us, items, net: f.credit.net, tax: f.credit.tax, total: f.credit.total,
+    kind: "credit", taxType, charges: chargesOf(extras),
   } };
 }

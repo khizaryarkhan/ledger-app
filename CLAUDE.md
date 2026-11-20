@@ -951,6 +951,40 @@ recalled, and a value with no exact match is left empty with a reason rather tha
   entry's ISO code (PATCH `/api/countries` exists); customer ship-to addresses, part-number cross-references and
   SSCC are later Phase 0 items.
 
+## EDI: the listed gaps closed before testing (2026-11-20)
+
+Migrations `0148` (`edi_partners.tax_type`) and `0149` (`sales_shipments.carrier_scac`), both additive; applied to the dev branch only.
+
+- **Old invoices can be sent by EDI**: `scripts/backfill-invoice-line-links.ts` (dry run by default, `--commit`) rebuilds the
+  line-level `shipment_invoice` links for invoices made from shipments before they were kept. Rule in
+  `lib/inventory/invoice-link-backfill.ts`: ONLY provable cases: the invoice is the only one that billed those shipments, every
+  shipment line is fully invoiced, and qty x sale rate adds up to the invoice net to the cent. Anything else is listed with its
+  reason and left alone (splitting a quantity between invoices would be a guess). Dry run on dev: 3 rebuildable, 0 left. **Not run
+  against production.**
+- **Customer part numbers in bulk**: "Import their part numbers" in the customer drawer (edit mode) -> `POST
+  /api/inventory/customer-part-numbers/bulk { customerId, text, commit? }`. One line per item: "our item name or SKU code, their
+  part number[, level]" (tab, semicolon or comma; header row skipped). Preview first, then save the matched lines. An item is matched
+  by exact name (case and spacing ignored), a SKU by code or name; none or more than one match is an error for THAT line, never a
+  guess. A pack level needs a SKU. Saving goes through `setCustomerPartNumber`, so every existing rule still applies per line.
+  Pure parser `lib/inventory/part-numbers-bulk.ts`, matching `part-numbers-bulk-server.ts`. Admins only.
+- **810**: **charges and allowances** are invoice lines whose item is of the "Other Charge" kind (read from the entry's stored
+  form input): positive = SAC `C`, negative = SAC `A`, amounts in cents, and they count toward the net beside the shipment lines.
+  **Tax type** is a per-partner setting (`edi_partners.tax_type`, partner drawer; ZZ, VA, GS, ST, LS, CT) sent as TXI01: the
+  invoice stores only the amount. **Credit notes** go as a credit memo (BIG07 `CR`; invoices now send explicit `DI`), through the
+  same "Send by EDI" button and `/api/edi/invoices/[id]` (branches on the entry's type). Lines come from the credit's own stored
+  lines, numbered 1..n (there is no order line to echo), their part number at the base unit; net from the lines, total from the
+  A/R line, tax the difference. Refused with the reason: not posted, lines that do not add up, no goods lines, a unit with no EDI
+  code, and a foreign-currency credit (its journal total is home currency).
+- **856**: the carrier's **SCAC** (`sales_shipments.carrier_scac`, a field beside Carrier in both ship forms, PATCH accepts it) goes
+  in TD5 (`B*2*SCAC*M*name`); **weights**: each package's gross weight (already captured in the packing drawer) goes in `MEA*PD*G`,
+  and TD1 carries the gross total ONLY when every top-level pallet/carton has a weight and they are all one kind; a line issued
+  from **several lots** is sent as one item per lot (LT batch, dates) ONLY when it sits in one place (one package or all loose)
+  and the lots add up to the line, else as one item with no batch, as before (packing records contents per line, never per lot).
+- Tests: `tests/invoice-link-backfill.test.ts`, `part-numbers-bulk.test.ts`, `edi-810-extras.test.ts`, `edi-856-extras.test.ts`;
+  the existing e2e 810/856 scripts still pass on dev. **Not built / not verified**: no screen clicked through in a browser; credit
+  memo, SAC and TD1 are a first cut against the common 4010 shape (each partner's guide decides the exact segments, and some want
+  negative amounts on a credit memo); TA1/999 and inbound invoices or ship notices spanning several POs are still not built.
+
 ## EDI small gaps (2026-11-20)
 
 - **One live 997 per received file is now a DATABASE guarantee.** Migration `0147` (a partial unique index on
@@ -2077,7 +2111,7 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0147` at `when` `1795500000000`;
+  this silently dropped a table in prod once). Latest is `0149` at `when` `1795700000000`;
   keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http

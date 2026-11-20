@@ -7,6 +7,7 @@ import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
 import { voidShipment } from "@/lib/inventory/void";
 import { LedgerValidationError } from "@/lib/ledger";
+import { normaliseScac } from "@/lib/edi/scac";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
@@ -45,6 +46,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     set.deliveredDate = d;
   }
   if (b.carrier !== undefined) set.carrier = b.carrier ? String(b.carrier).trim().slice(0, 64) || null : null;
+  if (b.carrierScac !== undefined) {
+    const s = normaliseScac(b.carrierScac);
+    if (s.ok === false) return bad(s.error);
+    set.carrierScac = s.scac;
+  }
   if (b.trackingNo !== undefined) set.trackingNo = b.trackingNo ? String(b.trackingNo).trim().slice(0, 128) || null : null;
   await db.update(salesShipments).set(set).where(and(eq(salesShipments.id, params.id), eq(salesShipments.orgId, orgId!)));
   return ok({ id: params.id, updated: true });
