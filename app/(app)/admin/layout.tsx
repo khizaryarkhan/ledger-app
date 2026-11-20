@@ -53,6 +53,25 @@ const NAV: NavSection[] = [
 // untouched. Remaps the warm "stone" palette the pages use to cool navy.
 const THEME_CSS = `
 .pa-admin{--pa-bg:#0B0E15;--pa-panel:#0E1320;--pa-ac:#7C7AF6}
+/* The admin portal is dark by design (its panels are painted dark above), but it
+   sits under the app shell's [data-theme], and the shell now defaults to Light.
+   On admin.primeaccountax.com no theme is saved (separate origin), so Light was
+   applied and every token-coloured heading and figure turned dark on dark. Pin
+   the dark values here so the portal never depends on the viewer's app theme. */
+.pa-admin{color-scheme:dark;
+--st-50:250 250 249;--st-100:245 245 244;--st-200:231 229 228;--st-300:214 211 209;--st-400:168 162 158;--st-500:120 113 108;
+--st-600:87 83 78;--st-700:68 64 60;--st-800:41 37 36;--st-900:28 25 23;--st-950:12 10 9;--c-white:255 255 255;
+--emerald-200:167 243 208;--emerald-300:110 231 183;--emerald-400:52 211 153;--emerald-500:16 185 129;
+--rose-200:254 205 211;--rose-300:253 164 175;--rose-400:251 113 133;--rose-500:244 63 94;
+--amber-200:253 230 138;--amber-300:252 211 77;--amber-400:251 191 36;--amber-500:245 158 11;
+--sky-200:186 230 253;--sky-300:125 211 252;--sky-400:56 189 248;--sky-500:14 165 233;
+--blue-200:191 219 254;--blue-300:147 197 253;--blue-400:96 165 250;--blue-500:59 130 246;
+--violet-200:221 214 254;--violet-300:196 181 253;--violet-400:167 139 250;--violet-500:139 92 246;
+--orange-200:254 215 170;--orange-300:253 186 116;--orange-400:251 146 60;--orange-500:249 115 22;
+--teal-200:153 246 228;--teal-300:94 234 212;--teal-400:45 212 191;--teal-500:20 184 166;
+--cyan-200:165 243 252;--cyan-300:103 232 249;--cyan-400:34 211 238;--cyan-500:6 182 212;
+--indigo-200:199 210 254;--indigo-300:165 180 252;--indigo-400:129 140 248;--indigo-500:99 102 241;
+--fuchsia-200:245 208 254;--fuchsia-300:240 171 252;--fuchsia-400:232 121 249;--fuchsia-500:217 70 239}
 .pa-admin .bg-stone-950{background-color:#0B0E15 !important}
 .pa-admin .bg-stone-900{background-color:#111726 !important}
 .pa-admin .bg-stone-800{background-color:#1B2336 !important}
