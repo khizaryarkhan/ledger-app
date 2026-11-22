@@ -971,8 +971,9 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
       .map(l => ({ lineId: l.poLineId, amount: l.amount }));
     if (poLines.length) await closePoLinesOnBill(orgId, poLines, entry.id, actorId).catch(e => console.error("[close po lines]", e));
   }
-  if (entry && type === "Payment") {
+  if (entry && (type === "Payment" || type === "BillPayment")) {
     for (const id of [...new Set(pendingLinks.filter(pl => pl.toType === "Invoice").map(pl => pl.toId))]) await syncNativeInvoicePaid(orgId, id).catch(() => {});
+    for (const id of [...new Set(pendingLinks.filter(pl => pl.toType === "Bill").map(pl => pl.toId))]) await syncNativeBillPaid(orgId, id).catch(e => console.error("[sync bill paid]", e));
   }
   if (entry) {
     logEvent({ orgId, eventType: "document_created", docType: "ledger", docId: entry.id, actorId, meta: { sourceType: type, docNumber: entry.docNumber } })
@@ -1123,6 +1124,11 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
       ...pendingLinks.filter(pl => pl.toType === "Invoice").map(pl => pl.toId),
     ]);
     for (const id of affected) await syncNativeInvoicePaid(orgId, id).catch(() => {});
+    const affectedBills = new Set<string>([
+      ...oldTargets.filter(t => t.toType === "Bill").map(t => t.toId),
+      ...pendingLinks.filter(pl => pl.toType === "Bill").map(pl => pl.toId),
+    ]);
+    for (const id of affectedBills) await syncNativeBillPaid(orgId, id).catch(e => console.error("[sync bill paid]", e));
   } else if (type === "Invoice") {
     // Same "must not fail silently" reasoning as the create path above — an
     // edit that changes the GL entry but fails to re-sync the `invoices` row
@@ -1308,6 +1314,28 @@ async function unbridgeNativeBill(orgId: string, entryId: string) {
   await db.delete(apBills).where(and(eq(apBills.orgId, orgId), eq(apBills.entryId, entryId))); // lines cascade
 }
 
+/**
+ * Recompute a native bill's paid/balance/status in Payables from the payment
+ * and credit links applied to its GL entry. The Payables row (ap_bills) is a
+ * cache of the settlement graph, like invoices.paid — before this existed a
+ * paid native bill stayed "Unpaid" with its full balance.
+ */
+export async function syncNativeBillPaid(orgId: string, billEntryId: string) {
+  const [bill] = await db.select({ id: apBills.id, total: apBills.total }).from(apBills)
+    .where(and(eq(apBills.orgId, orgId), eq(apBills.entryId, billEntryId))).limit(1);
+  if (!bill) return;
+  const [applied] = await db.select({ amt: sql<string>`coalesce(sum(${transactionLinks.amount}),0)` }).from(transactionLinks)
+    .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, billEntryId), inArray(transactionLinks.relation, ["payment", "credit"])));
+  const total = Number(bill.total) || 0;
+  const paid = round2(Math.min(Number(applied?.amt ?? 0), total));
+  await db.update(apBills).set({
+    amountPaid: paid,
+    balance: round2(total - paid),
+    accountingPaymentStatus: paid <= 0.005 ? "Unpaid" : paid >= total - 0.005 ? "Paid" : "Partially Paid",
+    updatedAt: new Date(),
+  } as any).where(eq(apBills.id, bill.id));
+}
+
 /** Recompute a native invoice's paid/status from the links applied to its GL entry. */
 export async function syncNativeInvoicePaid(orgId: string, invoiceEntryId: string) {
   const [inv] = await db.select({ id: invoices.id, total: invoices.total, collectionStage: invoices.collectionStage }).from(invoices)
@@ -1473,6 +1501,7 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
   await db.delete(journalEntries).where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId)));
 
   for (const t of settled) if (t.toType === "Invoice") await syncNativeInvoicePaid(orgId, t.toId).catch(() => {});
+  for (const t of settled) if (t.toType === "Bill") await syncNativeBillPaid(orgId, t.toId).catch(e => console.error("[sync bill paid]", e));
   // Logged with the entry's own data, captured above BEFORE the delete — the
   // row itself is already gone by this point.
   logEvent({ orgId, eventType: "document_deleted", docType: "ledger", docId: entryId, actorId, meta: { sourceType: entry.sourceType, docNumber: entry.docNumber } })
@@ -1498,6 +1527,7 @@ export async function onEntryReversed(orgId: string, entryId: string) {
       .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.contextEntryId, entryId)));
     await deleteLinksByContext(orgId, entryId);
     for (const t of targets) if (t.toType === "Invoice") await syncNativeInvoicePaid(orgId, t.toId).catch(() => {});
+    for (const t of targets) if (t.toType === "Bill") await syncNativeBillPaid(orgId, t.toId).catch(e => console.error("[sync bill paid]", e));
   }
 }
 
