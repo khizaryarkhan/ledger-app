@@ -360,7 +360,9 @@ export async function matchInvoice(orgId: string, partner: Partner, segments: st
 
   const [org] = await db.select({ home: organisations.currency }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
   const home = (org?.home ?? "PKR").toUpperCase();
-  const billCurrency = (inv.currency || pos[0].currency || home).toUpperCase();
+  // The currency the goods were received in is the PO's, never the invoice's: taking the invoice's would drop every receipt in
+  // another currency and report "nothing received", hiding the real problem. A mismatch is named by invoiceToBillMulti.
+  const billCurrency = (pos[0].currency || home).toUpperCase();
   const groups: InvoicePoGroup[] = [];
   for (const po of pos) {
     const receiptIds = [...new Set((await db.select({ id: goodsReceiptLines.receiptId }).from(goodsReceiptLines)
