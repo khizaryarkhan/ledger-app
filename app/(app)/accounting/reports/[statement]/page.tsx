@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, ScrollText, Scale, TrendingUp, Landmark } from "lucide-react";
 import { ReportShell } from "@/components/ui";
+import { fmt } from "@/lib/format";
 import { controlCompact, SelectField } from "@/components/form-kit";
 import {
   RANGE_PRESETS, AS_OF_PRESETS, COLUMN_BUCKETS, COMPARE_MODES,
@@ -28,7 +29,7 @@ const PERIOD_STATEMENTS = new Set(["profit-loss", "comprehensive-income", "chang
 const COLUMN_ENGINE_STATEMENTS = new Set(["profit-loss", "balance-sheet"]);
 
 const fmtMoney = (n: number) => {
-  const v = Math.abs(Math.round(n)).toLocaleString();
+  const v = fmt.num2(Math.abs(n));
   return n < 0 ? `(${v})` : v;
 };
 
@@ -244,7 +245,9 @@ function TrialBalance({ data, drill }: { data: any; drill: Drill }) {
   );
 }
 
-function Section({ title, lines, total, strong, drill }: { title: string; lines: any[]; total: number; strong?: boolean; drill?: Drill }) {
+function Section({ title, lines: allLines, total, strong, drill }: { title: string; lines: any[]; total: number; strong?: boolean; drill?: Drill }) {
+  // A line that nets to zero (a fully cleared account) is noise on a statement.
+  const lines = allLines.filter((l: any) => Math.abs(Number(l.amount) || 0) >= 0.005);
   return (
     <div className="mb-1">
       <div className="text-[11px] uppercase tracking-wider text-stone-500 px-4 pt-3 pb-1">{title}</div>

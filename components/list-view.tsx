@@ -140,7 +140,9 @@ const sortedTotals = (t: Record<string, number>) => Object.entries(t).sort((a, b
 /** One currency per line so the decimals align — never joined with " · ". */
 export function MoneyStack({ totals, className = "" }: { totals: Record<string, number>; className?: string }) {
   const e = sortedTotals(totals);
-  if (e.length === 0) return <span className={className}>{fmt.money(0)}</span>;
+  // Nothing to total: no currency is known, so show a bare figure rather than a
+  // "€0.00" that names a currency the org may not even use.
+  if (e.length === 0) return <span className={className}>{fmt.num2(0)}</span>;
   return <>{e.map(([c, v]) => <div key={c} className={className}>{fmt.money(v, c)}</div>)}</>;
 }
 

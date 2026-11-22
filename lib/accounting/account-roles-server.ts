@@ -580,9 +580,12 @@ export async function stockVsGl(orgId: string, asAt?: string | null, opts?: { pr
   const info = new Map(accts.map(a => [a.id, a]));
   const bal = await glBalances(orgId, [...byAcct.keys(), ...wipIds], asAt);
   const r2 = (n: number) => Math.round(n * 100) / 100;
+  // Stock is carried to 4-6dp but the ledger posts to the cent, so a cost like
+  // 5.125 posts as 5.13: a gap of one cent is rounding, never a break.
+  const gap = (gl: number, v: number) => { const d = gl - v; return Math.abs(d) < 0.015 ? 0 : r2(d); };
   const rows: StockVsGlRow[] = [...byAcct.entries()].map(([id, e]) => {
     const stock = r2(e.value), gl = bal.get(id) ?? 0;
-    return { accountId: id, accountName: info.get(id)?.name ?? "(unknown account)", accountCode: info.get(id)?.code ?? null, groups: [...e.groups].sort(), stockValue: stock, glBalance: gl, difference: r2(gl - stock) };
+    return { accountId: id, accountName: info.get(id)?.name ?? "(unknown account)", accountCode: info.get(id)?.code ?? null, groups: [...e.groups].sort(), stockValue: stock, glBalance: gl, difference: gap(gl, stock) };
   }).sort((a, b) => a.accountName.localeCompare(b.accountName));
 
   // Open orders: the only orders holding value between steps today are job-work
@@ -605,7 +608,7 @@ export async function stockVsGl(orgId: string, asAt?: string | null, opts?: { pr
   }
   const wip: WipRow[] = wipIds.map(id => {
     const v = r2(wipVal.get(id) ?? 0), gl = bal.get(id) ?? 0;
-    return { accountId: id, accountName: info.get(id)?.name ?? "(unknown account)", accountCode: info.get(id)?.code ?? null, openOrdersValue: v, glBalance: gl, difference: r2(gl - v) };
+    return { accountId: id, accountName: info.get(id)?.name ?? "(unknown account)", accountCode: info.get(id)?.code ?? null, openOrdersValue: v, glBalance: gl, difference: gap(gl, v) };
   });
   return { rows, unassignedValue: r2(unassigned), wip };
 }

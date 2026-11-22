@@ -37,6 +37,9 @@ export function OutputSection({ draft, skus, itemId, byId, batchBase, baseUom, o
         <h3 className="text-[15px] font-semibold text-stone-100">Output</h3>
         <p className="text-[12px] text-stone-400 mt-0.5">The batch size above is the potential output. How it splits between these SKUs is decided on each manufacturing order.</p>
       </div>
+      {pickable.length === 0 && (
+        <p className="text-[12px] text-amber-300 rounded-lg border border-amber-800/40 bg-amber-500/5 px-3 py-2">No output SKUs exist yet. Open the finished product in Products & Services, add a packaged SKU (for example a box of 12), then come back to pick it here.</p>
+      )}
       <div className="rounded-lg border border-stone-800 bg-stone-950/40">
         <div className={`${cols} px-3 py-1.5 border-b border-stone-800 text-[11px] font-semibold uppercase tracking-wide text-stone-500`}>
           <span>#</span><span>Output SKU</span><span className="text-right">Per unit · batch could make</span><span />

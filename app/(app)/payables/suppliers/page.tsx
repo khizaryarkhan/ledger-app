@@ -14,6 +14,7 @@ import {
 import { Card, Badge, Button, Input, Select, Modal } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { SelectField, control } from "@/components/form-kit";
+import { PartyDrawer } from "@/components/party-drawer";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -120,247 +121,6 @@ function statusBadgeVariant(status: SupplierStatus) {
 function riskBadgeVariant(risk: string | undefined | null): string {
   const map: Record<string, string> = { Low: "green", Medium: "yellow", High: "red" };
   return (risk && map[risk]) ?? "neutral";
-}
-
-// ── Add Supplier Modal ────────────────────────────────────────────────────────
-
-const EMPTY_FORM = {
-  name: "",
-  displayName: "",
-  code: "",
-  email: "",
-  phone: "",
-  currency: "",
-  paymentTerms: "",
-  country: "",
-  taxNumber: "",
-  status: "Active" as SupplierStatus,
-};
-
-function AddSupplierModal({
-  open,
-  onClose,
-  onAdded,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onAdded: (supplier: Supplier) => void;
-}) {
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Default the currency field to the org's home currency — never hardcode
-  // one, since a supplier created here with no explicit choice should match
-  // the books it's posted into, not an arbitrary literal.
-  useEffect(() => {
-    fetch("/api/org/settings").then(r => r.json()).then(o => {
-      if (o?.currency) setForm(prev => (prev.currency ? prev : { ...prev, currency: o.currency }));
-    }).catch(() => {});
-  }, []);
-
-  function set(field: keyof typeof EMPTY_FORM) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
-    };
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.name.trim()) {
-      setError("Supplier name is required.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/payables/suppliers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          paymentTerms: form.paymentTerms ? Number(form.paymentTerms) : undefined,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Server error ${res.status}`);
-      }
-      const supplier = await res.json();
-      onAdded(supplier);
-      setForm(EMPTY_FORM);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || "Failed to add supplier");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!open) return null;
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Add Supplier"
-      size="md"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <button
-            type="submit"
-            form="add-supplier-form"
-            disabled={saving}
-            className="inline-flex items-center justify-center font-medium rounded-md transition-colors bg-violet-600 text-white hover:bg-violet-500 disabled:bg-stone-700 disabled:text-stone-500 h-9 px-3.5 text-sm gap-2"
-          >
-            {saving ? "Saving…" : "Add Supplier"}
-          </button>
-        </>
-      }
-    >
-      <form
-        id="add-supplier-form"
-        onSubmit={handleSubmit}
-        className="p-5 space-y-4"
-      >
-        {error && (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-md bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-400 text-sm">
-            <AlertCircle size={14} />
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          {/* Name */}
-          <div className="col-span-2">
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Name <span className="text-rose-400">*</span>
-            </label>
-            <Input
-              value={form.name}
-              onChange={set("name")}
-              placeholder="Acme Corp"
-            />
-          </div>
-
-          {/* Display Name */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Display Name
-            </label>
-            <Input
-              value={form.displayName}
-              onChange={set("displayName")}
-              placeholder="Optional"
-            />
-          </div>
-
-          {/* Code */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Code
-            </label>
-            <Input
-              value={form.code}
-              onChange={set("code")}
-              placeholder="SUP-001"
-            />
-          </div>
-
-          {/* Email */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Email
-            </label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={set("email")}
-              placeholder="accounts@acme.com"
-            />
-          </div>
-
-          {/* Phone */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Phone
-            </label>
-            <Input
-              value={form.phone}
-              onChange={set("phone")}
-              placeholder="+1 555 000 0000"
-            />
-          </div>
-
-          {/* Currency */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Currency
-            </label>
-            <Select
-              value={form.currency}
-              onChange={set("currency")}
-              options={["USD", "EUR", "GBP", "AED"]}
-              className="w-full"
-            />
-          </div>
-
-          {/* Payment Terms */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Payment Terms (days)
-            </label>
-            <Input
-              type="number"
-              value={form.paymentTerms}
-              onChange={set("paymentTerms")}
-              placeholder="30"
-            />
-          </div>
-
-          {/* Country */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Country
-            </label>
-            <Input
-              value={form.country}
-              onChange={set("country")}
-              placeholder="United States"
-            />
-          </div>
-
-          {/* Tax Number */}
-          <div>
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Tax Number
-            </label>
-            <Input
-              value={form.taxNumber}
-              onChange={set("taxNumber")}
-              placeholder="Optional"
-            />
-          </div>
-
-          {/* Status */}
-          <div className="col-span-2">
-            <label className="block text-xs text-stone-400 mb-1.5 font-medium">
-              Status
-            </label>
-            <Select
-              value={form.status}
-              onChange={set("status")}
-              options={["Active", "Inactive"]}
-              className="w-full"
-            />
-          </div>
-        </div>
-      </form>
-    </Modal>
-  );
 }
 
 // ── Column definitions — sort + funnel filter per column, board-style ─────────
@@ -604,11 +364,15 @@ export default function SuppliersPage() {
         </div>
       )}
 
-      <AddSupplierModal
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        onAdded={(sup) => setSuppliers((prev) => [sup, ...prev])}
-      />
+      {/* One creation path: the shared supplier drawer, not a thinner second form
+          that made "manual" suppliers documents could not use. */}
+      {showAdd && (
+        <PartyDrawer
+          type="suppliers"
+          onClose={() => setShowAdd(false)}
+          onCreated={() => { setShowAdd(false); load(); }}
+        />
+      )}
     </ListPage>
   );
 }

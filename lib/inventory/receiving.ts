@@ -12,7 +12,7 @@
  */
 
 import { db } from "@/db";
-import { goodsReceipts, goodsReceiptLines, tradeDocumentLines, organisations, inventoryLots, transactionLinks, journalLines, journalEntries } from "@/db/schema";
+import { goodsReceipts, goodsReceiptLines, tradeDocumentLines, organisations, inventoryLots, transactionLinks, journalLines, journalEntries, parties } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { loadItemCostInfo, commitReceipt, type ItemCostInfo } from "@/lib/inventory/valuation";
@@ -403,12 +403,21 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
   }
   if (!billLines.length) err("These receipts are already fully billed.");
 
+  // No due date given: follow the supplier's payment terms (Net 30 etc.) instead
+  // of leaving it equal to the bill date.
+  let termsDays: number | undefined;
+  if (!input.dueDate && supplierId) {
+    const [sup] = await db.select({ t: parties.paymentTerms }).from(parties)
+      .where(and(eq(parties.id, supplierId), eq(parties.orgId, orgId))).limit(1);
+    if (sup?.t != null) termsDays = sup.t;
+  }
+
   const entry = await postDocument(orgId, {
     type: "Bill", date: input.billDate,
     memo: input.memo?.trim() || `Bill for goods received (${receipts.map(r => r.receiptNo).filter(Boolean).join(", ")})`,
     partyType: "Vendor", partyId: supplierId, partyLabel: supplierLabel,
     ...(currency !== home ? { currency, exchangeRate: fx } : {}),
-    dueDate: input.dueDate ?? null, reference: input.reference?.trim() || null,
+    dueDate: input.dueDate ?? null, ...(termsDays != null ? { termsDays } : {}), reference: input.reference?.trim() || null,
     lines: billLines,
   }, actorId, { revaluations });
 

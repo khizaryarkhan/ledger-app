@@ -860,6 +860,15 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
     // reprice the line or the order reads as 25kg bought at the price of one.
     const quoted = supplierRate(opt);
     if (quoted != null) { setLine(i, { rate: String(quoted) }); recompute(i, { rate: String(quoted) }); }
+    else {
+      // No saved price for the new pack level: keep the same price per base unit
+      // by rescaling, or a box of 12 would be priced as one each (4.50, not 54.00).
+      const oldPer = lines[i].unitsPerOrderUnit || 1, newPer = opt.unitsPerOrderUnit || 1, cur = num(lines[i].rate);
+      if (oldPer !== newPer && cur > 0) {
+        const next = String(Math.round(cur * newPer / oldPer * 1e6) / 1e6);
+        setLine(i, { rate: next }); recompute(i, { rate: next });
+      }
+    }
   }
 
   // Resolve a completed quick-add into the right list + selection.
@@ -1366,7 +1375,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                     </select>
                   </div>
                   <div className="w-52">
-                    <label className={label}>Amount received *</label>
+                    <label className={label}>{cfg.party === "Vendor" ? "Amount paid" : "Amount received"} *</label>
                     <CalcInput value={amount} onChange={v => { setAmount(v); setAmountTouched(true); }} className={`${input} w-full text-right tabular-nums text-[15px]`} />
                   </div>
                   {partyId && openDocs && (

@@ -402,7 +402,15 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
   const units = useMemo(() => salesOrderOptions(baseUom, skus), [baseUom, skus]);
   const defaultUnit = useMemo(() => { const i = units.findIndex(o => o.supplierSkuId === line.skuId); return i >= 0 ? i : 0; }, [units, line.skuId]);
   const [u, setU] = useState(0);
-  useEffect(() => { setU(defaultUnit); }, [defaultUnit]);
+  // The pre-filled quantity is in BASE units; once the units load and a pack
+  // unit becomes the default, restate it in that unit so "240 each" does not
+  // read as 240 boxes (= 2,880 each).
+  useEffect(() => {
+    setU(defaultUnit);
+    const per = units[defaultUnit]?.unitsPerOrderUnit ?? 1;
+    if (line.remainingQty > 0 && per > 0) setV(String(Number((line.remainingQty / per).toFixed(6))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultUnit]);
   const [v, setV] = useState(() => line.remainingQty > 0 ? String(line.remainingQty) : "");
   const [saleRate, setSaleRate] = useState(String(line.saleRateBase ?? ""));
   const [saving, setSaving] = useState(false);

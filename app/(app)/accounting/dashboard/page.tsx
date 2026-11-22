@@ -352,8 +352,8 @@ export default function AccountingDashboardPage() {
   if (ov && ledgerHeld) {
     const arV = variance(ov.ar);
     const apV = variance(ov.ap);
-    if (Math.abs(arV) > 0.5) attention.push({ key: "ar-var", label: "Receivables don't match the ledger", detail: "A/R control account differs from open invoices", href: "/accounting/reconcile", count: 1, amount: arV });
-    if (Math.abs(apV) > 0.5) attention.push({ key: "ap-var", label: "Payables don't match the ledger", detail: "A/P control account differs from open bills", href: "/accounting/reconcile", count: 1, amount: apV });
+    if (Math.abs(arV) > 0.5) attention.push({ key: "ar-var", label: "Receivables don't match the ledger", detail: `Ledger ${fmt.num2(ov.ar.glBalance ?? 0)} vs open invoices ${fmt.num2(ov.ar.total)} — check the invoices list for one that is paid or unpaid in only one place`, href: "/invoices", count: 1, amount: arV });
+    if (Math.abs(apV) > 0.5) attention.push({ key: "ap-var", label: "Payables don't match the ledger", detail: `Ledger ${fmt.num2(ov.ap.glBalance ?? 0)} vs open bills ${fmt.num2(ov.ap.total)} — check the bills list for one that is paid or unpaid in only one place`, href: "/payables/bills", count: 1, amount: apV });
   }
 
   return (
