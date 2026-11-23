@@ -322,7 +322,7 @@ export async function confirmTradeDoc(orgId: string, id: string, input: ConfirmI
 export async function deleteTradeDoc(orgId: string, id: string, actorId: string | null) {
   const [doc] = await db.select().from(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId))).limit(1);
   if (!doc) err("Document not found.");
-  if (doc.convertedEntryId || doc.status === "Closed" || doc.status === "Partial") err("This document has already been billed/invoiced — reverse those first.");
+  if (doc.convertedEntryId || doc.status === "Closed" || doc.status === "Partial") err("This document has already been billed/invoiced — delete those first.");
   const lines = await db.select().from(tradeDocumentLines).where(eq(tradeDocumentLines.documentId, id));
   const progressed = lines.some(l => Number(l.receivedQty) > 0 || Number(l.billedQty) > 0 || Number(l.invoicedAmount) > 0);
   if (progressed) err("This document has receipts/shipments or bills against it — void those first.");

@@ -102,3 +102,9 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - [!] Ledger rows now have an "Open" link; Payables bill page links to its ledger entry.
 - [ ] Open polish: 63 native confirm() popups across the app (hang browser automation, look dated, refused in some embedded browsers).
 - [!] Deleting an invoice made from an estimate left the estimate "Fully invoiced" for ever -> convertTradeDoc tags lines (tradeLineId); deleteDocument gives the amounts back and reopens the source (also covers PO -> bill). EST-0001 in Test Organization predates this (to be deleted and redone).
+
+## Pass 4 (2026-11-23): estimate conversion verified live
+
+- EST-0001 in Test Organization predated the fix and sat "Fully invoiced" with no invoice; the app could not delete it ("reverse those first"). Added `scripts/_fix_orphaned_converted_trade_docs.ts` (dry run by default, `--org-name` required) and reopened it. Estimates and POs only; it tests invoiced amount / converted entry, NOT `billedQty` (receipts drive that, so PO-0003/PO-0004 were correctly left alone).
+- Re-ran "Invoice remaining" on deployed code: INV-0005 posted Cost of Sales 43.38 and reduced Finished Goods Inventory to 109.02. Stock vs GL ties, Trial Balance balances (3,341.00). Estimate-to-invoice stock fix CONFIRMED.
+- Delete guard wording said "reverse"; now "delete".
