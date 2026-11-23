@@ -175,7 +175,8 @@ export async function listAdjustments(orgId: string) {
   }).from(journalEntries)
     .where(and(eq(journalEntries.orgId, orgId), inArray(journalEntries.sourceType, ["StockCount", "WriteDown"])))
     .orderBy(desc(journalEntries.entryDate), desc(journalEntries.createdAt)).limit(200);
-  return rows.map(r => ({ ...r, amount: num(r.amount) / 2 }));
+  // Debits only, and every adjustment entry balances, so the debit total IS its value.
+  return rows.map(r => ({ ...r, amount: num(r.amount) }));
 }
 
 /** Open lots of an item, for the count and write-down drawers. */
