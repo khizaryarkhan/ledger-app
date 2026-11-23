@@ -13,6 +13,7 @@
  * cumulatively — exactly how a closed set of books should look.
  */
 
+import { notReversalOfClosing } from "@/lib/accounting/closing-filter";
 import { db } from "@/db";
 import { accounts, journalEntries, journalLines, organisations, periodCloses } from "@/db/schema";
 import { and, eq, gte, lte, ne, inArray, sql, desc } from "drizzle-orm";
@@ -106,7 +107,7 @@ export async function closePeriod(orgId: string, periodEnd: string, actorId: str
     .where(and(
       eq(journalLines.orgId, orgId), inArray(journalEntries.status, ["Posted", "Reversed"]),
       gte(journalEntries.entryDate, periodStart), lte(journalEntries.entryDate, periodEnd),
-      ne(journalEntries.sourceType, "Closing"),
+      ne(journalEntries.sourceType, "Closing"), notReversalOfClosing,
     ))
     .groupBy(journalLines.accountId, accounts.type, accounts.classification);
 

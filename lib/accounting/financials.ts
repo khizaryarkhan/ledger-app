@@ -15,6 +15,7 @@
  * ships. Fiscal-year handling is calendar-year for now (configurable later).
  */
 
+import { notReversalOfClosing } from "@/lib/accounting/closing-filter";
 import { db } from "@/db";
 import { journalLines, journalEntries, accounts, apDimensions } from "@/db/schema";
 import { and, eq, ne, inArray, gte, lte, sql, isNull } from "drizzle-orm";
@@ -76,7 +77,7 @@ async function balances(orgIds: string[], opts: { from?: string; to?: string; ex
   if (opts.to)   conds.push(lte(journalEntries.entryDate, opts.to));
   // Year-end closing entries move P&L to Retained Earnings; excluding them keeps
   // the P&L report showing real trading activity (the Balance Sheet includes them).
-  if (opts.excludeClosing) conds.push(ne(journalEntries.sourceType, "Closing"));
+  if (opts.excludeClosing) conds.push(ne(journalEntries.sourceType, "Closing"), notReversalOfClosing);
   if (opts.dim) {
     const col = opts.dim.column === "classId" ? journalLines.classId : journalLines.locationId;
     conds.push(opts.dim.value === null ? isNull(col) : eq(col, opts.dim.value));
