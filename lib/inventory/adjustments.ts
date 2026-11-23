@@ -168,7 +168,10 @@ export async function listAdjustments(orgId: string) {
   const { desc, sql } = await import("drizzle-orm");
   const rows = await db.select({
     id: journalEntries.id, docNumber: journalEntries.docNumber, date: journalEntries.entryDate, kind: journalEntries.sourceType, memo: journalEntries.memo,
-    amount: sql<string>`(select coalesce(sum(${journalLines.debit}),0) from ${journalLines} where ${journalLines.entryId} = ${journalEntries.id})`,
+    // Qualified by hand: in a single-table select drizzle renders both columns here
+    // unqualified ("entry_id" = "id"), and "id" resolves to journal_lines.id, so the
+    // subquery matched nothing and every adjustment showed an amount of 0.
+    amount: sql<string>`(select coalesce(sum(jl.debit),0) from journal_lines jl where jl.entry_id = journal_entries.id)`,
   }).from(journalEntries)
     .where(and(eq(journalEntries.orgId, orgId), inArray(journalEntries.sourceType, ["StockCount", "WriteDown"])))
     .orderBy(desc(journalEntries.entryDate), desc(journalEntries.createdAt)).limit(200);

@@ -28,7 +28,9 @@ export async function GET() {
   if (error) return error;
   const rows = await db.select({
     id: budgets.id, name: budgets.name, year: budgets.year, status: budgets.status, createdAt: budgets.createdAt,
-    lineCount: sql<number>`(select count(*) from budget_lines bl where bl.budget_id = ${budgets.id})::int`,
+    // Qualified by hand: drizzle renders ${budgets.id} unqualified in a single-table
+    // select, which inside this subquery resolves to bl.id and always counts 0.
+    lineCount: sql<number>`(select count(*) from budget_lines bl where bl.budget_id = budgets.id)::int`,
   }).from(budgets).where(eq(budgets.orgId, orgId!)).orderBy(desc(budgets.year), desc(budgets.createdAt));
   return ok(rows);
 }

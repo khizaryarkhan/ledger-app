@@ -6489,3 +6489,12 @@ enclosing function must be async) and `tell("…")` for a notice.
   (comments ignored) and was proven to fail on a real violation. `mobile/` is a separate app and is not covered.
 - Not clicked through in a browser for every site: the conversion was mechanical (TypeScript compiler API), checked by
   `tsc` and the full suite. A handler that must stay synchronous (reads the event after the question) would need care.
+
+## ⚠️ A correlated subquery in a single-table drizzle select silently matches nothing (2026-11-23)
+
+In `db.select({ … x: sql`(select … where a.fk = ${outer.id})` }).from(outer)` with **no join**, drizzle renders every
+interpolated column **unqualified** (`"entry_id" = "id"`). Inside the subquery `id` resolves to the INNER table's `id`, so
+the correlation compares a table to itself and the subquery returns nothing — no error, just a 0/NULL. Found twice in one
+pass: the Budgets list "Cells" count and the Stock Adjustments list **amount** were both always 0. A joined outer query
+qualifies columns correctly (the announcements read count is fine), which is why it hides. **Qualify by hand**
+(`budgets.id`, alias the inner table) or check with `.toSQL()` before trusting a number.
