@@ -446,7 +446,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
         setParties(Array.isArray(p) ? p : []);
         setAllProjects(Array.isArray(proj) ? proj.filter((x: any) => x.status !== "Inactive") : []);
         setOpenSalesOrders(Array.isArray(so) ? so.filter((x: any) => x.status !== "Closed") : []);
-        const editing = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit");
+        // A document opened from its own page arrives as the editId PROP, with no ?edit= in
+        // the URL; checking only the URL let the "next free number" overwrite the stored one.
+        const editing = editIdProp || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit"));
         if (num?.docNumber && !editing) setDocNumber(num.docNumber);
         fetch("/api/org/settings").then(r => r.json()).then(o => {
           const h = o?.currency || ""; setHome(h); setMcEnabled(!!o?.multicurrencyEnabled);
