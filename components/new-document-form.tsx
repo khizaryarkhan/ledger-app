@@ -360,7 +360,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
     fetch(`/api/documents/${type}/${eid}`).then(r => r.json()).then(d => {
       const p = d?.payload; if (!p) return;
       setDate(p.date ?? todayStr());
-      setDocNumber(p.docNumber ?? "");
+      setDocNumber(p.docNumber ?? d.docNumber ?? "");
       setMemo(p.memo ?? "");
       setGoodsReturned(!!p.goodsReturned);
       setPartyId(p.partyId ?? "");

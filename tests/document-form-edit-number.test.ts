@@ -13,6 +13,10 @@ describe("document form keeps a saved document's own number", () => {
     expect(src).toMatch(/const editing = editIdProp \|\|/);
   });
 
+  it("the stored number is loaded from the entry when the payload lacks it", () => {
+    expect(src).toContain("setDocNumber(p.docNumber ?? d.docNumber ?? \"\")");
+  });
+
   it("the suggestion is still applied only when not editing", () => {
     expect(src).toMatch(/if \(num\?\.docNumber && !editing\) setDocNumber/);
   });
