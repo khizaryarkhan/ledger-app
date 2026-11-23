@@ -46,7 +46,10 @@ export function ItemLedgerReport() {
   useEffect(() => { load(); }, [from, to, itemId]);
 
   const tie = data?.tie;
-  const tied = tie ? Math.abs(tie.difference) < 0.005 : true;
+  // The same tolerance Stock vs GL uses (a cent or two of rounding when a cost is spread over quantity), so the
+  // two reports can never disagree about whether the same books tie.
+  const tied = tie ? Math.abs(tie.difference) < 0.015 : true;
+  const roundingCent = tie ? tied && Math.abs(tie.difference) >= 0.005 : false;
 
   return (
     <ReportShell title="Item Ledger" sub="Every movement of each item, with its document and lot, and the running quantity and value." icon={BookOpen} onRefresh={load} loading={data === null}>
@@ -76,7 +79,7 @@ export function ItemLedgerReport() {
         <div className={`rounded-lg border px-4 py-3 mb-5 flex items-center gap-3 flex-wrap ${tied ? "border-emerald-900/60 bg-emerald-950/20" : "border-amber-800/70 bg-amber-950/20"}`}>
           {tied ? <ShieldCheck size={16} className="text-emerald-400" /> : <ShieldAlert size={16} className="text-amber-400" />}
           <span className={`text-[13px] ${tied ? "text-emerald-300" : "text-amber-300"}`}>
-            {tied ? "Ties to the books" : `Does not tie to the books · off by ${money(Math.abs(tie.difference))}`}
+            {tied ? (roundingCent ? `Ties to the books · ${money(Math.abs(tie.difference))} of rounding` : "Ties to the books") : `Does not tie to the books · off by ${money(Math.abs(tie.difference))}`}
           </span>
           <span className="text-[12px] text-stone-400">
             All stock at {fmt.shortDate(to)}: {money(tie.stockValue)} · inventory accounts in the ledger: {money(tie.glBalance)}

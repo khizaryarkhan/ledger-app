@@ -47,7 +47,7 @@ export function OpenPosReport() {
                 <tr key={p.id} className={listRow()}>
                   <td className={`${listCell} font-mono text-[12px] text-stone-200`}>{p.docNumber || p.id.slice(0, 8)}</td>
                   <td className={`${listCell} text-stone-200`}>{p.supplier || "—"}</td>
-                  <td className={`${listCell} text-stone-400`}>{p.date}</td>
+                  <td className={`${listCell} text-stone-400`}>{fmt.shortDate(p.date)}</td>
                   <td className={listCell}><span className={`text-[11px] ${p.status === "Partial" ? "text-amber-400" : "text-stone-400"}`}>{p.status}</span></td>
                   <td className={`${listMoneyCell} text-stone-200`}>{money(p.remainingValue)}</td>
                 </tr>
@@ -125,7 +125,7 @@ export function OpenBillsReport() {
                 <tr key={b.id} className={listRow()}>
                   <td className={`${listCell} font-mono text-[12px]`}><Link href={`/accounting/transactions/${b.id}`} className="text-emerald-400 hover:text-emerald-300 hover:underline">{b.docNumber}</Link></td>
                   <td className={`${listCell} text-stone-200`}>{b.supplier}</td>
-                  <td className={listCell}><span className={b.overdue ? "text-rose-400" : "text-stone-400"}>{b.dueDate || "—"}</span></td>
+                  <td className={listCell}><span className={b.overdue ? "text-rose-400" : "text-stone-400"}>{fmt.shortDate(b.dueDate)}</span></td>
                   <td className={`${listNumCell} text-stone-400`}>{money(b.total)}</td>
                   <td className={`${listMoneyCell} text-stone-200`}>{money(b.open)}</td>
                 </tr>

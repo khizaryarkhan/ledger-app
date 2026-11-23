@@ -58,7 +58,7 @@ export async function aging(orgId: string, side: "receivable" | "payable", asOf 
     const overdue = daysBetween(asOf, r.dueDate ?? r.date);
     const bucket: AgingRow["bucket"] = overdue <= 0 ? "current" : overdue <= 30 ? "1-30" : overdue <= 60 ? "31-60" : overdue <= 90 ? "61-90" : "90+";
     buckets[bucket] = r2(buckets[bucket] + open);
-    out.push({ id: r.id, docNumber: r.docNumber ?? `JE-${r.entryNumber}`, party: r.party || "—", date: r.date, dueDate: r.dueDate ?? null, total, open, bucket });
+    out.push({ id: r.id, docNumber: r.docNumber ?? `JE-${r.entryNumber}`, party: r.party || "—", date: r.date, dueDate: r.dueDate ?? r.date, total, open, bucket });
   }
   out.sort((a, b) => (a.dueDate || a.date || "").localeCompare(b.dueDate || b.date || ""));
   return { rows: out, buckets, total: r2(out.reduce((s, r) => s + r.open, 0)), asOf };

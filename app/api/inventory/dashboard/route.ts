@@ -30,6 +30,7 @@ function remainingByDoc(lines: (typeof tradeDocumentLines.$inferSelect)[]) {
   const byDoc = new Map<string, number>();
   const byItem = new Map<string, number>();
   for (const l of lines) {
+    if (l.closed) continue; // closed short: no longer expected
     const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
     const received = num(l.receivedQty);
     const remainingQty = ordered - received;

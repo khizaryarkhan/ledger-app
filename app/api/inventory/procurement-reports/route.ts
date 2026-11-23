@@ -70,7 +70,8 @@ export async function GET(req: Request) {
     const pl = lines.filter(l => l.documentId === po.id);
     const detail = pl.map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
-      const received = num(l.receivedQty); const remaining = roundQty(ordered - received);
+      // A line the buyer closed short is no longer expected (same rule as po-open), though the history is untouched.
+      const received = num(l.receivedQty); const remaining = l.closed ? 0 : roundQty(ordered - received);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       return { itemName: it?.name ?? (l.description || "—"), baseUom: it?.baseUom ?? null, ordered, received, remaining, remainingValue: r2(remaining * (num(l.unitsPerOrderUnit || 1) > 0 ? num(l.rate) / num(l.unitsPerOrderUnit || 1) : num(l.rate))) };
     });

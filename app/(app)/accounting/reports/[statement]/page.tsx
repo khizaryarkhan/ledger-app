@@ -304,7 +304,8 @@ function BalanceSheet({ data, drill }: { data: any; drill: Drill }) {
   // but an older cached response shape shouldn't crash the page) — IAS 37
   // wants it shown separately from ordinary liabilities, never folded back
   // into them.
-  const hasProvisions = data.provisions && (data.provisions.nonCurrent.length || data.provisions.current.length);
+  // A real boolean: `a && (0 || 0)` is the NUMBER 0, which React prints as a stray "0" under the liabilities.
+  const hasProvisions = Boolean(data.provisions && (data.provisions.nonCurrent.length || data.provisions.current.length));
   return (
     <div className="pb-2">
       <div className="px-4 pt-3 pb-1 text-[12px] font-semibold text-teal-300 uppercase tracking-wider">Assets</div>

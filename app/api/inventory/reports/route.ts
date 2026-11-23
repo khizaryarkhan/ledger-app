@@ -48,7 +48,7 @@ async function openOrderQtyByItem(orgIds: string[], kind: "PurchaseOrder" | "Sal
   if (!docs.length) return map;
   const lines = await db.select().from(tradeDocumentLines).where(inArray(tradeDocumentLines.documentId, docs.map(p => p.id)));
   for (const l of lines) {
-    if (!l.itemId) continue;
+    if (!l.itemId || l.closed) continue; // a line closed short is no longer expected
     const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
     const remaining = ordered - num(l.receivedQty); // receivedQty = received (PO) / shipped (SO)
     if (remaining > QTY_EPSILON) map.set(l.itemId, (map.get(l.itemId) ?? 0) + remaining);

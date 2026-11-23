@@ -58,7 +58,7 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
               <tr key={r.id} className={listRow()}>
                 <td className={`${listCell} font-mono text-[12px]`}><Link href={`/accounting/transactions/${r.id}`} className="text-emerald-400 hover:text-emerald-300 hover:underline">{r.docNumber}</Link></td>
                 <td className={`${listCell} text-stone-200`}>{r.party}</td>
-                <td className={`${listCell} text-stone-400`}>{r.dueDate || "—"}</td>
+                <td className={`${listCell} text-stone-400`}>{fmt.shortDate(r.dueDate)}</td>
                 <td className={listCell}><span className={`text-[11px] ${r.bucket === "90+" ? "text-rose-400" : r.bucket === "current" ? "text-stone-500" : "text-amber-400"}`}>{BUCKET_LABEL[r.bucket]}</span></td>
                 <td className={`${listNumCell} text-stone-400`}>{money(r.total)}</td>
                 <td className={`${listMoneyCell} text-stone-200`}>{money(r.open)}</td>
