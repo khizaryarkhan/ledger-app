@@ -1251,7 +1251,7 @@ export default function DashboardPage() {
                   <div className="text-3xl font-semibold text-white tracking-tight">
                     <CurrencyPills breakdown={stats.totalByCurrency} stacked />
                   </div>
-                  <div className="mt-2 text-[11px] text-stone-400">{stats.openCount} open invoices</div>
+                  <div className="mt-2 text-[11px] text-stone-400">{stats.openCount} open invoice{stats.openCount === 1 ? "" : "s"}</div>
                   {beyondAsAt.count > 0 && (
                     <div className="mt-1.5 text-[10px] text-stone-400 leading-relaxed">
                       <CurrencyPills breakdown={beyondAsAt.byCcy} /> across {beyondAsAt.count} invoice{beyondAsAt.count === 1 ? "" : "s"} dated
@@ -1267,7 +1267,7 @@ export default function DashboardPage() {
                   <div className="text-3xl font-semibold text-rose-600 tracking-tight">
                     <CurrencyPills breakdown={stats.overdueByCurrency} />
                   </div>
-                  <div className="mt-2 text-[11px] text-stone-400">{stats.overdue.length} overdue invoices</div>
+                  <div className="mt-2 text-[11px] text-stone-400">{stats.overdue.length} overdue invoice{stats.overdue.length === 1 ? "" : "s"}</div>
                 </>}
               </Card>
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"

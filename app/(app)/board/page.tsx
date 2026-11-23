@@ -410,7 +410,7 @@ export default function BoardPage() {
         <div>
           <h1 className="text-xl font-semibold text-white tracking-tight">Collections Board</h1>
           <p className="text-sm text-stone-400 mt-0.5">
-            <CurrencyPills breakdown={totalByCurrency} /> · {openInvoiceRows.length} invoice{openInvoiceRows.length !== 1 ? "s" : ""} · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
+            <CurrencyPills breakdown={totalByCurrency} /> · {openInvoiceRows.length} invoice{openInvoiceRows.length !== 1 ? "s" : ""} · {Object.values(grouped).length} {groupBy === "customer" ? (Object.values(grouped).length === 1 ? "customer" : "customers") : (Object.values(grouped).length === 1 ? "project" : "projects")}
           </p>
         </div>
         <div className="flex items-center gap-2">
