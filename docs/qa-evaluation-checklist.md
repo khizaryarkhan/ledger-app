@@ -94,3 +94,10 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - [x] Settings hub, company, team, roles, currency, numbering, email, integrations, AI connections, billing, Data Studio, PAX console all load.
 - [!] Owner's My Timesheet said "login not linked to a person" -> resolveActor links real members on first use.
 - [!] Billing empty state was a dead end -> explains plans are set up by the team and gives the contact address. "1 open bills" plural fixed.
+
+### Pass 3
+- [x] Phone width (390px): dashboard stacks cleanly, no horizontal overflow on customers, sales orders, P&L, EDI, board, settings. Dark theme legible.
+- [x] Estimate created (EST-0001, 450.00) and converted to INV-0004.
+- [!] **Estimate -> invoice for a stocked item posted revenue but did not issue stock or book cost of sales** (lines had no quantity). Fixed in convertTradeDoc; test added. INV-0004 in Test Organization predates the fix (stock/COGS missing) and is to be deleted and redone.
+- [!] Ledger rows now have an "Open" link; Payables bill page links to its ledger entry.
+- [ ] Open polish: 63 native confirm() popups across the app (hang browser automation, look dated, refused in some embedded browsers).

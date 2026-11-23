@@ -339,6 +339,7 @@ export default function JournalPage() {
                                   : <span className="text-emerald-500">Posted</span>}
                               </td>
                               <td className={`${listCell} text-right whitespace-nowrap`} onClick={ev => ev.stopPropagation()}>
+                                <Link href={`/accounting/transactions/${e.id}`} title="Open this document" className="mr-3 text-[11px] text-teal-400 hover:underline">Open</Link>
                                 {e.status === "Posted" && e.sourceType !== "Reversal" && (
                                   <button onClick={() => del(e)} title="Delete this entry"
                                     className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-red-400">

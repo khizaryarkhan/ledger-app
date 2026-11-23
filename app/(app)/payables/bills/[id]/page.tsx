@@ -70,6 +70,7 @@ interface Bill {
   amountPaid: number;
   balance: number;
   source?: string;
+  entryId?: string | null;
   qboId?: string;
   xeroId?: string;
   notes?: string;
@@ -370,6 +371,9 @@ export default function BillDetailPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap">
+          {bill.entryId && (
+            <Link href={`/accounting/transactions/${bill.entryId}`} className="text-xs text-teal-400 hover:underline px-2">Open ledger entry</Link>
+          )}
           {canDownloadPdf && (
             <Button variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
               {downloadingPdf
