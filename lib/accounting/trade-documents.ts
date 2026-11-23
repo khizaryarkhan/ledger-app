@@ -326,7 +326,12 @@ export async function deleteTradeDoc(orgId: string, id: string, actorId: string 
   const lines = await db.select().from(tradeDocumentLines).where(eq(tradeDocumentLines.documentId, id));
   const progressed = lines.some(l => Number(l.receivedQty) > 0 || Number(l.billedQty) > 0 || Number(l.invoicedAmount) > 0);
   if (progressed) err("This document has receipts/shipments or bills against it — void those first.");
-  await db.delete(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId))); // lines cascade
+  // Lines are removed here, explicitly. db/schema.ts declares the document_id FK with ON DELETE CASCADE, but no
+  // migration ever created that foreign key, so a database built from migrations does not cascade: deleting only
+  // the header left orphan lines, which then blocked deleting the item ("in use by N order lines") with no
+  // document to remove (found by the MSQ cycle test, 2026-11-23). Delete the children first; the header last.
+  await db.delete(tradeDocumentLines).where(and(eq(tradeDocumentLines.documentId, id), eq(tradeDocumentLines.orgId, orgId)));
+  await db.delete(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId)));
   logEvent({ orgId, eventType: "document_deleted", docType: "trade", docId: id, actorId, meta: { sourceType: doc.kind, docNumber: doc.docNumber } })
     .catch(e => console.error("[audit] document_deleted (trade) failed:", e));
   return { id, deleted: true };
