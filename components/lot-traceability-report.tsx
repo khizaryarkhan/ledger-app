@@ -238,7 +238,7 @@ export function LotTraceabilityReport() {
                         <td className="px-4 py-2 text-right tabular-nums text-stone-400">{money(p.rate)}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-200">{money(p.amount)}</td>
                         <td className="px-4 py-2 text-stone-300">{p.provider}</td>
-                        <td className="px-4 py-2 text-stone-500">{p.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-500">{fmt.shortDate(p.date)}</td>
                       </tr>
                       );
                     })}
@@ -286,7 +286,7 @@ export function LotTraceabilityReport() {
                         <td className="px-4 py-2 text-stone-100">{data.lot.origin.supplierLabel ?? "—"}</td>
                         <td className="px-4 py-2"><DocLink mono href={data.lot.origin.poId ? `/print/trade/purchase-orders/${data.lot.origin.poId}` : null}>{data.lot.origin.poNumber ?? "No PO"}</DocLink></td>
                         <td className="px-4 py-2"><DocLink mono href={data.lot.origin.receiptEntryId ? `/accounting/transactions/${data.lot.origin.receiptEntryId}` : null}>{data.lot.origin.receiptNo ?? "—"}</DocLink></td>
-                        <td className="px-4 py-2 text-stone-400">{data.lot.origin.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-400">{fmt.shortDate(data.lot.origin.date)}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-200">{qty(data.lot.origin.qty)} {data.lot.baseUom ?? ""}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-400">{money(data.lot.origin.unitCost)}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-100">{money(data.lot.origin.unitCost * data.lot.origin.qty)}</td>
@@ -306,7 +306,7 @@ export function LotTraceabilityReport() {
                   <tbody>
                     {data.ledger.rows.map((m: any) => (
                       <tr key={m.id} className="border-b border-stone-800/60">
-                        <td className="px-4 py-2 text-stone-500 whitespace-nowrap">{m.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-500 whitespace-nowrap">{fmt.shortDate(m.date)}</td>
                         <td className="px-4 py-2 text-stone-200">{m.label}{m.note ? <div className="text-[11px] text-stone-500">{m.note}</div> : null}</td>
                         <td className="px-4 py-2"><DocLink mono href={m.entryId ? `/accounting/transactions/${m.entryId}` : null}>{m.docNumber ?? "—"}</DocLink></td>
                         <td className="px-4 py-2 text-right tabular-nums text-emerald-400">{m.qty > 0 ? qty(m.qty) : ""}</td>
@@ -338,7 +338,7 @@ export function LotTraceabilityReport() {
                     {(data.usage ?? []).map((u: any, i: number) => (
                       <tr key={i} className="border-b border-stone-800/60">
                         <td className="px-4 py-2 text-stone-200">{u.label}</td>
-                        <td className="px-4 py-2 text-stone-500">{u.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-500">{fmt.shortDate(u.date)}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-200">{qty(u.qty)} {data.lot.baseUom ?? ""}</td>
                         <td className="px-4 py-2 text-stone-300">
                           {u.producedLots.length === 0 ? "—" : u.producedLots.map((p: any) => (
@@ -371,7 +371,7 @@ export function LotTraceabilityReport() {
                         <td className="px-4 py-2 text-stone-400">{d.uom ?? ""}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-400">{money(d.unitPrice)}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-100">{money(d.amount)}</td>
-                        <td className="px-4 py-2 text-stone-500">{d.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-500">{fmt.shortDate(d.date)}</td>
                       </tr>
                     ))}
                   </tbody>

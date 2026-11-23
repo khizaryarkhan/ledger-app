@@ -62,6 +62,17 @@ export default function BudgetVsActualPage() {
   const expense = data?.rows.filter((r) => r.kind === "expense") ?? [];
   const cols = data?.months ?? [];
 
+  // Monthly subtotals: each month's budget and actual summed over the rows, so Total income / Total expenses / Profit
+  // show a variance in every month column instead of leaving those cells blank.
+  const monthSum = (rows: VarianceRow[], m: number) => rows.reduce((s, r) => ({ b: s.b + r.months[m].budget, a: s.a + r.months[m].actual }), { b: 0, a: 0 });
+  function monthVar(b: number, a: number, kind: "income" | "expense" | "profit"): Variance {
+    const variance = Math.round((a - b) * 100) / 100;
+    return { budget: b, actual: a, variance, pct: b === 0 ? null : Math.round((variance / Math.abs(b)) * 10000) / 100, favourable: a === b ? true : kind === "expense" ? a < b : a > b };
+  }
+  function monthTd(m: number, v: Variance) {
+    return <td key={m} className={`${listNumCell} border-l border-stone-800 ${varCls(v)}`}>{v.variance === 0 ? "—" : signed(v.variance)}</td>;
+  }
+
   function Row({ r }: { r: VarianceRow }) {
     return (
       <tr className={listRow()}>
@@ -91,7 +102,7 @@ export default function BudgetVsActualPage() {
     return (<>
       <tr><td colSpan={5 + (byMonth ? cols.length : 0)} className="px-2 pt-4 pb-1 text-[11px] uppercase tracking-wider text-stone-500">{title}</td></tr>
       {rows.map((r) => <Row key={r.accountId} r={r} />)}
-      <tr className="border-t border-stone-700 font-semibold text-stone-100"><td className={listCell}>Total {title.toLowerCase()}</td><Cells v={t} />{byMonth && cols.map((m) => <td key={m.month} className="border-l border-stone-800" />)}</tr>
+      <tr className="border-t border-stone-700 font-semibold text-stone-100"><td className={listCell}>Total {title.toLowerCase()}</td><Cells v={t} />{byMonth && cols.map((m) => { const s = monthSum(rows, m.month); return monthTd(m.month, monthVar(s.b, s.a, kind)); })}</tr>
     </>);
   }
 
@@ -139,7 +150,7 @@ export default function BudgetVsActualPage() {
               <Group title="Expenses" rows={expense} />
               <tr className="border-t-2 border-stone-600 font-semibold text-stone-100">
                 <td className={`${listCell} pt-3`}>Profit</td><Cells v={data.profit} />
-                {byMonth && cols.map((m) => <td key={m.month} className="border-l border-stone-800" />)}
+                {byMonth && cols.map((m) => { const i = monthSum(income, m.month), e = monthSum(expense, m.month); return monthTd(m.month, monthVar(i.b - e.b, i.a - e.a, "profit")); })}
               </tr>
             </tbody>
           </table>

@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { localToday } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 
 const money = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtyFmt = (n: number) => (Math.round((n ?? 0) * 1e4) / 1e4).toLocaleString();
@@ -209,7 +209,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
                   <td>{lot.origin.supplierLabel ?? "—"}</td>
                   <td><Doc href={lot.origin.poId ? `/print/trade/purchase-orders/${lot.origin.poId}` : null}>{lot.origin.poNumber ?? "No PO"}</Doc></td>
                   <td><Doc href={lot.origin.receiptEntryId ? `/accounting/transactions/${lot.origin.receiptEntryId}` : null}>{lot.origin.receiptNo ?? "—"}</Doc></td>
-                  <td>{lot.origin.date ?? ""}</td>
+                  <td>{fmt.shortDate(lot.origin.date)}</td>
                   <td className="r num">{qtyFmt(lot.origin.qty)} {lot.baseUom ?? ""}</td>
                   <td className="r num">{money(lot.origin.unitCost)}</td>
                   <td className="r num">{money(lot.origin.unitCost * lot.origin.qty)}</td>
@@ -268,7 +268,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
                     </td><td>{p.activity}</td>
                     <td className="r num">{qtyFmt(p.qty)}</td><td>{p.uom ?? ""}</td>
                     <td className="r num">{money(p.rate)}</td><td className="r num">{money(p.amount)}</td>
-                    <td>{p.provider}</td><td>{p.date ?? ""}</td>
+                    <td>{p.provider}</td><td>{fmt.shortDate(p.date)}</td>
                   </tr>
                   );
                 })}
@@ -305,7 +305,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
               <tbody>
                 {ledger.rows.map((m: any) => (
                   <tr key={m.id}>
-                    <td>{m.date ?? ""}</td><td>{m.label}</td>
+                    <td>{fmt.shortDate(m.date)}</td><td>{m.label}</td>
                     <td><Doc href={m.entryId ? `/accounting/transactions/${m.entryId}` : null}>{m.docNumber ?? "—"}</Doc></td>
                     <td className="r num">{m.qty > 0 ? qtyFmt(m.qty) : ""}</td>
                     <td className="r num">{m.qty < 0 ? qtyFmt(-m.qty) : ""}</td>
@@ -329,7 +329,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
               <tbody>
                 {usage.map((u: any, i: number) => (
                   <tr key={i}>
-                    <td>{u.label}</td><td>{u.date ?? ""}</td><td className="r num">{qtyFmt(u.qty)}</td>
+                    <td>{u.label}</td><td>{fmt.shortDate(u.date)}</td><td className="r num">{qtyFmt(u.qty)}</td>
                     <td>{(u.producedLots ?? []).map((p: any) => `${p.itemName}${p.lotNo ? ` (${p.lotNo})` : ""}`).join(", ") || "—"}</td>
                   </tr>
                 ))}
@@ -354,7 +354,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
                     <td>{d.customerLabel ?? "—"}</td>
                     <td>{d.itemName ?? "—"}{d.lotNo ? ` (${d.lotNo})` : ""}{d.itemId && d.itemId !== lot.itemId ? <div className="tag">made from this lot</div> : null}</td>
                     <td className="r num">{qtyFmt(d.qty)}</td><td>{d.uom ?? ""}</td>
-                    <td className="r num">{money(d.unitPrice)}</td><td className="r num">{money(d.amount)}</td><td>{d.date ?? ""}</td>
+                    <td className="r num">{money(d.unitPrice)}</td><td className="r num">{money(d.amount)}</td><td>{fmt.shortDate(d.date)}</td>
                   </tr>
                 ))}
               </tbody>

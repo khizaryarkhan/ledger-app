@@ -26,7 +26,7 @@ import {
   inventoryLots, inventoryMovements, apItems, users,
   jobWorkOrders, jobWorkReceipts, productionRuns, productionOutputs, productionConsumptions,
   salesShipments, shipmentLines, goodsReceipts, goodsReceiptLines, tradeDocuments, customers, itemSkus,
-  journalEntries, inventoryLotLocations, stockLocations,
+  journalEntries, journalLines, inventoryLotLocations, stockLocations,
 } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { linksFor } from "@/lib/accounting/links";
@@ -294,10 +294,27 @@ export async function lotDescendants(orgId: string, lotId: string, depth = 0): P
           customerLabel = customer?.name ?? null;
         }
       }
+      // Sold on a direct Invoice / Sales Receipt (no shipment): the movement's ref IS that entry, so the invoice,
+      // the customer and the price come from it. Without this the trace read "Shipment — sold to customer,
+      // not yet invoiced, 0.00" for a sale that had been invoiced.
+      let directEntry: { docNumber: string | null; entryDate: string; createdBy: string | null } | null = null;
+      if (!shipment) {
+        const [entry] = await db.select({ id: journalEntries.id, docNumber: journalEntries.docNumber, entryDate: journalEntries.entryDate, sourceType: journalEntries.sourceType, createdBy: journalEntries.createdBy })
+          .from(journalEntries).where(and(eq(journalEntries.orgId, orgId), eq(journalEntries.id, m0.refId))).limit(1);
+        if (entry && (entry.sourceType === "Invoice" || entry.sourceType === "SalesReceipt")) {
+          directEntry = { docNumber: entry.docNumber, entryDate: entry.entryDate, createdBy: entry.createdBy };
+          invoiceNo = entry.docNumber;
+          invoiceEntryId = entry.id;
+          const [party] = await db.select({ name: journalLines.nameLabel }).from(journalLines)
+            .where(and(eq(journalLines.orgId, orgId), eq(journalLines.entryId, entry.id), eq(journalLines.nameType, "Customer"))).limit(1);
+          customerLabel = party?.name ?? null;
+        }
+      }
       edges.push({
-        kind: "sale", label: `Shipment ${shipment?.shipmentNo ?? ""} — sold to ${customerLabel ?? "customer"}`,
-        refId: shipment?.id ?? m0.refId, date: shipment?.shipmentDate ?? m0.movementDate, qtyConsumed,
-        by: await userName(orgId, shipment?.createdBy), notes: shipment?.notes ?? null,
+        kind: "sale",
+        label: directEntry ? `${directEntry.docNumber ?? "Invoice"} — sold to ${customerLabel ?? "customer"}` : `Shipment ${shipment?.shipmentNo ?? ""} — sold to ${customerLabel ?? "customer"}`,
+        refId: shipment?.id ?? m0.refId, date: shipment?.shipmentDate ?? directEntry?.entryDate ?? m0.movementDate, qtyConsumed,
+        by: await userName(orgId, shipment?.createdBy ?? directEntry?.createdBy), notes: shipment?.notes ?? null,
         sale: {
           customerLabel, shipmentNo: shipment?.shipmentNo ?? null, shipmentId: shipment?.id ?? null, invoiceNo, invoiceEntryId,
           ...(await (async () => { const sl = await getLotSummary(orgId, lotId); return { lotNo: sl?.lotNo ?? null, itemId: sl?.itemId ?? null, itemName: sl?.itemName ?? null }; })()),
@@ -617,6 +634,20 @@ export async function buildLotTraceReport(orgId: string, lotId: string): Promise
   const distribution: DistributionRow[] = [];
   flattenSalesForReport(descendantsTree, distribution);
   for (const d of distribution) {
+    if (!d.shipmentNo && d.invoiceEntryId) {
+      // A direct invoice: price the line of the item that was sold from the document's own stored lines.
+      const [entry] = await db.select({ payload: journalEntries.sourcePayload }).from(journalEntries)
+        .where(and(eq(journalEntries.orgId, orgId), eq(journalEntries.id, d.invoiceEntryId))).limit(1);
+      const soldItemId = d.itemId ?? lot.itemId;
+      const lines: any[] = Array.isArray((entry?.payload as any)?.lines) ? (entry!.payload as any).lines : [];
+      const line = lines.find(l => l?.itemId === soldItemId);
+      if (line && Number.isFinite(Number(line.rate))) {
+        d.uom = await itemBaseUom(soldItemId);
+        d.unitPrice = round2(Number(line.rate));
+        d.amount = round2(Number(line.rate) * d.qty);
+      }
+      continue;
+    }
     if (!d.shipmentNo) continue;
     const [shipment] = await db.select({ id: salesShipments.id, entryId: salesShipments.entryId }).from(salesShipments).where(and(eq(salesShipments.orgId, orgId), eq(salesShipments.shipmentNo, d.shipmentNo))).limit(1);
     if (!shipment) continue;
