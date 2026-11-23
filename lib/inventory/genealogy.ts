@@ -66,7 +66,8 @@ export type DescendantEdge = {
   by: string | null; notes: string | null;
   producedLots?: LotSummary[];
   descendants?: DescendantEdge[];
-  sale?: { customerLabel: string | null; shipmentNo: string | null; shipmentId: string | null; invoiceNo: string | null; invoiceEntryId: string | null };
+  /** `lot*` = the lot that was actually shipped. For a lot made from this one it is a DIFFERENT item. */
+  sale?: { customerLabel: string | null; shipmentNo: string | null; shipmentId: string | null; invoiceNo: string | null; invoiceEntryId: string | null; lotNo: string | null; itemId: string | null; itemName: string | null };
 };
 
 async function userName(orgId: string, userId: string | null | undefined): Promise<string | null> {
@@ -297,7 +298,10 @@ export async function lotDescendants(orgId: string, lotId: string, depth = 0): P
         kind: "sale", label: `Shipment ${shipment?.shipmentNo ?? ""} — sold to ${customerLabel ?? "customer"}`,
         refId: shipment?.id ?? m0.refId, date: shipment?.shipmentDate ?? m0.movementDate, qtyConsumed,
         by: await userName(orgId, shipment?.createdBy), notes: shipment?.notes ?? null,
-        sale: { customerLabel, shipmentNo: shipment?.shipmentNo ?? null, shipmentId: shipment?.id ?? null, invoiceNo, invoiceEntryId },
+        sale: {
+          customerLabel, shipmentNo: shipment?.shipmentNo ?? null, shipmentId: shipment?.id ?? null, invoiceNo, invoiceEntryId,
+          ...(await (async () => { const sl = await getLotSummary(orgId, lotId); return { lotNo: sl?.lotNo ?? null, itemId: sl?.itemId ?? null, itemName: sl?.itemName ?? null }; })()),
+        },
       });
     }
   }
@@ -346,6 +350,8 @@ export type DistributionRow = {
   shipmentNo: string | null; shipmentEntryId: string | null;
   invoiceNo: string | null; invoiceEntryId: string | null;
   customerLabel: string | null;
+  /** What was shipped. Differs from the traced lot's own item when the sale is of something made from it. */
+  itemId: string | null; itemName: string | null; lotNo: string | null;
   qty: number; uom: string | null; unitPrice: number; amount: number; date: string | null;
 };
 
@@ -543,7 +549,8 @@ function flattenSalesForReport(edges: DescendantEdge[], out: DistributionRow[]) 
   for (const e of edges) {
     if (e.kind === "sale" && e.sale) out.push({
       shipmentNo: e.sale.shipmentNo, shipmentEntryId: null, invoiceNo: e.sale.invoiceNo, invoiceEntryId: e.sale.invoiceEntryId,
-      customerLabel: e.sale.customerLabel, qty: e.qtyConsumed, uom: null, unitPrice: 0, amount: 0, date: e.date,
+      customerLabel: e.sale.customerLabel, itemId: e.sale.itemId, itemName: e.sale.itemName, lotNo: e.sale.lotNo,
+      qty: e.qtyConsumed, uom: null, unitPrice: 0, amount: 0, date: e.date,
     });
     flattenSalesForReport(e.descendants ?? [], out);
   }
@@ -614,9 +621,11 @@ export async function buildLotTraceReport(orgId: string, lotId: string): Promise
     const [shipment] = await db.select({ id: salesShipments.id, entryId: salesShipments.entryId }).from(salesShipments).where(and(eq(salesShipments.orgId, orgId), eq(salesShipments.shipmentNo, d.shipmentNo))).limit(1);
     if (!shipment) continue;
     d.shipmentEntryId = shipment.entryId ?? null;
-    const [line] = await db.select().from(shipmentLines).where(and(eq(shipmentLines.orgId, orgId), eq(shipmentLines.shipmentId, shipment.id), eq(shipmentLines.itemId, lot.itemId))).limit(1);
+    // Price the line of the item that was SHIPPED, which for a downstream sale is not this lot's item.
+    const soldItemId = d.itemId ?? lot.itemId;
+    const [line] = await db.select().from(shipmentLines).where(and(eq(shipmentLines.orgId, orgId), eq(shipmentLines.shipmentId, shipment.id), eq(shipmentLines.itemId, soldItemId))).limit(1);
     if (line) {
-      d.uom = await itemBaseUom(lot.itemId);
+      d.uom = await itemBaseUom(soldItemId);
       d.unitPrice = round2(Number(line.saleRate ?? 0));
       d.amount = round2(Number(line.saleRate ?? 0) * d.qty);
     }

@@ -355,7 +355,7 @@ export function LotTraceabilityReport() {
               <SectionCard n={manufactured ? 6 : 4} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
                   <thead><tr className={tableHead}>
-                    <Th>Shipment</Th><Th>Invoice</Th><Th>Sold-To Customer</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Unit Price</Th><Th r>Amount</Th><Th>Date</Th>
+                    <Th>Shipment</Th><Th>Invoice</Th><Th>Sold-To Customer</Th><Th>Item shipped</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Unit Price</Th><Th r>Amount</Th><Th>Date</Th>
                   </tr></thead>
                   <tbody>
                     {data.distribution.map((d: any, i: number) => (
@@ -363,6 +363,10 @@ export function LotTraceabilityReport() {
                         <td className="px-4 py-2"><DocLink mono href={d.shipmentEntryId ? `/accounting/transactions/${d.shipmentEntryId}` : null}>{d.shipmentNo ?? "—"}</DocLink></td>
                         <td className="px-4 py-2">{d.invoiceNo ? <DocLink href={d.invoiceEntryId ? `/accounting/transactions/${d.invoiceEntryId}` : null}>{d.invoiceNo}</DocLink> : "Not yet invoiced"}</td>
                         <td className="px-4 py-2 text-stone-200">{d.customerLabel ?? "—"}</td>
+                        <td className="px-4 py-2 text-stone-300">
+                          {d.itemName ?? "—"}{d.lotNo ? <span className="font-mono text-stone-500"> {d.lotNo}</span> : null}
+                          {d.itemId && d.itemId !== data.lot.itemId ? <div className="text-[11px] text-stone-500">made from this lot</div> : null}
+                        </td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-200">{qty(d.qty)}</td>
                         <td className="px-4 py-2 text-stone-400">{d.uom ?? ""}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-stone-400">{money(d.unitPrice)}</td>
@@ -373,7 +377,7 @@ export function LotTraceabilityReport() {
                   </tbody>
                   {data.distribution.length > 0 && (
                     <tfoot><tr className="border-t border-stone-700 bg-stone-950/40 font-semibold">
-                      <td colSpan={6} className="px-4 py-2.5 text-stone-200">Total distributed</td>
+                      <td colSpan={7} className="px-4 py-2.5 text-stone-200">Total distributed</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-stone-100">{money(distributionTotal)}</td>
                       <td></td>
                     </tr></tfoot>
