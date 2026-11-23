@@ -52,7 +52,10 @@ export async function aging(orgId: string, side: "receivable" | "payable", asOf 
     const total = r2(num(r.total));
     const open = r2(total - (paidById.get(r.id) ?? 0));
     if (open <= 0.005) continue;
-    const overdue = r.dueDate ? daysBetween(asOf, r.dueDate) : 0;
+    // A document with no due date and no terms is due on its own date, the same rule the invoice register uses
+    // (bridgeNativeInvoice: due = invoice date). Reading it as "not due" made this report say Current while the
+    // Board and Executive Overview called the same invoice overdue.
+    const overdue = daysBetween(asOf, r.dueDate ?? r.date);
     const bucket: AgingRow["bucket"] = overdue <= 0 ? "current" : overdue <= 30 ? "1-30" : overdue <= 60 ? "31-60" : overdue <= 90 ? "61-90" : "90+";
     buckets[bucket] = r2(buckets[bucket] + open);
     out.push({ id: r.id, docNumber: r.docNumber ?? `JE-${r.entryNumber}`, party: r.party || "—", date: r.date, dueDate: r.dueDate ?? null, total, open, bucket });

@@ -589,6 +589,17 @@ async function resolvePartyCurrency(orgId: string, partyType: "Customer" | "Vend
   return row?.currency || null;
 }
 
+/** The party's own payment terms in days, or null when there is no party or none is recorded. */
+async function partyPaymentTerms(orgId: string, partyType: "Customer" | "Vendor" | null | undefined, partyId: string | null | undefined): Promise<number | null> {
+  if (!partyType || !partyId) return null;
+  if (partyType === "Customer") {
+    const [row] = await db.select({ t: customers.paymentTerms }).from(customers).where(and(eq(customers.id, partyId), eq(customers.orgId, orgId))).limit(1);
+    return row?.t ?? null;
+  }
+  const [row] = await db.select({ t: apSuppliers.paymentTerms }).from(apSuppliers).where(and(eq(apSuppliers.id, partyId), eq(apSuppliers.orgId, orgId))).limit(1);
+  return row?.t ?? null;
+}
+
 /** First transaction in a foreign currency assigns the party's currency — never overwrites one already set. */
 async function lockPartyCurrency(orgId: string, partyType: "Customer" | "Vendor" | null | undefined, partyId: string | null | undefined, currency: string): Promise<void> {
   if (!partyType || !partyId) return;
@@ -781,6 +792,13 @@ export type DocRevaluation = { lotId: string; amount: number; assetAccountId: st
 export async function postDocument(orgId: string, input: PostDocInput, actorId: string | null, opts?: { revaluations?: DocRevaluation[]; requireReason?: boolean }) {
   const { type, date } = input;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) err("A valid date is required.");
+  // An Invoice or Bill that arrives with neither a due date nor terms takes the party's own payment terms. Callers
+  // that never choose terms (estimate conversion, invoice from shipments, recurring, EDI) used to post with no due
+  // date at all, so the ledger aged them as current while the register dated them due the day they were issued.
+  if (DATED_TYPES.has(type) && !input.dueDate && input.termsDays == null) {
+    const termsDays = await partyPaymentTerms(orgId, input.partyType, input.partyId);
+    if (termsDays != null) input = { ...input, termsDays };
+  }
   const facts = entryFacts(type, date, input, { requireReason: opts?.requireReason });
 
   const [org] = await db.select({ home: organisations.currency, mc: organisations.multicurrencyEnabled })
