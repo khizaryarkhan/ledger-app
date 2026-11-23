@@ -111,11 +111,18 @@ function Doc({ href, children }: { href: string | null | undefined; children: Re
 
 export function LotTracePrintSheet({ data }: { data: any }) {
   const { lot, operator, rawMaterials, processing, costRollup, distribution, company } = data;
+  const usage: any[] = data.usage ?? [];
+  const ledger = data.ledger ?? { rows: [], computedOnHand: 0, onHand: 0, difference: 0, locations: [] };
   const c = company ?? {};
   const accent = c.accent || "#1F3A5F";
   const totalCost = costRollup.find((r: any) => r.label.startsWith("Total"))?.amount ?? 0;
   const declaredValue = round2(lot.unitCost * lot.origQty);
+  // Cost reconciliation only means something for a lot that was MADE (production / job work). A bought or
+  // counted-in lot has an origin instead; same rule as the on-screen report.
+  const manufactured = lot.sourceType === "production" || lot.sourceType === "jobwork";
   const reconciled = Math.abs(totalCost - declaredValue) < 0.01 || rawMaterials.length === 0;
+  const valueOnHand = round2(lot.unitCost * (lot.remainingQty ?? 0));
+  const locText = (ledger.locations ?? []).map((l: any) => `${qtyFmt(l.qty)} in ${l.code}`).join(", ");
   const sum = (rows: any[]) => rows.reduce((s, r) => s + r.amount, 0);
   const rawTotal = sum(rawMaterials);
   const processingTotal = sum(processing);
@@ -181,12 +188,38 @@ export function LotTracePrintSheet({ data }: { data: any }) {
         <div className="metabar">
           <div className="cell"><div className="cap">Lot / Batch</div><div className="v">{lot.lotNo ?? lot.id.slice(0, 8)}</div></div>
           <div className="cell"><div className="cap">Total Quantity</div><div className="v num">{qtyFmt(lot.origQty)} {lot.baseUom ?? ""}</div>{lot.packs && <div style={{ fontSize: 10, color: "#6a6a66" }}>{qtyFmt(lot.packs.qty)} × {lot.packs.label}</div>}</div>
+          <div className="cell"><div className="cap">On hand now</div><div className="v num">{qtyFmt(lot.remainingQty ?? 0)} {lot.baseUom ?? ""}</div>{locText && <div style={{ fontSize: 10, color: "#6a6a66" }}>{locText}</div>}</div>
           <div className="cell"><div className="cap">Unit Cost</div><div className="v num">{money(lot.unitCost)}</div></div>
-          <div className="cell"><div className="cap">Total Valuation</div><div className="v num">{money(declaredValue)}</div></div>
+          <div className="cell"><div className="cap">Value on hand</div><div className="v num">{money(valueOnHand)}</div><div style={{ fontSize: 10, color: "#6a6a66" }}>of {money(declaredValue)} received</div></div>
           <div className="cell"><div className="cap">Operator</div><div className="v">{operator ?? "—"}</div></div>
-          <div className="cell"><div className="cap">Reconciliation</div><div className={`v${reconciled ? " pass" : ""}`}>{reconciled ? "PASSED" : `REVIEW · off by ${money(Math.abs(totalCost - declaredValue))}`}</div></div>
+          <div className="cell"><div className="cap">{manufactured ? "Reconciliation" : "Origin"}</div>
+            {manufactured
+              ? <div className={`v${reconciled ? " pass" : ""}`}>{reconciled ? "PASSED" : `REVIEW · off by ${money(Math.abs(totalCost - declaredValue))}`}</div>
+              : <div className="v">{lot.sourceType === "purchase" ? "Bought at cost" : "Counted in / opening"}</div>}
+          </div>
         </div>
 
+        {!manufactured && (
+          <div className="section">
+            <div className="section-title"><span className="n">1</span> Where this lot came from</div>
+            {!lot.origin ? <div className="empty">{lot.sourceType === "purchase" ? "No goods receipt is linked to this lot." : "This lot was created by a stock count or opening balance, so there is no supplier or purchase order behind it."}</div> : (
+              <table className="rows">
+                <thead><tr><th>Supplier</th><th>PO</th><th>Receipt</th><th>Date</th><th className="r">Qty</th><th className="r">Unit cost</th><th className="r">Amount</th></tr></thead>
+                <tbody><tr>
+                  <td>{lot.origin.supplierLabel ?? "—"}</td>
+                  <td><Doc href={lot.origin.poId ? `/print/trade/purchase-orders/${lot.origin.poId}` : null}>{lot.origin.poNumber ?? "No PO"}</Doc></td>
+                  <td><Doc href={lot.origin.receiptEntryId ? `/accounting/transactions/${lot.origin.receiptEntryId}` : null}>{lot.origin.receiptNo ?? "—"}</Doc></td>
+                  <td>{lot.origin.date ?? ""}</td>
+                  <td className="r num">{qtyFmt(lot.origin.qty)} {lot.baseUom ?? ""}</td>
+                  <td className="r num">{money(lot.origin.unitCost)}</td>
+                  <td className="r num">{money(lot.origin.unitCost * lot.origin.qty)}</td>
+                </tr></tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {manufactured && (<>
         {/* 1. Raw materials */}
         <div className="section">
           <div className="section-title"><span className="n">1</span> Raw Material Procurement &amp; Consumption</div>
@@ -261,25 +294,71 @@ export function LotTracePrintSheet({ data }: { data: any }) {
           </table>
         </div>
 
-        {/* 4. Distribution */}
+        </>)}
+
+        {/* Stock movement */}
         <div className="section">
-          <div className="section-title"><span className="n">4</span> Outbound Commercial Distribution</div>
+          <div className="section-title"><span className="n">{manufactured ? 4 : 2}</span> Stock Movement</div>
+          {ledger.rows.length === 0 ? <div className="empty">No stock movements are recorded for this lot.</div> : (
+            <table className="rows">
+              <thead><tr><th>Date</th><th>Movement</th><th>Document</th><th className="r">In</th><th className="r">Out</th><th className="r">Balance</th><th className="r">Unit cost</th><th className="r">Value</th></tr></thead>
+              <tbody>
+                {ledger.rows.map((m: any) => (
+                  <tr key={m.id}>
+                    <td>{m.date ?? ""}</td><td>{m.label}</td>
+                    <td><Doc href={m.entryId ? `/accounting/transactions/${m.entryId}` : null}>{m.docNumber ?? "—"}</Doc></td>
+                    <td className="r num">{m.qty > 0 ? qtyFmt(m.qty) : ""}</td>
+                    <td className="r num">{m.qty < 0 ? qtyFmt(-m.qty) : ""}</td>
+                    <td className="r num">{qtyFmt(m.balance)}</td>
+                    <td className="r num">{m.unitCost != null ? money(m.unitCost) : ""}</td>
+                    <td className="r num">{m.value != null ? money(m.value) : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr><td colSpan={5}>On hand now</td><td className="r num">{qtyFmt(ledger.onHand)}</td><td colSpan={2} className="muted">{Math.abs(ledger.difference) < 0.00001 ? "Movements add up to the lot's balance" : `REVIEW · off by ${qtyFmt(Math.abs(ledger.difference))}`}</td></tr></tfoot>
+            </table>
+          )}
+        </div>
+
+        {/* What it became */}
+        <div className="section">
+          <div className="section-title"><span className="n">{manufactured ? 5 : 3}</span> What It Became</div>
+          {usage.length === 0 ? <div className="empty">Nothing has been issued from this lot yet — all {qtyFmt(lot.remainingQty ?? 0)} {lot.baseUom ?? ""} is still on hand.</div> : (
+            <table className="rows">
+              <thead><tr><th>Use</th><th>Date</th><th className="r">Qty</th><th>Produced</th></tr></thead>
+              <tbody>
+                {usage.map((u: any, i: number) => (
+                  <tr key={i}>
+                    <td>{u.label}</td><td>{u.date ?? ""}</td><td className="r num">{qtyFmt(u.qty)}</td>
+                    <td>{(u.producedLots ?? []).map((p: any) => `${p.itemName}${p.lotNo ? ` (${p.lotNo})` : ""}`).join(", ") || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Distribution */}
+        <div className="section">
+          <div className="section-title"><span className="n">{manufactured ? 6 : 4}</span> Outbound Commercial Distribution</div>
           {distribution.length === 0 ? <div className="empty">Not yet shipped/sold — still on hand or consumed internally only.</div> : (
             <table className="rows">
               <thead><tr>
-                <th>Shipment</th><th>Invoice</th><th>Sold-To Customer</th><th className="r">Qty</th><th>UoM</th><th className="r">Unit Price</th><th className="r">Amount</th><th>Date</th>
+                <th>Shipment</th><th>Invoice</th><th>Sold-To Customer</th><th>Item shipped</th><th className="r">Qty</th><th>UoM</th><th className="r">Unit Price</th><th className="r">Amount</th><th>Date</th>
               </tr></thead>
               <tbody>
                 {distribution.map((d: any, i: number) => (
                   <tr key={i}>
                     <td className="item"><Doc href={d.shipmentEntryId ? `/accounting/transactions/${d.shipmentEntryId}` : null}>{d.shipmentNo ?? "—"}</Doc></td>
                     <td>{d.invoiceNo ? <Doc href={d.invoiceEntryId ? `/accounting/transactions/${d.invoiceEntryId}` : null}>{d.invoiceNo}</Doc> : "Not yet invoiced"}</td>
-                    <td>{d.customerLabel ?? "—"}</td><td className="r num">{qtyFmt(d.qty)}</td><td>{d.uom ?? ""}</td>
+                    <td>{d.customerLabel ?? "—"}</td>
+                    <td>{d.itemName ?? "—"}{d.lotNo ? ` (${d.lotNo})` : ""}{d.itemId && d.itemId !== lot.itemId ? <div className="tag">made from this lot</div> : null}</td>
+                    <td className="r num">{qtyFmt(d.qty)}</td><td>{d.uom ?? ""}</td>
                     <td className="r num">{money(d.unitPrice)}</td><td className="r num">{money(d.amount)}</td><td>{d.date ?? ""}</td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr><td colSpan={6}>Total distributed</td><td className="r num">{money(distributionTotal)}</td><td></td></tr></tfoot>
+              <tfoot><tr><td colSpan={7}>Total distributed</td><td className="r num">{money(distributionTotal)}</td><td></td></tr></tfoot>
             </table>
           )}
         </div>
