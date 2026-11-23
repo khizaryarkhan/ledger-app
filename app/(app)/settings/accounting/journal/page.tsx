@@ -14,6 +14,7 @@ import { CURRENCIES } from "@/lib/accounting/currencies";
 import { JOURNAL_REASONS } from "@/lib/accounting/entry-reasons";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
+import { Modal } from "@/components/ui";
 import { QuickAdd } from "@/components/quick-add";
 import { fmt } from "@/lib/format";
 import {
@@ -236,11 +237,22 @@ export default function JournalPage() {
     } finally { setPosting(false); }
   }
 
-  async function del(entry: Entry) {
-    if (!confirm(`Delete JE-${entry.entryNumber}? This can't be undone.`)) return;
-    const res = await fetch(`/api/ledger/journal/${entry.id}`, { method: "DELETE" });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || "Failed to delete"); return; }
-    await load();
+  // A native confirm()/alert() is a browser popup that some embedded browsers
+  // refuse and that freezes automation; the refusal (a locked period, a settled
+  // entry) is the part a person most needs to read, so it stays on the page.
+  const [delTarget, setDelTarget] = useState<Entry | null>(null);
+  const [delErr, setDelErr] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  function del(entry: Entry) { setDelErr(""); setDelTarget(entry); }
+  async function confirmDelete() {
+    if (!delTarget) return;
+    setDeleting(true); setDelErr("");
+    try {
+      const res = await fetch(`/api/ledger/journal/${delTarget.id}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setDelErr(d.error || "Failed to delete"); return; }
+      setDelTarget(null);
+      await load();
+    } finally { setDeleting(false); }
   }
 
   // Matches list-view.tsx's (unexported) header-cell style — the Trial
@@ -251,6 +263,15 @@ export default function JournalPage() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
+      <Modal open={!!delTarget} onClose={() => !deleting && setDelTarget(null)} center size="sm"
+        title={delTarget ? `Delete ${delTarget.docNumber || `JE-${delTarget.entryNumber}`}?` : "Delete entry?"}
+        footer={<>
+          <button onClick={() => setDelTarget(null)} disabled={deleting} className="px-3 py-1.5 text-[13px] rounded-lg text-stone-300 hover:bg-stone-800">Cancel</button>
+          <button onClick={confirmDelete} disabled={deleting} className="px-3 py-1.5 text-[13px] rounded-lg bg-rose-600 text-white hover:bg-rose-500 disabled:opacity-60">{deleting ? "Deleting…" : "Delete"}</button>
+        </>}>
+        <p className="text-[13px] text-stone-300">This removes the entry from the ledger and can't be undone.</p>
+        {delErr && <div className="mt-3 text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2">{delErr}</div>}
+      </Modal>
       {addDim && (
         <QuickAdd kind={addDim.kind} onClose={() => setAddDim(null)}
           onCreated={(row) => {
