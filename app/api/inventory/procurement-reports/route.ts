@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     const today = new Date().toISOString().slice(0, 10);
     const bills = rows.map(r => {
       const total = r2(num(r.total)); const open = r2(total - (paidById.get(r.id) ?? 0));
-      return { id: r.id, docNumber: r.docNumber ?? `JE-${r.entryNumber}`, supplier: r.supplier || "—", date: r.date, dueDate: r.dueDate ?? null, total, open, overdue: !!r.dueDate && r.dueDate < today };
+      return { id: r.id, docNumber: r.docNumber ?? `JE-${r.entryNumber}`, supplier: r.supplier || "—", date: r.date, dueDate: r.dueDate ?? r.date, total, open, overdue: (r.dueDate ?? r.date) < today };
     }).filter(b => b.open > 0.005).sort((a, b) => (a.dueDate || a.date || "").localeCompare(b.dueDate || b.date || ""));
     return ok({ rows: bills, total: r2(bills.reduce((s, b) => s + b.open, 0)) });
   }

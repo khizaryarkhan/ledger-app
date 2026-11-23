@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, Loader } from "lucide-react";
 import { txnTypeLabel } from "@/lib/accounting/doc-format";
+import { formatDateShort } from "@/lib/format";
 import { useData } from "@/components/data-provider";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { ReportShell } from "@/components/ui";
@@ -129,7 +130,7 @@ function GeneralLedgerInner() {
                   <tbody>
                     {a.rows.map((r: any, i: number) => (
                       <tr key={i} className={listRow()}>
-                        <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{r.date}</td>
+                        <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{formatDateShort(r.date)}</td>
                         <td className={listCell}>
                           <span className="text-[11px] font-medium text-teal-300 bg-teal-500/10 border border-teal-800/40 rounded px-1.5 py-0.5">{txnTypeLabel(r.sourceType)}</span>
                         </td>
