@@ -123,7 +123,7 @@ export default function PayablesDashboardPage() {
               <div className="text-2xl font-semibold text-white tracking-tight">
                 <CurrencyPills breakdown={k?.totalByCcy ?? {}} stacked />
               </div>
-              <div className="mt-2 text-[11px] text-stone-400">{k?.openCount ?? 0} open bills</div>
+              <div className="mt-2 text-[11px] text-stone-400">{k?.openCount ?? 0} open bill{(k?.openCount ?? 0) === 1 ? "" : "s"}</div>
             </>}
           </Card>
         </Link>

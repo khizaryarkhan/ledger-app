@@ -386,7 +386,7 @@ export default function BillingPage() {
           <div className="flex flex-col items-center py-8 text-center gap-3">
             <CreditCard size={28} className="text-stone-600" />
             <h3 className="text-sm font-semibold text-white">No active subscription</h3>
-            <p className="text-xs text-stone-500">No billing account is linked to this organisation yet.</p>
+            <p className="text-xs text-stone-500 max-w-sm">Plans are set up for you by the Prime Accountax team, who send a payment invoice. To start or change a plan, email <a href="mailto:support@primeaccountax.com" className="text-teal-400 hover:underline">support@primeaccountax.com</a> and we will link billing to this organisation.</p>
           </div>
         </Card>
       ) : (

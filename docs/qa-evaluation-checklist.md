@@ -89,3 +89,8 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - [!] /payables returned 404 -> now redirects to the Payables dashboard. Plural slips ("1 customers", "1 open invoices") fixed on the Board and Receivables dashboard.
 - [x] Sales orders, estimates, chart of accounts, receivables dashboard and Board load with correct figures.
 - Still to do: sales flow with a fresh order, EDI send/receive on a new document, settings/team/roles, Data Studio, PAX console, resources timesheets, mobile width, dark/light.
+
+### Pass 2
+- [x] Settings hub, company, team, roles, currency, numbering, email, integrations, AI connections, billing, Data Studio, PAX console all load.
+- [!] Owner's My Timesheet said "login not linked to a person" -> resolveActor links real members on first use.
+- [!] Billing empty state was a dead end -> explains plans are set up by the team and gives the contact address. "1 open bills" plural fixed.

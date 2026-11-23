@@ -7,10 +7,10 @@
  */
 
 import { db } from "@/db";
-import { resources, resourceDesignations, projects, resourceAssignments, timeEntries } from "@/db/schema";
+import { resources, resourceDesignations, projects, resourceAssignments, timeEntries, users, userOrganisations } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { buildActor, type Actor, type PersonNode } from "./access";
-import { memberRole } from "@/lib/roles-server";
+import { memberRole, ensurePersonRecord } from "@/lib/roles-server";
 
 export interface Person extends PersonNode {
   name: string;
@@ -87,7 +87,20 @@ export async function resolveActor(
   userId: string | null | undefined,
   orgRole: string | null | undefined,
 ): Promise<{ actor: Actor; people: Person[]; me: Person | null }> {
-  const people = await loadPeople(orgId);
+  let people = await loadPeople(orgId);
+  // A real member who has no person record at all (an owner who was there before
+  // people and logins became one record) is linked on first use, so their own
+  // timesheet opens instead of "not linked to a person yet". Members only: a
+  // platform admin visiting a client organisation must not leave a record there.
+  if (userId && !people.some((p) => p.userId === userId)) {
+    const [member] = await db.select({ name: users.name }).from(userOrganisations)
+      .innerJoin(users, eq(users.id, userOrganisations.userId))
+      .where(and(eq(userOrganisations.orgId, orgId), eq(userOrganisations.userId, userId))).limit(1);
+    if (member?.name) {
+      await ensurePersonRecord(orgId, userId, member.name).catch((e) => console.error("[link person]", e));
+      people = await loadPeople(orgId);
+    }
+  }
   // A deactivated person keeps their row (history) but not their access.
   const me = userId ? people.find((p) => p.userId === userId && p.status === "active") ?? null : null;
   // Resolved for everyone with a person record, not opt-in per route: a route
