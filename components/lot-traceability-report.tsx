@@ -109,7 +109,7 @@ export function LotTraceabilityReport() {
             <option value="">{itemId ? (itemLots.length ? "Choose a lot…" : "No lots for this item") : "Choose an item first"}</option>
             {itemLots.map(l => (
               <option key={l.id} value={l.id}>
-                {l.lotNo ?? l.id.slice(0, 8)} · {l.status} · {qty(l.remainingQty)}/{qty(l.origQty)} left{l.receivedDate ? ` · ${l.receivedDate}` : ""}
+                {l.lotNo ?? l.id.slice(0, 8)} · {l.status} · {qty(l.remainingQty)}/{qty(l.origQty)} left{l.receivedDate ? ` · ${fmt.shortDate(l.receivedDate)}` : ""}
               </option>
             ))}
           </SelectField>
@@ -117,7 +117,7 @@ export function LotTraceabilityReport() {
         <span className="pb-2 text-[12px] text-stone-500">or</span>
         <div className="relative w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Type a lot code…" className={`${controlInset} pl-9`} />
+          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Type a lot code, then Enter" className={`${controlInset} pl-9`} />
         </div>
       </div>
 
