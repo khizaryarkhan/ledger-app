@@ -14,6 +14,7 @@ import { DocumentAttachmentsPanel } from "@/components/document-attachments-pane
 import { DocumentAuditPanel } from "@/components/document-audit-panel";
 import { MakeRecurringModal } from "@/components/make-recurring-modal";
 import { RECURRABLE_TYPES } from "@/lib/accounting/recurring";
+import { askConfirm } from "@/lib/dialogs";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
 const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
@@ -128,7 +129,7 @@ export default function TransactionDetailPage() {
   );
 
   async function del() {
-    if (!confirm("Delete this transaction permanently? This removes it from the ledger.")) return;
+    if (!await askConfirm("Delete this transaction permanently? This removes it from the ledger.")) return;
     setBusy(true); setMsg("");
     try {
       const res = await fetch(`/api/ledger/journal/${id}`, { method: "DELETE" });

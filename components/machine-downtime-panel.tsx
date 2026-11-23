@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Field, Section, SelectField, controlInset } from "@/components/form-kit";
 import { DOWNTIME_REASONS } from "@/lib/inventory/production-performance";
+import { askConfirm } from "@/lib/dialogs";
 
 const fmtWhen = (v: string | null) => (v ? new Date(v).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "ongoing");
 const fmtMins = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -55,7 +56,7 @@ export function MachineDowntimePanel({ resourceId, linkKey }: { resourceId: stri
   }
 
   async function remove(id: string) {
-    if (!confirm("Remove this entry?")) return;
+    if (!await askConfirm("Remove this entry?")) return;
     const r = await fetch(`/api/production/downtime/${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove."); return; }
     load();

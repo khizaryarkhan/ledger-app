@@ -21,6 +21,7 @@ import { Button, Toast } from "@/components/ui";
 import { Drawer, DrawerFooter, Field, SelectField, Section, controlInset } from "@/components/form-kit";
 import { TAX_TREATMENTS, TAX_TREATMENT_META } from "@/lib/accounting/tax-engine";
 import { localToday } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 type Acct = { id: string; name: string; code: string | null; type: string | null; status: string; isHeader: boolean };
 type Agency = { id: string; name: string; country: string | null; liabilityAccountId: string | null; filingFrequency: string | null };
@@ -48,7 +49,7 @@ export function TaxCodes() {
   useEffect(() => { load(); }, []);
 
   async function del(url: string, label: string) {
-    if (!confirm(`Delete ${label}?`)) return;
+    if (!await askConfirm(`Delete ${label}?`)) return;
     const r = await fetch(url, { method: "DELETE" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { setToast({ type: "error", message: d?.error || "Could not delete." }); return; }

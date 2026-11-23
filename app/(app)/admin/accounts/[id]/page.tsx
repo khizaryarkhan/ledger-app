@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { Drawer } from "@/components/form-kit";
+import { tell } from "@/lib/dialogs";
 
 const QUOTE_STATUS: Record<string, string> = {
   draft: "bg-stone-700 text-stone-300", sent: "bg-sky-500/15 text-sky-300",
@@ -230,7 +231,7 @@ export default function Account360Page() {
     const leadId = data?.lead?.id; if (!leadId || !emailForm.subject.trim() || !emailForm.body.trim()) return; setActing(true);
     try {
       const r = await fetch(`/api/admin/leads/${leadId}/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject: emailForm.subject, body: emailForm.body }) });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "Send failed"); return; }
+      if (!r.ok) { const d = await r.json().catch(() => ({})); tell(d.error || "Send failed"); return; }
       closeCompose(); load();
     } finally { setActing(false); }
   };
@@ -276,7 +277,7 @@ export default function Account360Page() {
             </div>
             <button onClick={() => setCompose("note")}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><StickyNote size={13} /> Note</button>
-            <button onClick={() => { if (data.lead?.id) setCompose("email"); else alert("No lead/contact on this account to email from."); }}
+            <button onClick={() => { if (data.lead?.id) setCompose("email"); else tell("No lead/contact on this account to email from."); }}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Email</button>
             <button onClick={() => setCompose("task")}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CheckSquare size={13} /> Task</button>
@@ -284,7 +285,7 @@ export default function Account360Page() {
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Phone size={13} /> Call</button>
             <button onClick={() => { const p = (data.lead?.phone || "").replace(/\D/g, ""); if (p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(`Hi ${data.lead?.fullName ?? ""}`.trim())}`, "_blank"); setLogKind("whatsapp"); }}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-emerald-300 hover:bg-stone-800"><MessageCircle size={13} /> WhatsApp</button>
-            <button onClick={() => { if (data.viewerSchedulingUrl) { window.open(data.viewerSchedulingUrl, "_blank"); logTouch("meeting", { outcome: "booking link sent" }); } else alert("Add your Calendly link first: Settings → Email Integration → Scheduling link."); }}
+            <button onClick={() => { if (data.viewerSchedulingUrl) { window.open(data.viewerSchedulingUrl, "_blank"); logTouch("meeting", { outcome: "booking link sent" }); } else tell("Add your Calendly link first: Settings → Email Integration → Scheduling link."); }}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CalendarCheck size={13} /> Book</button>
             {a.organisationId && <Link href={`/admin/customers/${a.organisationId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CreditCard size={13} /> Billing</Link>}
             {a.leadId && <Link href={`/admin/leads/${a.leadId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Lead cockpit</Link>}

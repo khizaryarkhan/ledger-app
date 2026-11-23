@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Layers, Plus, Trash2, Loader2, Sparkles, ChevronRight } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 interface Value { id: string; name: string; code: string | null; parentId: string | null; active: boolean; }
 interface Dimension { id: string; name: string; slug: string; description: string | null; active: boolean; values: Value[]; }
@@ -51,7 +52,7 @@ export default function ReportingStudioPage() {
   }
 
   async function delDimension(id: string) {
-    if (!confirm("Delete this dimension and all its values and rules?")) return;
+    if (!await askConfirm("Delete this dimension and all its values and rules?")) return;
     await fetch(`/api/reporting/dimensions/${id}`, { method: "DELETE" });
     load();
   }

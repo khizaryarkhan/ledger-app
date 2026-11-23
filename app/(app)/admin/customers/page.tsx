@@ -14,6 +14,7 @@ import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { COUNTRIES } from "@/lib/countries";
 import { MODULE_KEYS, MODULES, type ModuleKey } from "@/lib/modules";
+import { askConfirm } from "@/lib/dialogs";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -698,7 +699,7 @@ export default function CustomersPage() {
   };
 
   const cancelStripe = async (c: Row) => {
-    if (!confirm(`Cancel ${c.name}'s Stripe subscription and revoke access? This cannot be undone.`)) return;
+    if (!await askConfirm(`Cancel ${c.name}'s Stripe subscription and revoke access? This cannot be undone.`)) return;
     const r = await fetch(`/api/admin/subscriptions/${c.subId}/cancel`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ atPeriodEnd: false }),
     });

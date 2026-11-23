@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { SlidersHorizontal, Plus, Trash2, Loader2, X } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 interface Def { id: string; entity: string; fieldKey: string; label: string; fieldType: string; options: string[] | null; required: boolean; sortOrder: number; active: boolean; }
 
@@ -47,7 +48,7 @@ export default function CustomFieldsPage() {
   }
 
   async function del(id: string) {
-    if (!confirm("Delete this field and all its stored values?")) return;
+    if (!await askConfirm("Delete this field and all its stored values?")) return;
     await fetch(`/api/admin/custom-fields/${id}`, { method: "DELETE" }); load();
   }
 

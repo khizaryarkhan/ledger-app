@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { Paperclip, Download, Trash2, Loader, AlertTriangle, UploadCloud } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Attachment = {
   id: string;
@@ -93,7 +94,7 @@ export function DocumentAttachmentsPanel({ kind, id }: Props) {
   }
 
   async function remove(attId: string) {
-    if (!confirm("Remove this attachment? This cannot be undone.")) return;
+    if (!await askConfirm("Remove this attachment? This cannot be undone.")) return;
     setDeletingId(attId);
     try {
       const res = await fetch(`/api/documents/attachments/${attId}`, { method: "DELETE" });

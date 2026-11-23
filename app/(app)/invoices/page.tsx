@@ -21,6 +21,7 @@ import {
   exportRowsToExcel, type ExportColumn,
 } from "@/components/list-chrome";
 import { inWindow } from "@/lib/list-period";
+import { tell } from "@/lib/dialogs";
 
 /** What Export Excel writes — more than the table shows (paid, currency, email). */
 const INVOICE_EXPORT: ExportColumn<any>[] = [
@@ -103,7 +104,7 @@ export default function InvoicesPage() {
       URL.revokeObjectURL(url);
     } catch (e: any) {
       clearTimeout(timer);
-      if (e?.name === "AbortError") alert("PDF download timed out — please try again.");
+      if (e?.name === "AbortError") tell("PDF download timed out — please try again.");
     } finally {
       setDownloadingId(null);
     }

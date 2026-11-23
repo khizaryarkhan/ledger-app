@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { History, UploadCloud, DownloadCloud, Trash2, PencilRuler, FileInput, Undo2, Loader2, ChevronRight, AlertTriangle, CheckCircle2, FileDown, Send } from "lucide-react";
 import { listTable, listRow, listNumCell } from "@/components/list-view";
+import { askConfirm, tell } from "@/lib/dialogs";
 
 // Mirrors components/list-view.tsx's (unexported) thCls header style, so this
 // job-history table reads as the same design system as the shared list shell.
@@ -98,7 +99,7 @@ function BatchHistoryInner() {
   }
 
   async function undo(id: string) {
-    if (!confirm("Reverse this import? This deletes the records it created in QuickBooks.")) return;
+    if (!await askConfirm("Reverse this import? This deletes the records it created in QuickBooks.")) return;
     setUndoing(id);
     try {
       const r = await fetch(`/api/batch/jobs/${id}/undo`, { method: "POST" });
@@ -106,7 +107,7 @@ function BatchHistoryInner() {
       if (!r.ok) throw new Error(d.error || "Undo failed");
       setTimeout(load, 1500); // undo job appears; original flips to Undone when it finishes
     } catch (e: any) {
-      alert(e.message);
+      tell(e.message);
     } finally {
       setUndoing(null);
     }

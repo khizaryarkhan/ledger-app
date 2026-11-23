@@ -6472,3 +6472,20 @@ a planner accepts it by allocating its lots, never automatically.
 - **Packaging substitutes were built later (2026-11-16, see "BOM batch unit, SKU-only outputs...")**: ratio per
   one main unit, same allocation/completion path. **Still not built**: a stock count or opening balance that
   records a supplier SKU; "units" for a lot's supplier SKU in `consumptionUnits` (still keyed on supplier id).
+
+## No native confirm()/alert() — use lib/dialogs (2026-11-23)
+
+88 browser popups across 57 files were replaced by one imperative API: `askConfirm(message): Promise<boolean>` and
+`tell(message)` in `lib/dialogs.ts`, rendered by a single `<DialogHost />` in `app/layout.tsx` as the shared centred
+`Modal`. A native popup looks foreign, some embedded browsers refuse it, it froze an automation run, and the text a
+person most needs (why a delete was refused) lived in it. Write `if (!await askConfirm("Delete this?")) return;` (the
+enclosing function must be async) and `tell("…")` for a notice.
+
+- With no host mounted (server render) `askConfirm` answers **false**, so a destructive action never proceeds on a
+  missing answer. Dialogs queue, so two in a row show one after the other.
+- Prefer showing a refusal inline next to the action when there is a place for it (see the Journal delete modal);
+  `tell` is for the many call sites that had nowhere else.
+- `tests/no-native-dialogs.test.ts` fails on any `confirm(`/`alert(`/`window.confirm(` in `app/**` or `components/**`
+  (comments ignored) and was proven to fail on a real violation. `mobile/` is a separate app and is not covered.
+- Not clicked through in a browser for every site: the conversion was mechanical (TypeScript compiler API), checked by
+  `tsc` and the full suite. A handler that must stay synchronous (reads the event after the question) would need care.

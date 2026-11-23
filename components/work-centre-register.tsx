@@ -17,6 +17,7 @@ import { Button, Toast } from "@/components/ui";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset, t } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { useData } from "@/components/data-provider";
+import { askConfirm } from "@/lib/dialogs";
 
 type WC = { id: string; code: string | null; name: string; labourRate: number; overheadRate: number; status: string };
 
@@ -104,7 +105,7 @@ function WorkCentreDrawer({ wc, onClose, onSaved }: { wc: WC | null; onClose: ()
     onSaved(wc ? "Work centre updated" : "Work centre created");
   }
   async function remove() {
-    if (!wc || !confirm(`Delete "${wc.name}"?`)) return;
+    if (!wc || !await askConfirm(`Delete "${wc.name}"?`)) return;
     const r = await fetch(`/api/production/work-centres/${wc.id}`, { method: "DELETE" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(d?.error || "Could not delete."); return; }

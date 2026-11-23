@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 type Invoice = {
   id: string; number: string | null; status: string;
@@ -131,7 +132,7 @@ export default function AdminInvoicesPage() {
   useEffect(() => { load(); }, [load]);
 
   const voidInvoice = async (inv: Invoice) => {
-    if (!confirm(`Void invoice ${inv.number ?? inv.id}? This cannot be undone.`)) return;
+    if (!await askConfirm(`Void invoice ${inv.number ?? inv.id}? This cannot be undone.`)) return;
     setActing(inv.id);
     try {
       const r = await fetch(`/api/admin/billing/invoices/${inv.id}`, {
@@ -149,7 +150,7 @@ export default function AdminInvoicesPage() {
     const msg = offline
       ? `Record a refund for ${inv.orgName} (${fmt.money(inv.total / 100, inv.currency)})? Paid outside Stripe, so no Stripe refund is issued — repayment is made offline and recorded here.${subNote}`
       : `Refund ${fmt.money(inv.total / 100, inv.currency)} to ${inv.orgName} via Stripe? This cannot be undone.${subNote}`;
-    if (!confirm(msg)) return;
+    if (!await askConfirm(msg)) return;
     const note = window.prompt("Reason / reference for the refund (optional):") ?? "";
     setActing(inv.id);
     try {

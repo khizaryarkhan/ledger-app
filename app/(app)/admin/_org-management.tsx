@@ -8,6 +8,7 @@ import { Button, Badge, Input, Modal } from "@/components/ui";
 import { Drawer } from "@/components/form-kit";
 import { Plus, Check, X, Eye, EyeOff, AlertTriangle, XCircle, Clock, CheckCircle2, Pencil, Loader2, Trash2, Copy, CheckCheck, ArrowUpRight } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 export function CopyId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
@@ -372,7 +373,7 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
   };
 
   const removeUser = async (userId: string, name: string) => {
-    if (!confirm(`Remove ${name} from this organisation? They will lose access immediately. If this is their only organisation, their account will be deactivated.`)) return;
+    if (!await askConfirm(`Remove ${name} from this organisation? They will lose access immediately. If this is their only organisation, their account will be deactivated.`)) return;
     setUserError("");
     try {
       const res = await fetch(`/api/admin/organisations/${org.id}/users?userId=${userId}`, { method: "DELETE" });

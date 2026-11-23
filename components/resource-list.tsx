@@ -19,6 +19,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm, tell } from "@/lib/dialogs";
 
 export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [rows, setRows] = useState<any[] | null>(null);
@@ -47,7 +48,7 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resourceId: r.id }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok || !d.ticket) { alert(d?.error || "Could not sign in as this person."); return; }
+      if (!res.ok || !d.ticket) { tell(d?.error || "Could not sign in as this person."); return; }
       await updateSession({ impersonationTicket: d.ticket });
       window.location.href = "/dashboard"; // middleware sends employee/rep logins to their own portal
     } finally { setSigningInAs(null); }
@@ -173,7 +174,7 @@ function LoginDrawer({ person, defaultEmail, onClose, onSaved }: { person: any; 
   }
 
   async function remove() {
-    if (!confirm(`Remove ${person.name}'s login? They will no longer be able to sign in.`)) return;
+    if (!await askConfirm(`Remove ${person.name}'s login? They will no longer be able to sign in.`)) return;
     const r = await fetch(`/api/resources/${person.id}/login`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove the login."); return; }
     onSaved();
@@ -355,7 +356,7 @@ function ResourceDrawer({ type, employees, calendars, designations, people, id, 
   }
 
   async function del() {
-    if (!id || !confirm("Delete this resource?")) return;
+    if (!id || !await askConfirm("Delete this resource?")) return;
     const r = await fetch(`/api/resources/${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     onSaved();

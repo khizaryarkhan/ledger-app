@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { ShieldAlert, Loader2, CheckCircle2 } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 interface Lead { id: string; fullName: string; email: string; phone: string | null; companyName: string | null; message: string | null; country: string | null; score: number; createdAt: string; }
 
@@ -26,7 +27,7 @@ export default function SpamCleanupPage() {
 
   async function act(action: "reject" | "delete") {
     if (ids.length === 0) return;
-    if (action === "delete" && !confirm(`Permanently delete ${ids.length} spam lead(s) and purge their empty accounts? This can't be undone.`)) return;
+    if (action === "delete" && !await askConfirm(`Permanently delete ${ids.length} spam lead(s) and purge their empty accounts? This can't be undone.`)) return;
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/admin/leads/spam", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action }) });

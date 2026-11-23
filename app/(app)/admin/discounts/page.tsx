@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Percent, Loader, RefreshCw, Plus, Trash2, Tag, Power } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 type Promo = { id: string; code: string; active: boolean; timesRedeemed: number; maxRedemptions: number | null };
 type Coupon = {
@@ -116,7 +117,7 @@ export default function DiscountsPage() {
   useEffect(() => { load(); }, [load]);
 
   const act = async (couponId: string, body: any, confirmMsg?: string) => {
-    if (confirmMsg && !confirm(confirmMsg)) return;
+    if (confirmMsg && !await askConfirm(confirmMsg)) return;
     setActing(couponId + (body.codeId ?? ""));
     try {
       const r = await fetch(`/api/admin/billing/coupons/${couponId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });

@@ -18,6 +18,7 @@ import { Drawer, DrawerFooter, Field, Section, SelectField, controlInset, cell, 
 import { fmt, localToday } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { useData } from "@/components/data-provider";
+import { askConfirm } from "@/lib/dialogs";
 
 const REASONS = [
   ["NRV", "Net realisable value below cost"], ["Expiry", "Expired / near expiry"], ["Damage", "Damaged"], ["Recall", "Recalled"], ["Other", "Other"],
@@ -38,7 +39,7 @@ export function StockAdjustments() {
     fetch("/api/inventory/items").then(r => r.json()).then(d => setItems(Array.isArray(d) ? d.filter((i: any) => kindOf(i.productType).tracked && i.status === "Active") : [])).catch(() => {});
   }, []);
   async function remove(id: string) {
-    if (!confirm("Void this adjustment? Its entry is removed and the stock goes back to what it was.")) return;
+    if (!await askConfirm("Void this adjustment? Its entry is removed and the stock goes back to what it was.")) return;
     const r = await fetch(`/api/inventory/adjustments?entryId=${id}`, { method: "DELETE" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { setToast({ message: d?.error || "Could not void.", type: "error" }); return; }

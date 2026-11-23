@@ -27,6 +27,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 const money = fmt.num2;
 
@@ -70,7 +71,7 @@ export function ReceivingConsole() {
   function openReceipt(id: string) { setShowNew(false); load(); setEditingId(id); }
 
   async function voidRow(id: string, no: string) {
-    if (!confirm(`Delete receipt ${no}? This reverses its stock and GL entry and removes the receipt entirely.`)) return;
+    if (!await askConfirm(`Delete receipt ${no}? This reverses its stock and GL entry and removes the receipt entirely.`)) return;
     setVoidErr("");
     const r = await fetch(`/api/inventory/receiving/${id}`, { method: "DELETE" });
     if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not delete receipt."); return; }

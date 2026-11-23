@@ -12,6 +12,7 @@ import { Plus, Download, RefreshCw, Pencil, Trash2, Upload, Loader } from "lucid
 import { Drawer, DrawerFooter, Field, SelectField, controlInset } from "@/components/form-kit";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { ISA_QUALIFIERS, X12_VERSIONS, EDI_TAX_TYPES } from "@/lib/edi/partner";
+import { askConfirm } from "@/lib/dialogs";
 
 type Tab = "files" | "partners";
 
@@ -34,7 +35,7 @@ export function EdiConsole() {
   useEffect(() => { load(); }, []);
 
   async function removePartner(p: any) {
-    if (!confirm(`Delete the EDI profile for ${p.partyName}?`)) return;
+    if (!await askConfirm(`Delete the EDI profile for ${p.partyName}?`)) return;
     const r = await fetch(`/api/edi/partners/${p.id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     load();

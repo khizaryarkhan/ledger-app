@@ -14,6 +14,7 @@ import {
   Mail, Calendar, Zap, ArrowRightLeft, CreditCard, Users, RefreshCw, FileDown,
   Clock, Layers, StickyNote, CornerUpLeft,
 } from "lucide-react";
+import { tell } from "@/lib/dialogs";
 
 // =====================
 // TIMELINE
@@ -288,7 +289,7 @@ ${senderName}`;
         });
         if (!res.ok) {
           const d = await res.json();
-          alert(d.error || "Failed to send email. Check SMTP settings.");
+          tell(d.error || "Failed to send email. Check SMTP settings.");
           setSubmitting(false);
           return;
         }

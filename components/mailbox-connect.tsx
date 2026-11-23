@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Plug, Loader, CheckCircle2 } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Account = {
   connected: boolean; needsSetup?: boolean;
@@ -57,7 +58,7 @@ export function MailboxConnect() {
   };
 
   const disconnect = async () => {
-    if (!confirm("Disconnect this mailbox? You can reconnect any time.")) return;
+    if (!await askConfirm("Disconnect this mailbox? You can reconnect any time.")) return;
     await fetch("/api/admin/email/account", { method: "DELETE" });
     setToast({ ok: true, msg: "Disconnected" }); load();
   };

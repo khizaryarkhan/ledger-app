@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, Lock, Users, Building2, Contact, Pencil, Trash2 } from "lucide-react";
 import { PartyDrawer } from "@/components/party-drawer";
 import { controlInset, tableHead } from "@/components/form-kit";
+import { askConfirm } from "@/lib/dialogs";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; singular: string; icon: any }> = {
@@ -36,7 +37,7 @@ export function PartyList({ type, nativeOnly = false }: { type: PartyType; nativ
     setRows(Array.isArray(r) ? r : []);
   }
   async function del(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+    if (!await askConfirm(`Delete "${name}"? This can't be undone.`)) return;
     setRowErr("");
     const r = await fetch(`/api/parties/${type}/${id}`, { method: "DELETE" });
     if (!r.ok) { setRowErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }

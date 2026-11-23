@@ -21,6 +21,7 @@ import { totalBase, batchesFromOutputs, scaleOutputsToBatches, batchWarnings, ou
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
 import { outputCaptureUnits } from "@/lib/inventory/order-options";
 import { SCRAP_REASONS, DELAY_REASONS } from "@/lib/inventory/production-performance";
+import { askConfirm } from "@/lib/dialogs";
 
 const qtyFmt = (n: any) => fmt.qty(n ?? 0);
 
@@ -472,7 +473,7 @@ function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, on
   }, [pendingRun, d]);
 
   async function transition(to: string, msg: string) {
-    if (to === "InProgress") { const q = startPrompt(lines); if (q && !confirm(q)) return; }
+    if (to === "InProgress") { const q = startPrompt(lines); if (q && !await askConfirm(q)) return; }
     setBusy(true); setErr("");
     const r = await fetch(`/api/production/mos/${moId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
     setBusy(false);
@@ -673,8 +674,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   }, [pendingRun, d]);
 
   async function transition(to: string) {
-    if (to === "Cancelled") { const q = cancelPrompt(d, lines); if (q && !confirm(q)) return; }
-    if (to === "InProgress") { const q = startPrompt(lines); if (q && !confirm(q)) return; }
+    if (to === "Cancelled") { const q = cancelPrompt(d, lines); if (q && !await askConfirm(q)) return; }
+    if (to === "InProgress") { const q = startPrompt(lines); if (q && !await askConfirm(q)) return; }
     setBusy(true); setErr("");
     const r = await fetch(`/api/production/mos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
     setBusy(false);
@@ -689,7 +690,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
     load(); onChanged();
   }
   async function del() {
-    if (!confirm("Delete this MO?")) return;
+    if (!await askConfirm("Delete this MO?")) return;
     const r = await fetch(`/api/production/mos/${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     onChanged(); onClose();
@@ -1005,7 +1006,7 @@ function RunList({ d, onChanged }: { d: any; onChanged: () => void | Promise<voi
   const status = d?.mo?.status;
   if (!runs.length || !["InProgress", "Completed"].includes(status)) return null;
   async function voidRun(run: any) {
-    if (!confirm(`Void ${run.runNo ?? "this run"}? This returns the consumed lots and removes the output.`)) return;
+    if (!await askConfirm(`Void ${run.runNo ?? "this run"}? This returns the consumed lots and removes the output.`)) return;
     setBusyId(run.id); setErr("");
     const r = await fetch(`/api/inventory/production/${run.id}`, { method: "DELETE" });
     setBusyId(null);

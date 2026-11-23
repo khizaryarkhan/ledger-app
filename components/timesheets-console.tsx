@@ -11,6 +11,7 @@ import { Plus, RefreshCw, Check, X as XIcon } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { ASSIGNABLE_LABEL, ASSIGNABLE_ENDPOINT, assignableOptionLabel, type AssignableType } from "@/lib/resources/assignable";
 import { localToday, fmt } from "@/lib/format";
+import { tell } from "@/lib/dialogs";
 
 const STATUS_LABEL: Record<string, string> = { draft: "Draft", submitted: "Submitted", approved: "Approved", rejected: "Rejected", posted: "Posted" };
 const STATUS_CLASS: Record<string, string> = {
@@ -47,7 +48,7 @@ export function TimesheetsConsole() {
     const body = action === "reject" ? { reason: prompt("Reason for rejecting?") || "" } : undefined;
     if (action === "reject" && !body!.reason) return;
     const r = await fetch(`/api/resources/time-entries/${id}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-    if (r.ok) load(); else alert((await r.json().catch(() => ({})))?.error || "Could not update entry");
+    if (r.ok) load(); else tell((await r.json().catch(() => ({})))?.error || "Could not update entry");
   }
 
   return (

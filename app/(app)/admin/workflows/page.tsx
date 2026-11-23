@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Zap, Plus, X, Loader, Pause, Play, Pencil, Trash2, ChevronLeft, Mail, RefreshCw } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Seq = {
   id: string; name: string; description: string | null; isActive: boolean; stepCount: number;
@@ -32,7 +33,7 @@ export default function WorkflowsPage() {
     await fetch(`/api/admin/sequences/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !s.isActive }) }).catch(() => {});
   };
   const refreshDefaults = async () => {
-    if (!confirm("Refresh built-in workflows with Prime Accountax copy? Step content will be overwritten; enrolment history is preserved.")) return;
+    if (!await askConfirm("Refresh built-in workflows with Prime Accountax copy? Step content will be overwritten; enrolment history is preserved.")) return;
     setRefreshing(true);
     try {
       const r = await fetch("/api/admin/leads/seed-defaults", { method: "POST" });
@@ -41,7 +42,7 @@ export default function WorkflowsPage() {
   };
 
   const remove = async (s: Seq) => {
-    if (!confirm(`Delete workflow "${s.name}"? Active enrolments stop.`)) return;
+    if (!await askConfirm(`Delete workflow "${s.name}"? Active enrolments stop.`)) return;
     setSeqs(p => p.filter(x => x.id !== s.id));
     await fetch(`/api/admin/sequences/${s.id}`, { method: "DELETE" }).catch(() => {});
   };

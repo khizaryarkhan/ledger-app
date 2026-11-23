@@ -13,6 +13,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ChevronLeft, RefreshCw } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { tell } from "@/lib/dialogs";
 
 type Activity = {
   channel: string; direction?: string; sender: string | null; recipients?: string | null;
@@ -109,7 +110,7 @@ export default function EscalationsPage() {
         ? { ...i, activity: [{ channel: "Note", sender: meName, body: text, subject: "Escalation update", sentAt: new Date().toISOString() }, ...i.activity] }
         : i) : p);
     } catch (e: any) {
-      alert(e.message || "Failed to save comment");
+      tell(e.message || "Failed to save comment");
     } finally { setSaving(null); }
   }
 
@@ -120,7 +121,7 @@ export default function EscalationsPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invoiceIds: ids }),
       });
-      if (!res.ok) { alert("Failed to download PDFs"); return; }
+      if (!res.ok) { tell("Failed to download PDFs"); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

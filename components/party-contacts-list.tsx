@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, UserRound, Loader } from "lucide-react";
 import { controlInset, SelectField } from "@/components/form-kit";
 import { CONTACT_ROLES, contactRoleLabel } from "@/lib/party-terms";
+import { askConfirm } from "@/lib/dialogs";
 
 type Row = { id: string; name: string; role: string; email: string | null; phone: string | null; isPrimary: boolean };
 const EMPTY = { name: "", role: "purchasing", email: "", phone: "", isPrimary: false };
@@ -48,7 +49,7 @@ export function PartyContactsList({ supplierId }: { supplierId: string }) {
   }
 
   async function remove(row: Row) {
-    if (!confirm(`Remove ${row.name} from this supplier's contacts?`)) return;
+    if (!await askConfirm(`Remove ${row.name} from this supplier's contacts?`)) return;
     setErr("");
     const r = await fetch(`${base}/${row.id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove."); return; }

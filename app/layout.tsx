@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { DialogHost } from "@/components/dialog-host";
 
 const SITE_URL = "https://primeaccountax.com";
 
@@ -89,7 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>{children}<DialogHost /></body>
     </html>
   );
 }

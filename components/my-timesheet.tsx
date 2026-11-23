@@ -31,6 +31,7 @@ import { MyReturns } from "@/components/my-returns";
 import { addDays } from "@/lib/accounting/report-periods";
 import { localToday, formatDateShort } from "@/lib/format";
 import { evalArithmetic } from "@/lib/calc";
+import { askConfirm } from "@/lib/dialogs";
 
 interface Me {
   resource: { id: string; name: string; dailyCapacity: number } | null;
@@ -184,7 +185,7 @@ export function MyTimesheet() {
       setAdded((x) => x.filter((b) => !drop.has(bookingKey(b))));
     }
     if (ids.length === 0) { setSelected(new Set()); return; }
-    if (action === "delete" && !window.confirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? This cannot be undone.`)) return;
+    if (action === "delete" && !await askConfirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? This cannot be undone.`)) return;
     setBusy(true);
     const res = await api<{ message: string }>("/api/resources/me/timesheet-lines", postJson({ action, ids }));
     if (res.ok === false) setErr(res.error); else setMsg(res.data.message);

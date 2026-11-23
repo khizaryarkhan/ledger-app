@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Phone, Mail, Copy, Plus, Pencil, Trash2, Check, X, Users, ChevronDown } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { askConfirm } from "@/lib/dialogs";
 
 // ── Call-app registry ─────────────────────────────────────────────────────────
 // Each entry maps to a URI scheme the OS can hand off to an installed app.
@@ -450,7 +451,7 @@ export function ContactsPanel({
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Remove ${name}?`)) return;
+    if (!await askConfirm(`Remove ${name}?`)) return;
     await fetch(`/api/contacts/${id}`, { method: "DELETE" });
     toast?.("Contact removed");
     refresh();

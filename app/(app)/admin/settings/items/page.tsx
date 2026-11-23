@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Package, Plus, Loader, X, Trash2, Pencil } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { Drawer } from "@/components/form-kit";
+import { askConfirm } from "@/lib/dialogs";
 
 type Item = { id: string; name: string; description: string | null; unitAmount: number; currency: string; taxRate: number | null; active: boolean };
 
@@ -29,7 +30,7 @@ export default function ItemsPage() {
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this item?")) return;
+    if (!await askConfirm("Delete this item?")) return;
     setItems(its => its.filter(i => i.id !== id));
     await fetch(`/api/admin/items/${id}`, { method: "DELETE" }); setToast({ ok: true, msg: "Deleted" });
   };

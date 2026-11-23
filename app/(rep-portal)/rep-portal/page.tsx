@@ -12,6 +12,7 @@ import { ResponsesInbox } from "@/components/responses-inbox";
 import { BoardList, type BoardRow } from "@/components/board-list";
 import { resolveStageLabel, DEFAULT_STAGES } from "@/lib/stages";
 import { CurrencyPills } from "@/components/currency-pills";
+import { tell } from "@/lib/dialogs";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Invoice = {
@@ -517,13 +518,13 @@ export default function RepPortalPage() {
     setDownloadingId(inv.id);
     try {
       const res = await fetch(`/api/invoices/${inv.id}/pdf`);
-      if (!res.ok) { alert("PDF not available"); return; }
+      if (!res.ok) { tell("PDF not available"); return; }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href = url; a.download = `Invoice-${inv.invoiceNumber}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Failed to download PDF"); }
+    } catch { tell("Failed to download PDF"); }
     finally { setDownloadingId(null); }
   };
 

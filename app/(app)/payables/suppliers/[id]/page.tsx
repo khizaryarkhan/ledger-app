@@ -14,6 +14,7 @@ import {
 import { Card, Badge, Button, Input, Select } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
 import { TransactionsTab } from "@/components/transactions-tab";
+import { tell } from "@/lib/dialogs";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -233,7 +234,7 @@ export default function SupplierDetailPage() {
       if (!res.ok) throw new Error("Failed to raise query");
       const created = await res.json();
       setQueries((prev) => [created, ...prev]);
-    } catch { alert("Failed to raise query — please try again."); } finally { setRaisingQuery(false); }
+    } catch { tell("Failed to raise query — please try again."); } finally { setRaisingQuery(false); }
   }
 
   const invCcy = supplier?.currency || "EUR";

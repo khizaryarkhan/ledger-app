@@ -12,6 +12,7 @@ import { Plus, Trash2, Truck, ChevronLeft, Copy } from "lucide-react";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset } from "@/components/form-kit";
 import { fmt, localToday } from "@/lib/format";
 import { showSscc } from "@/lib/inventory/sscc";
+import { askConfirm } from "@/lib/dialogs";
 
 type Tab = "expected" | "received" | "cancelled";
 const TABS: { key: Tab; label: string }[] = [
@@ -38,7 +39,7 @@ export function ExpectedDeliveriesDrawer({ onClose }: { items?: any[]; onClose: 
   useEffect(() => { load(tab); }, [tab]);
 
   async function act(d: any, action: "cancel" | "reopen" | "delete") {
-    if (action === "delete" && !confirm(`Delete delivery ${d.reference || ""}? Use this only for one recorded by mistake.`)) return;
+    if (action === "delete" && !await askConfirm(`Delete delivery ${d.reference || ""}? Use this only for one recorded by mistake.`)) return;
     setErr("");
     const r = action === "delete"
       ? await fetch(`/api/inventory/expected-deliveries/${d.id}`, { method: "DELETE" })

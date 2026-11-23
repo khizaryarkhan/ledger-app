@@ -13,6 +13,7 @@ import { Drawer, SelectField, controlInset, th } from "@/components/form-kit";
 import { PACK_TYPES } from "@/lib/inventory/uom";
 import { showSscc } from "@/lib/inventory/sscc";
 import { fmt } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 type Line = { id: string; description: string | null; qtyBase: number; packed: number; left: number };
 type Pkg = { id: string; parentId: string | null; sscc: string; packType: string; grossWeightKg: string | null; contents: { shipmentLineId: string; qtyBase: number }[] };
@@ -50,7 +51,7 @@ export function ShipmentPackagesDrawer({ shipment, onClose }: { shipment: { id: 
   }
 
   async function remove(p: Pkg) {
-    if (!confirm(`Remove ${p.packType} ${showSscc(p.sscc)}? Its SSCC will not be used again.`)) return;
+    if (!await askConfirm(`Remove ${p.packType} ${showSscc(p.sscc)}? Its SSCC will not be used again.`)) return;
     setErr("");
     const r = await fetch(`${base}?packageId=${p.id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove."); return; }

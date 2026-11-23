@@ -28,6 +28,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listMoneyCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -78,7 +79,7 @@ export function JobWorkConsole() {
   }, []);
 
   async function voidOrder(id: string, docNumber: string) {
-    if (!confirm(`Void job work order ${docNumber}? This reverses every receipt, any close/wastage entry, and the dispatch, restoring the sent item's stock.`)) return;
+    if (!await askConfirm(`Void job work order ${docNumber}? This reverses every receipt, any close/wastage entry, and the dispatch, restoring the sent item's stock.`)) return;
     setVoidErr("");
     const r = await fetch(`/api/inventory/jobwork/${id}`, { method: "DELETE" });
     if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not void job work order."); return; }
@@ -86,7 +87,7 @@ export function JobWorkConsole() {
   }
 
   async function reopenOrder(id: string, docNumber: string) {
-    if (!confirm(`Reopen job work order ${docNumber}? This reverses its wastage/yield-gain entry and allows more receipts.`)) return;
+    if (!await askConfirm(`Reopen job work order ${docNumber}? This reverses its wastage/yield-gain entry and allows more receipts.`)) return;
     setVoidErr("");
     const r = await fetch(`/api/inventory/jobwork/${id}/reopen`, { method: "POST" });
     if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not reopen job work order."); return; }

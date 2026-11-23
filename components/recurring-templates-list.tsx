@@ -14,6 +14,7 @@ import { Repeat, Pause, Play, Trash2, ExternalLink } from "lucide-react";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { Toast } from "@/components/ui";
 import { tableHead } from "@/components/form-kit";
+import { askConfirm } from "@/lib/dialogs";
 
 type Template = {
   id: string; sourceType: string; templateName: string;
@@ -57,7 +58,7 @@ export function RecurringTemplatesList() {
   }
 
   async function remove(t: Template) {
-    if (!confirm(`Delete the recurring template "${t.templateName}"? This does not affect documents it already created.`)) return;
+    if (!await askConfirm(`Delete the recurring template "${t.templateName}"? This does not affect documents it already created.`)) return;
     setBusyId(t.id);
     try {
       const r = await fetch(`/api/recurring-templates/${t.id}`, { method: "DELETE" });

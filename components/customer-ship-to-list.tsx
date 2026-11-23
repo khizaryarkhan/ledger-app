@@ -13,6 +13,7 @@ import { Plus, Pencil, Trash2, MapPin, Loader } from "lucide-react";
 import { controlInset } from "@/components/form-kit";
 import { CountrySelect } from "@/components/country-select";
 import { shipToOneLine } from "@/lib/customer-ship-to";
+import { askConfirm } from "@/lib/dialogs";
 
 type Row = {
   id: string; name: string; code: string | null; addressStreet: string | null; addressLine2: string | null; addressCity: string | null;
@@ -59,7 +60,7 @@ export function CustomerShipToList({ customerId }: { customerId: string }) {
   }
 
   async function remove(row: Row) {
-    if (!confirm(`Delete the delivery address "${row.name}"?`)) return;
+    if (!await askConfirm(`Delete the delivery address "${row.name}"?`)) return;
     setErr("");
     const r = await fetch(`${base}/${row.id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }

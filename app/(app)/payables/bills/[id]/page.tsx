@@ -13,6 +13,7 @@ import { Card, Badge, Button, Modal } from "@/components/ui";
 import { Drawer } from "@/components/form-kit";
 import { fmt, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { listRow, listMoneyCell, listNumCell } from "@/components/list-view";
+import { tell } from "@/lib/dialogs";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ export default function BillDetailPage() {
       clearTimeout(timer);
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.error || "Failed to download PDF");
+        tell(e.error || "Failed to download PDF");
         return;
       }
       const blob = await res.blob();
@@ -269,8 +270,8 @@ export default function BillDetailPage() {
       URL.revokeObjectURL(url);
     } catch (e: any) {
       clearTimeout(timer);
-      if (e?.name === "AbortError") alert("PDF download timed out — please try again.");
-      else alert("Failed to download PDF");
+      if (e?.name === "AbortError") tell("PDF download timed out — please try again.");
+      else tell("Failed to download PDF");
     } finally {
       setDownloadingPdf(false);
     }

@@ -19,6 +19,7 @@ import { ReportShell, type ReportShellKind } from "@/components/resource-report-
 import { Drawer, DrawerFooter, Field, controlInset, controlMultiline, tableHead } from "@/components/form-kit";
 import { formatDateShort, localToday } from "@/lib/format";
 import { portalHref, type FeedItem, type AttentionItem } from "@/lib/notifications/rules";
+import { askConfirm } from "@/lib/dialogs";
 
 interface Feed { items: FeedItem[]; unread: number; attention: AttentionItem[] }
 interface AdminRow {
@@ -199,7 +200,7 @@ function ManageAnnouncements({ onEdit, onChanged }: { onEdit: (r: AdminRow) => v
   useEffect(() => { load(); }, [load]);
 
   async function remove(id: string) {
-    if (!confirm("Remove this announcement for everyone?")) return;
+    if (!await askConfirm("Remove this announcement for everyone?")) return;
     const r = await fetch(`/api/resources/announcements/${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove it"); return; }
     load(); onChanged();

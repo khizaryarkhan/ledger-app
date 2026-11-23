@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ChevronLeft, Loader, GitMerge, CheckCircle2, Building2 } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Acc = {
   id: string; ref: string; name: string; domain: string | null; billingEmail: string | null;
@@ -34,7 +35,7 @@ export default function DuplicatesPage() {
     const g = groups[gi]; const primaryId = primary[gi];
     if (!primaryId) return;
     const mergeIds = g.accounts.map(a => a.id).filter(id => id !== primaryId);
-    if (!confirm(`Merge ${mergeIds.length} account(s) into "${g.accounts.find(a => a.id === primaryId)?.name}"? Their contacts, deals, emails and activity move to it; the duplicates are removed. Billing is untouched.`)) return;
+    if (!await askConfirm(`Merge ${mergeIds.length} account(s) into "${g.accounts.find(a => a.id === primaryId)?.name}"? Their contacts, deals, emails and activity move to it; the duplicates are removed. Billing is untouched.`)) return;
     setBusy(gi); setMsg("");
     try {
       const r = await fetch("/api/admin/accounts/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ primaryId, mergeIds }) });

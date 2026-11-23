@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { Field, Section, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
+import { askConfirm } from "@/lib/dialogs";
 
 export function HolidayCalendarList() {
   const [rows, setRows] = useState<any[] | null>(null);
@@ -81,7 +82,7 @@ function CalendarDrawer({ id, rows, onClose, onSaved }: { id?: string; rows?: an
   }
 
   async function del() {
-    if (!id || !confirm("Delete this calendar?")) return;
+    if (!id || !await askConfirm("Delete this calendar?")) return;
     const r = await fetch(`/api/resources/holiday-calendars/${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     onSaved();

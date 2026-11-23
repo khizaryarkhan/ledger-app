@@ -6,6 +6,7 @@ import { CalendarRange, Check, Loader, Lock, Unlock, AlertTriangle } from "lucid
 import { controlInset, tableHead } from "@/components/form-kit";
 import { ymd } from "@/lib/format";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -52,7 +53,7 @@ export function FinancialYearSettings() {
 
   async function closePeriod() {
     if (!periodEnd) return;
-    if (!confirm(`Close the books through ${periodEnd}?\n\nA closing entry will move the period's net profit/loss to Retained Earnings, and entries on or before this date will be locked. You can reopen it later.`)) return;
+    if (!await askConfirm(`Close the books through ${periodEnd}?\n\nA closing entry will move the period's net profit/loss to Retained Earnings, and entries on or before this date will be locked. You can reopen it later.`)) return;
     setBusy(true); setMsg(null);
     try {
       const res = await fetch("/api/period-close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", periodEnd }) });
@@ -64,7 +65,7 @@ export function FinancialYearSettings() {
   }
 
   async function reopen(c: Close) {
-    if (!confirm(`Reopen ${c.periodStart} → ${c.periodEnd}?\n\nThe closing entry will be reversed and the period unlocked.`)) return;
+    if (!await askConfirm(`Reopen ${c.periodStart} → ${c.periodEnd}?\n\nThe closing entry will be reversed and the period unlocked.`)) return;
     setBusy(true); setMsg(null);
     try {
       const res = await fetch("/api/period-close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reopen", id: c.id }) });

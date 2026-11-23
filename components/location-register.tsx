@@ -19,6 +19,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 type LocationType = { value: string; label: string; hint: string };
 
@@ -124,7 +125,7 @@ export function LocationRegister() {
   }
 
   async function remove(row: Location) {
-    if (!confirm(`Delete "${row.name}"? This cannot be undone.`)) return;
+    if (!await askConfirm(`Delete "${row.name}"? This cannot be undone.`)) return;
     try {
       const res = await fetch(`/api/inventory/locations/${row.id}`, { method: "DELETE" });
       const data = await res.json();

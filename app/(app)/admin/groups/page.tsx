@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Network, Plus, Star, Trash2, Building2, Loader2, ChevronDown, ChevronRight, X, UserPlus, ShieldCheck } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Member = { id: string; name: string; slug: string; status: string };
 type GroupUser = { userId: string; name: string; email: string; role: string };
@@ -94,7 +95,7 @@ export default function GroupAccountsPage() {
   }
 
   async function deleteGroup(groupId: string, name: string) {
-    if (!confirm(`Delete the group "${name}"? Its branches are un-grouped but never deleted.`)) return;
+    if (!await askConfirm(`Delete the group "${name}"? Its branches are un-grouped but never deleted.`)) return;
     setBusy(true); setError(null);
     try {
       const res = await fetch(`/api/admin/org-groups/${groupId}`, { method: "DELETE" });

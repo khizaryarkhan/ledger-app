@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useBatchEntities } from "../_components/entity-picker";
 import { Clock, Plus, Play, Trash2, Loader2, CheckCircle2, Link2 } from "lucide-react";
 import { listTable, listRow } from "@/components/list-view";
+import { askConfirm, tell } from "@/lib/dialogs";
 
 interface Schedule {
   id: string; entityId: string; name: string; spreadsheetId: string;
@@ -56,9 +57,9 @@ function ScheduledInner() {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
-  async function runNow(id: string) { await fetch(`/api/batch/scheduled/${id}/run`, { method: "POST" }); alert("Import queued — check Job History."); }
+  async function runNow(id: string) { await fetch(`/api/batch/scheduled/${id}/run`, { method: "POST" }); tell("Import queued — check Job History."); }
   async function toggle(s: Schedule) { await fetch(`/api/batch/scheduled/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !s.active }) }); load(); }
-  async function remove(id: string) { if (!confirm("Delete this schedule?")) return; await fetch(`/api/batch/scheduled/${id}`, { method: "DELETE" }); load(); }
+  async function remove(id: string) { if (!await askConfirm("Delete this schedule?")) return; await fetch(`/api/batch/scheduled/${id}`, { method: "DELETE" }); load(); }
 
   const entityLabel = (id: string) => entities.find((e) => e.id === id)?.label ?? id;
 

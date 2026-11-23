@@ -13,6 +13,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 type Level = "self" | "team" | "department" | "all";
 
@@ -135,7 +136,7 @@ function DesignationDrawer({ item, onClose, onSaved }: { item?: Designation; onC
   }
 
   async function del() {
-    if (!item || !confirm("Delete this designation?")) return;
+    if (!item || !await askConfirm("Delete this designation?")) return;
     const r = await fetch(`/api/resources/designations/${item.id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     onSaved();

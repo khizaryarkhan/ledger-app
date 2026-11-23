@@ -11,6 +11,7 @@ import { RefreshCw, Landmark, Loader, Check, X } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { controlCompact, controlInset, tableHead } from "@/components/form-kit";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 const money = fmt.num2;
 
@@ -47,7 +48,7 @@ export function ReconcileConsole() {
     setMsg("Reconciled ✓"); setStmtBal(""); loadView(accountId); loadAccts();
   }
   async function undo(id: string) {
-    if (!confirm("Undo this reconciliation? Its lines become un-cleared.")) return;
+    if (!await askConfirm("Undo this reconciliation? Its lines become un-cleared.")) return;
     await fetch(`/api/accounting/reconcile?id=${id}`, { method: "DELETE" });
     loadView(accountId); loadAccts();
   }

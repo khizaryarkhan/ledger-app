@@ -11,6 +11,7 @@
 import { formatDateShort } from "@/lib/format";
 import { useState, useEffect } from "react";
 import { fmt } from "@/lib/format";
+import { tell } from "@/lib/dialogs";
 
 type Activity = {
   channel: string; direction?: string; sender: string | null; recipients?: string | null;
@@ -100,7 +101,7 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
           : i),
       } : p);
     } catch (e: any) {
-      alert(e.message || "Failed to save comment");
+      tell(e.message || "Failed to save comment");
     } finally { setSaving(null); }
   }
 

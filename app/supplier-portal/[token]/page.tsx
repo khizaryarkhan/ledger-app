@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { fmt, formatDate } from "@/lib/format";
+import { askConfirm } from "@/lib/dialogs";
 
 type Line = {
   id: string; name: string; orderUom: string | null; unitsPerOrderUnit: number; baseUom: string | null;
@@ -65,9 +66,9 @@ export default function SupplierPortalPage() {
   const newTotal = useMemo(() => (view?.lines ?? []).reduce((s, l) => s + (qtyOf(l) || 0) * l.rate, 0), [view, qty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(kind: "confirm" | "revise" | "decline") {
-    if (kind === "decline" && !confirm("Tell the buyer you cannot supply this order?")) return;
+    if (kind === "decline" && !await askConfirm("Tell the buyer you cannot supply this order?")) return;
     const zeroed = (view?.lines ?? []).filter(l => !l.closed && qtyOf(l) === 0 && l.qty > 0);
-    if (kind === "revise" && zeroed.length && !confirm(`You've set ${zeroed.map(l => l.name).join(", ")} to 0 — that tells the buyer you can't supply ${zeroed.length === 1 ? "it" : "them"}. Send anyway?`)) return;
+    if (kind === "revise" && zeroed.length && !await askConfirm(`You've set ${zeroed.map(l => l.name).join(", ")} to 0 — that tells the buyer you can't supply ${zeroed.length === 1 ? "it" : "them"}. Send anyway?`)) return;
     setBusy(true); setErr("");
     const res = await fetch(`/api/supplier-portal/${token}`, {
       method: "POST", headers: { "Content-Type": "application/json" },

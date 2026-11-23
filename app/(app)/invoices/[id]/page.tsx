@@ -11,6 +11,7 @@ import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink, MoreHorizontal } from "lucide-react";
 import { isPaidOrClosed as isInvoicePaidOrClosed } from "@/lib/receivable-composition";
+import { tell } from "@/lib/dialogs";
 
 // Each of these maps to one of QBO's three preconditions for issuing a payment
 // link (see QboPayLinkReason in lib/qbo-token.ts) — a different fix per case,
@@ -85,11 +86,11 @@ export default function InvoiceDetailPage() {
     try {
       const res = await fetch(`/api/invoices/${inv.id}/pay-link`);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { alert(data.error || "Failed to get payment link"); return; }
-      if (!data.payUrl) { alert(PAY_LINK_MESSAGES[data.reason as string] ?? PAY_LINK_MESSAGES.no_link_returned); return; }
+      if (!res.ok) { tell(data.error || "Failed to get payment link"); return; }
+      if (!data.payUrl) { tell(PAY_LINK_MESSAGES[data.reason as string] ?? PAY_LINK_MESSAGES.no_link_returned); return; }
       window.open(data.payUrl, "_blank", "noopener,noreferrer");
     } catch {
-      alert("Failed to get payment link");
+      tell("Failed to get payment link");
     } finally {
       setLoadingPayLink(false);
     }
@@ -105,7 +106,7 @@ export default function InvoiceDetailPage() {
       clearTimeout(timer);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to download PDF");
+        tell(err.error || "Failed to download PDF");
         return;
       }
       const blob = await res.blob();
@@ -117,8 +118,8 @@ export default function InvoiceDetailPage() {
       URL.revokeObjectURL(url);
     } catch (e: any) {
       clearTimeout(timer);
-      if (e?.name === "AbortError") alert("PDF download timed out — please try again.");
-      else alert("Failed to download PDF");
+      if (e?.name === "AbortError") tell("PDF download timed out — please try again.");
+      else tell("Failed to download PDF");
     } finally {
       setDownloadingPdf(false);
     }
@@ -154,7 +155,7 @@ export default function InvoiceDetailPage() {
       });
       await refresh();
     } catch {
-      alert("Failed to update stage");
+      tell("Failed to update stage");
     } finally {
       setStageSaving(false);
     }
@@ -192,7 +193,7 @@ export default function InvoiceDetailPage() {
       await fetch(`/api/invoices/${inv.id}`, { method: "DELETE" });
       router.push("/invoices");
     } catch {
-      alert("Failed to delete invoice");
+      tell("Failed to delete invoice");
       setDeleting(false);
     }
   };

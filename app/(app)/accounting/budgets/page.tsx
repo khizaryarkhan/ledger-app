@@ -7,6 +7,7 @@ import { ListPage, ListPageHeader, listTable, listRow, listCell, listNumCell } f
 import { Drawer, DrawerFooter, Field, CalcInput, SelectField, control, controlInset, controlCompactIcon, cell } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { MONTH_LABELS, isBudgetableAccount, accountKind, parseAmount, rowTotal } from "@/lib/accounting/budgets";
+import { askConfirm } from "@/lib/dialogs";
 
 type BudgetRow = { id: string; name: string; year: number; status: string; lineCount: number };
 type Acct = { id: string; name: string; code: string | null; type: string | null; classification: string | null; status?: string; isHeader?: boolean };
@@ -43,7 +44,7 @@ function BudgetList({ onOpen }: { onOpen: (id: string) => void }) {
     load();
   }
   async function remove(b: BudgetRow) {
-    if (!confirm(`Delete budget "${b.name}"? This cannot be undone.`)) return;
+    if (!await askConfirm(`Delete budget "${b.name}"? This cannot be undone.`)) return;
     await fetch(`/api/accounting/budgets/${b.id}`, { method: "DELETE" });
     load();
   }

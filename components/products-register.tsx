@@ -33,6 +33,7 @@ import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import { askConfirm } from "@/lib/dialogs";
 
 type ProductType = ItemKind;
 
@@ -179,7 +180,7 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   const [err, setErr] = useState("");
 
   async function del() {
-    if (!confirm(`Delete "${item.name}"? This can't be undone.`)) return;
+    if (!await askConfirm(`Delete "${item.name}"? This can't be undone.`)) return;
     setBusy(true); setErr("");
     const r = await fetch(`/api/inventory/items/${item.id}`, { method: "DELETE" });
     setBusy(false);

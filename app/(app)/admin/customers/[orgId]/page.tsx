@@ -13,6 +13,7 @@ import { Pencil } from "lucide-react";
 import { EditOrgModal } from "../../_org-management";
 import { fmt } from "@/lib/format";
 import { MODULE_KEYS, MODULES, type ModuleKey } from "@/lib/modules";
+import { askConfirm } from "@/lib/dialogs";
 
 const STATUS_BADGE: Record<string, string> = {
   paid: "green", open: "blue", draft: "neutral", void: "neutral", uncollectible: "red",
@@ -109,7 +110,7 @@ export default function CustomerDetailPage() {
   };
 
   const invoiceAction = async (invId: string, body: any, confirmMsg?: string, promptNote?: boolean) => {
-    if (confirmMsg && !confirm(confirmMsg)) return;
+    if (confirmMsg && !await askConfirm(confirmMsg)) return;
     if (promptNote) { const n = window.prompt("Note / reference (optional):") ?? ""; body.note = n.trim() || undefined; }
     setActing(invId);
     try {
@@ -124,7 +125,7 @@ export default function CustomerDetailPage() {
 
   const cancelSub = async () => {
     const sub = data?.subscription; if (!sub) return;
-    if (!confirm(`Cancel ${data.org.name}'s subscription now and revoke access?`)) return;
+    if (!await askConfirm(`Cancel ${data.org.name}'s subscription now and revoke access?`)) return;
     setActing("sub");
     try {
       const r = await fetch(`/api/admin/subscriptions/${sub.id}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ atPeriodEnd: false }) });
@@ -214,7 +215,7 @@ export default function CustomerDetailPage() {
   // customer name/address. Update the Stripe customer name first.
   const createNewInvoice = async () => {
     const sub = data?.subscription; if (!sub) return;
-    if (!confirm(`Generate a new invoice for ${data.org.name}'s current subscription?`)) return;
+    if (!await askConfirm(`Generate a new invoice for ${data.org.name}'s current subscription?`)) return;
     setCreatingInvoice(true);
     try {
       const r = await fetch(`/api/admin/subscriptions/${sub.id}/create-invoice`, { method: "POST" });

@@ -22,6 +22,7 @@ import {
 } from "@/components/list-chrome";
 import { inWindow } from "@/lib/list-period";
 import { Button } from "@/components/ui";
+import { askConfirm } from "@/lib/dialogs";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
 // `icon` was dropped: the shared ListPageHeader (unlike this file's old
@@ -171,7 +172,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
   useEffect(() => { setRows(null); setMsg(""); setExpanded(null); setLinks({}); load(); }, [kind]);
 
   async function invoiceFull(id: string) {
-    if (!confirm(`Create a ${meta.convertTo} for the full remaining amount?`)) return;
+    if (!await askConfirm(`Create a ${meta.convertTo} for the full remaining amount?`)) return;
     setBusyId(id); setMsg("");
     try {
       const res = await fetch(`/api/trade-documents/${kind}/${id}/convert`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -183,7 +184,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
   }
 
   async function del(id: string, no: string) {
-    if (!confirm(`Delete ${meta.singular} ${no || ""}? This can't be undone.`)) return;
+    if (!await askConfirm(`Delete ${meta.singular} ${no || ""}? This can't be undone.`)) return;
     setBusyId(id); setMsg("");
     try {
       const res = await fetch(`/api/trade-documents/${kind}/${id}`, { method: "DELETE" });
@@ -225,7 +226,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
 
   async function delSelected() {
     const n = selectedRows.length;
-    if (!confirm(`Delete ${n} ${n === 1 ? meta.singular : plural}? This can't be undone.`)) return;
+    if (!await askConfirm(`Delete ${n} ${n === 1 ? meta.singular : plural}? This can't be undone.`)) return;
     setBusyId("bulk"); setMsg("");
     try {
       let failed = 0; let firstError = "";

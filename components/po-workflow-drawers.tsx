@@ -15,6 +15,7 @@ import { fmt, formatDate } from "@/lib/format";
 import { CLOSE_REASONS } from "@/lib/accounting/po-workflow";
 import { COLOR_OPTIONS } from "@/lib/stages";
 import type { PoStageSet } from "@/components/po-stage-chip";
+import { askConfirm } from "@/lib/dialogs";
 
 type Done = (message: string) => void;
 
@@ -310,7 +311,7 @@ export function ManageStagesDrawer({ stages, onClose, onChanged }: { stages: PoS
                   <input className={`${controlInset} flex-1`} defaultValue={s.label} disabled={busy}
                     onBlur={e => { const v = e.target.value.trim(); if (v && v !== s.label) run("PATCH", { key: s.key, label: v }); }} />
                   {custom && (
-                    <button onClick={() => confirm(`Delete the stage "${s.label}"?`) && run("DELETE", { key: s.key })} disabled={busy}
+                    <button onClick={async () => await askConfirm(`Delete the stage "${s.label}"?`) && run("DELETE", { key: s.key })} disabled={busy}
                       className="rounded p-2 text-stone-500 hover:bg-stone-800 hover:text-rose-400" aria-label={`Delete ${s.label}`}><Trash2 size={14} /></button>
                   )}
                 </div>

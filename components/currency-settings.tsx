@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { Coins, Check, Loader, Lock } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
+import { askConfirm } from "@/lib/dialogs";
 
 // Home currency + multi-currency toggle. The home currency is the base your
 // books are kept in; enabling multi-currency lets transactions be entered in
@@ -69,9 +70,9 @@ export function CurrencySettings() {
 
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const v = !mc;
-                  if (v && !confirm("Enable multi-currency?\n\nOnce enabled, your home currency (" + home + ") becomes permanent and can't be changed — this keeps every stored exchange rate valid. Continue?")) return;
+                  if (v && !await askConfirm("Enable multi-currency?\n\nOnce enabled, your home currency (" + home + ") becomes permanent and can't be changed — this keeps every stored exchange rate valid. Continue?")) return;
                   setMc(v); save({ multicurrencyEnabled: v });
                 }}
                 className="flex items-center gap-3 group">

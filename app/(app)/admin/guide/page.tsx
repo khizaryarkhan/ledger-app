@@ -9,6 +9,7 @@ import {
   Plus, Trash2, ChevronUp, ChevronDown, Save, Eye, EyeOff, RotateCcw, Loader,
   GripVertical, Image as ImageIcon, Upload,
 } from "lucide-react";
+import { askConfirm } from "@/lib/dialogs";
 
 type Key = "customer" | "admin";
 
@@ -106,8 +107,8 @@ export default function AdminGuideEditor() {
     } finally { setSaving(false); }
   };
 
-  const resetToDefault = () => {
-    if (!confirm("Replace the editor contents with the built-in default? You'll still need to Save to apply it.")) return;
+  const resetToDefault = async () => {
+    if (!await askConfirm("Replace the editor contents with the built-in default? You'll still need to Save to apply it.")) return;
     setGuide(DEFAULT_GUIDES[key]);
   };
 
