@@ -108,3 +108,10 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - EST-0001 in Test Organization predated the fix and sat "Fully invoiced" with no invoice; the app could not delete it ("reverse those first"). Added `scripts/_fix_orphaned_converted_trade_docs.ts` (dry run by default, `--org-name` required) and reopened it. Estimates and POs only; it tests invoiced amount / converted entry, NOT `billedQty` (receipts drive that, so PO-0003/PO-0004 were correctly left alone).
 - Re-ran "Invoice remaining" on deployed code: INV-0005 posted Cost of Sales 43.38 and reduced Finished Goods Inventory to 109.02. Stock vs GL ties, Trial Balance balances (3,341.00). Estimate-to-invoice stock fix CONFIRMED.
 - Delete guard wording said "reverse"; now "delete".
+- Fixed assets: created via inline account quick-add (types preset correctly), depreciation preview/post/re-run is idempotent ("Nothing to post"). Entry is dated month end, so a Trial Balance "as at today" before month end correctly omits it. Register's "Accumulated" is the schedule to date, not the posted amount (labelling polish).
+- Budgets: create, grid, save, Budget vs Actual tie to the ledger.
+- Period close: closed through 22 Nov (1,172.87 to Retained Earnings), delete of a locked-period entry was refused, reopen reversed the closing entry cleanly. FOUND: the refusal was shown with a native alert() that froze the browser; journal delete now uses the shared centred Modal with the refusal inline. Reversal memo said "Reversal of JE-17" (raw sequence); now the visible JE-0002.
+- Resources reports (compliance, hours over plan, utilization) render; the super admin has no timesheet in an org they are not a member of (by design; copy could say so).
+- MSQ is empty (0 invoices), so no cross-org cycle was possible without creating data.
+- EDI on an invoice not made from shipments refuses clearly ("This customer has no EDI profile").
+- Still open: ~60 native confirm()/alert() left across the app, onboarding checklist assumes QuickBooks, super-admin copy on My Timesheet.
