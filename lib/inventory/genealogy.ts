@@ -348,11 +348,28 @@ export type DistributionRow = {
   qty: number; uom: string | null; unitPrice: number; amount: number; date: string | null;
 };
 
+/** One thing that happened to this lot's stock: used in production, sent to a job
+ *  worker or shipped. Direct uses only; what a produced lot later became is its own trace. */
+export type UsageRow = {
+  kind: "production" | "jobwork" | "sale";
+  label: string; date: string | null; qty: number; by: string | null;
+  /** Lots this use created (production / job work), so the trail can be followed. */
+  producedLots: { id: string; lotNo: string | null; itemName: string }[];
+};
+
 export type LotTraceReport = {
   lot: LotSummary; operator: string | null;
   rawMaterials: RawMaterialRow[]; processing: ProcessingRow[];
   costRollup: CostRollupRow[]; distribution: DistributionRow[];
+  usage: UsageRow[];
 };
+
+function usageRows(edges: DescendantEdge[]): UsageRow[] {
+  return edges.map(e => ({
+    kind: e.kind, label: e.label, date: e.date, qty: round2(e.qtyConsumed), by: e.by,
+    producedLots: (e.producedLots ?? []).map(p => ({ id: p.id, lotNo: p.lotNo, itemName: p.itemName })),
+  }));
+}
 
 async function itemBaseUom(itemId: string): Promise<string | null> {
   const [row] = await db.select({ baseUom: apItems.baseUom }).from(apItems).where(eq(apItems.id, itemId)).limit(1);
@@ -526,5 +543,5 @@ export async function buildLotTraceReport(orgId: string, lotId: string): Promise
     }
   }
 
-  return { lot, operator, rawMaterials, processing, costRollup, distribution };
+  return { lot, operator, rawMaterials, processing, costRollup, distribution, usage: usageRows(descendantsTree) };
 }

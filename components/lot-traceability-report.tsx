@@ -18,7 +18,7 @@ import { useSearchParams } from "next/navigation";
 import { Search, GitBranch, Truck, ShieldCheck, ShieldAlert, FileDown } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
-import { controlInset, tableHead } from "@/components/form-kit";
+import { controlInset, tableHead, SelectField } from "@/components/form-kit";
 
 const qty = fmt.qty;
 const money = fmt.num2;
@@ -55,6 +55,18 @@ export function LotTraceabilityReport() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
+  // Dropdown route to a lot: pick an item, then one of its lots. Typing a code still works.
+  const [items, setItems] = useState<{ id: string; name: string; lots: number }[]>([]);
+  const [itemId, setItemId] = useState("");
+  const [itemLots, setItemLots] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/inventory/lots?items=1").then(r => r.json()).then(d => setItems(Array.isArray(d) ? d : [])).catch(() => setItems([]));
+  }, []);
+  useEffect(() => {
+    if (!itemId) { setItemLots([]); return; }
+    fetch(`/api/inventory/lots?itemId=${encodeURIComponent(itemId)}`).then(r => r.json()).then(d => setItemLots(Array.isArray(d) ? d : [])).catch(() => setItemLots([]));
+  }, [itemId]);
+
   async function search() {
     if (!q.trim()) { setResults([]); setSearched(false); return; }
     const r = await fetch(`/api/inventory/lots?q=${encodeURIComponent(q.trim())}`).then(x => x.json()).catch(() => []);
@@ -72,6 +84,10 @@ export function LotTraceabilityReport() {
   const totalCost = data?.costRollup?.find((r: any) => r.label.startsWith("Total"))?.amount ?? 0;
   const declaredValue = data ? Math.round(data.lot.unitCost * data.lot.origQty * 100) / 100 : 0;
   const reconciled = data ? (Math.abs(totalCost - declaredValue) < 0.01 || (data.rawMaterials ?? []).length === 0) : false;
+  // Raw-material, processing and cost-rollup sections describe how a lot was MADE. A lot that was
+  // bought, counted in or opened has none of that; it has an origin instead.
+  const manufactured = data ? data.lot.sourceType === "production" || data.lot.sourceType === "jobwork" : false;
+  useEffect(() => { if (data?.lot?.itemId) setItemId(cur => (cur === data.lot.itemId ? cur : data.lot.itemId)); }, [data]);
   const sum = (rows: any[]) => rows.reduce((s, r) => s + r.amount, 0);
   const rawTotal = data ? sum(data.rawMaterials) : 0;
   const processingTotal = data ? sum(data.processing) : 0;
@@ -79,9 +95,30 @@ export function LotTraceabilityReport() {
 
   return (
     <ReportShell title="Lot Traceability" sub="A lot's complete history — raw materials, processing, cost rollup and distribution." icon={GitBranch} onRefresh={() => selectedId && load(selectedId)} loading={loading}>
-      <div className="relative max-w-sm mb-4">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Search by lot code…" className={`${controlInset} pl-9`} />
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <label className="block w-56">
+          <span className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Item</span>
+          <SelectField inset value={itemId} onChange={e => { setItemId(e.target.value); setSelectedId(null); setData(null); }}>
+            <option value="">Choose an item…</option>
+            {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.lots})</option>)}
+          </SelectField>
+        </label>
+        <label className="block w-72">
+          <span className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Lot</span>
+          <SelectField inset value={selectedId ?? ""} disabled={!itemId} onChange={e => e.target.value && setSelectedId(e.target.value)}>
+            <option value="">{itemId ? (itemLots.length ? "Choose a lot…" : "No lots for this item") : "Choose an item first"}</option>
+            {itemLots.map(l => (
+              <option key={l.id} value={l.id}>
+                {l.lotNo ?? l.id.slice(0, 8)} · {l.status} · {qty(l.remainingQty)}/{qty(l.origQty)} left{l.receivedDate ? ` · ${l.receivedDate}` : ""}
+              </option>
+            ))}
+          </SelectField>
+        </label>
+        <span className="pb-2 text-[12px] text-stone-500">or</span>
+        <div className="relative w-64">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Type a lot code…" className={`${controlInset} pl-9`} />
+        </div>
       </div>
 
       {results.length > 0 && !selectedId && (
@@ -114,7 +151,7 @@ export function LotTraceabilityReport() {
                     <a href={`/print/lot-trace/${selectedId}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-400 hover:underline">
                       <FileDown size={13} /> Print / Download PDF
                     </a>
-                    <button onClick={() => { setSelectedId(null); setData(null); setResults([]); setQ(""); setSearched(false); }} className="text-[12px] text-stone-500 hover:text-stone-300">New search</button>
+                    <button onClick={() => { setSelectedId(null); setData(null); setResults([]); setQ(""); setSearched(false); setItemId(""); }} className="text-[12px] text-stone-500 hover:text-stone-300">New search</button>
                   </div>
                 </div>
 
@@ -126,13 +163,20 @@ export function LotTraceabilityReport() {
                   <div className="px-3 py-2.5 bg-stone-950/40"><div className="text-[10px] uppercase tracking-wider text-stone-500">Operator</div><div className="text-[13px] font-semibold text-stone-100 mt-0.5">{data.operator ?? "—"}</div></div>
                   <div className="px-3 py-2.5">
                     <div className="text-[10px] uppercase tracking-wider text-stone-500">Reconciliation</div>
-                    <div className={`text-[13px] font-semibold mt-0.5 flex items-center gap-1 ${reconciled ? "text-emerald-400" : "text-amber-400"}`}>
-                      {reconciled ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />} {reconciled ? "PASSED" : `REVIEW · off by ${money(Math.abs(totalCost - declaredValue))}`}
-                    </div>
+                    {manufactured ? (
+                      <div className={`text-[13px] font-semibold mt-0.5 flex items-center gap-1 ${reconciled ? "text-emerald-400" : "text-amber-400"}`}>
+                        {reconciled ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />} {reconciled ? "PASSED" : `REVIEW · off by ${money(Math.abs(totalCost - declaredValue))}`}
+                      </div>
+                    ) : (
+                      <div className="text-[13px] font-semibold mt-0.5 text-stone-300">
+                        {data.lot.sourceType === "purchase" ? "Bought at cost" : data.lot.sourceType === "opening" ? "Opening stock" : data.lot.sourceType === "adjustment" ? "Found in a count" : data.lot.sourceType}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
+              {manufactured ? (<>
               <SectionCard n={1} title="Raw Material Procurement & Consumption" empty={data.rawMaterials.length === 0 ? "No purchased raw materials in this lot's ancestry — it may have been produced entirely from other manufactured/job-worked stock." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
                   <thead><tr className={tableHead}>
@@ -223,7 +267,54 @@ export function LotTraceabilityReport() {
                 </table>
               </SectionCard>
 
-              <SectionCard n={4} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
+              </>) : (
+              <SectionCard n={1} title="Where this lot came from" empty={!data.lot.origin ? (data.lot.sourceType === "purchase" ? "No goods receipt is linked to this lot." : "This lot was created by a stock count or opening balance, so there is no supplier or purchase order behind it.") : undefined}>
+                {data.lot.origin && (
+                  <table className="w-full text-[13px] min-w-[560px]">
+                    <thead><tr className={tableHead}>
+                      <Th>Supplier</Th><Th>Purchase order</Th><Th>Goods receipt</Th><Th>Received</Th><Th r>Qty</Th><Th r>Unit cost</Th><Th r>Value</Th><Th>Received by</Th>
+                    </tr></thead>
+                    <tbody>
+                      <tr className="border-b border-stone-800/60">
+                        <td className="px-4 py-2 text-stone-100">{data.lot.origin.supplierLabel ?? "—"}</td>
+                        <td className="px-4 py-2"><DocLink mono href={data.lot.origin.poId ? `/print/trade/purchase-orders/${data.lot.origin.poId}` : null}>{data.lot.origin.poNumber ?? "No PO"}</DocLink></td>
+                        <td className="px-4 py-2"><DocLink mono href={data.lot.origin.receiptEntryId ? `/accounting/transactions/${data.lot.origin.receiptEntryId}` : null}>{data.lot.origin.receiptNo ?? "—"}</DocLink></td>
+                        <td className="px-4 py-2 text-stone-400">{data.lot.origin.date ?? ""}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-200">{qty(data.lot.origin.qty)} {data.lot.baseUom ?? ""}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-400">{money(data.lot.origin.unitCost)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-100">{money(data.lot.origin.unitCost * data.lot.origin.qty)}</td>
+                        <td className="px-4 py-2 text-stone-400">{data.lot.origin.receivedBy ?? "—"}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </SectionCard>
+              )}
+
+              <SectionCard n={manufactured ? 4 : 2} title="Where this lot went" empty={(data.usage ?? []).length === 0 ? `Nothing has been issued from this lot yet — all ${qty(data.lot.remainingQty)} ${data.lot.baseUom ?? ""} is still on hand.` : undefined}>
+                <table className="w-full text-[13px] min-w-[560px]">
+                  <thead><tr className={tableHead}>
+                    <Th>What happened</Th><Th>Date</Th><Th r>Qty used</Th><Th>Made</Th><Th>By</Th>
+                  </tr></thead>
+                  <tbody>
+                    {(data.usage ?? []).map((u: any, i: number) => (
+                      <tr key={i} className="border-b border-stone-800/60">
+                        <td className="px-4 py-2 text-stone-200">{u.label}</td>
+                        <td className="px-4 py-2 text-stone-500">{u.date ?? ""}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-200">{qty(u.qty)} {data.lot.baseUom ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-300">
+                          {u.producedLots.length === 0 ? "—" : u.producedLots.map((p: any) => (
+                            <button key={p.id} onClick={() => setSelectedId(p.id)} className="mr-2 text-emerald-400 hover:underline">{p.itemName} <span className="font-mono">{p.lotNo ?? p.id.slice(0, 8)}</span></button>
+                          ))}
+                        </td>
+                        <td className="px-4 py-2 text-stone-400">{u.by ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </SectionCard>
+
+              <SectionCard n={manufactured ? 5 : 3} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
                   <thead><tr className={tableHead}>
                     <Th>Shipment</Th><Th>Invoice</Th><Th>Sold-To Customer</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Unit Price</Th><Th r>Amount</Th><Th>Date</Th>
