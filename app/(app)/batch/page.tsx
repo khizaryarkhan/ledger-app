@@ -21,7 +21,7 @@ const CAP_LABEL: { key: "upload" | "download" | "delete" | "modify"; label: stri
 ];
 
 export default function DataStudioHome() {
-  const { entities, groups, provider, loading } = useBatchEntities();
+  const { entities, groups, provider, connected, loading } = useBatchEntities();
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
@@ -51,6 +51,14 @@ export default function DataStudioHome() {
           </p>
         </div>
       </div>
+
+      {!loading && !connected && (
+        <div className="mt-5 max-w-2xl rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[13px] text-stone-300">
+          Data Studio works on an organisation connected to QuickBooks or Xero, and this one
+          isn&apos;t connected to either. Connect one in Settings → Connections to import, export or
+          update records.
+        </div>
+      )}
 
       <div className="relative mt-5 mb-6 max-w-sm">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />

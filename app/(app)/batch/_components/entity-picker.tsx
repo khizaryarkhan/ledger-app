@@ -19,14 +19,18 @@ export function useBatchEntities() {
   const [entities, setEntities] = useState<BatchEntityMeta[]>([]);
   const [groups, setGroups] = useState<GroupMeta[]>([]);
   const [provider, setProvider] = useState<"qbo" | "xero" | null>(null);
+  const [connected, setConnected] = useState(true);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     fetch("/api/batch/entities")
       .then((r) => (r.ok ? r.json() : { entities: [], groups: [] }))
-      .then((d) => { setEntities(d.entities || []); setGroups(d.groups || []); setProvider(d.provider ?? null); })
+      .then((d) => {
+        setEntities(d.entities || []); setGroups(d.groups || []); setProvider(d.provider ?? null);
+        setConnected(d.connected !== false);
+      })
       .finally(() => setLoading(false));
   }, []);
-  return { entities, groups, provider, loading };
+  return { entities, groups, provider, connected, loading };
 }
 
 /**

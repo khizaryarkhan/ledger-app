@@ -29,5 +29,5 @@ export async function GET() {
     note: e.note ?? null, columns: e.columns,
     hasDateFilter: !!e.dateColumn, hasRefNumberFilter: !!e.refNumberColumn,
   }));
-  return ok({ provider: provider ?? "qbo", entities, groups: ENTITY_GROUPS });
+  return ok({ provider: provider ?? "qbo", connected: provider !== null, entities, groups: ENTITY_GROUPS });
 }
