@@ -101,3 +101,4 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - [!] **Estimate -> invoice for a stocked item posted revenue but did not issue stock or book cost of sales** (lines had no quantity). Fixed in convertTradeDoc; test added. INV-0004 in Test Organization predates the fix (stock/COGS missing) and is to be deleted and redone.
 - [!] Ledger rows now have an "Open" link; Payables bill page links to its ledger entry.
 - [ ] Open polish: 63 native confirm() popups across the app (hang browser automation, look dated, refused in some embedded browsers).
+- [!] Deleting an invoice made from an estimate left the estimate "Fully invoiced" for ever -> convertTradeDoc tags lines (tradeLineId); deleteDocument gives the amounts back and reopens the source (also covers PO -> bill). EST-0001 in Test Organization predates this (to be deleted and redone).

@@ -471,7 +471,7 @@ export async function convertTradeDoc(orgId: string, id: string, actorId: string
       const lineQty = Number(t.line.qty) || 0, lineAmt = Number(t.line.amount) || 0;
       const qty = lineQty > 0 && lineAmt > 0 ? Math.round(lineQty * (t.net / lineAmt) * 1e6) / 1e6 : undefined;
       return {
-        accountId: t.line.accountId ?? undefined, itemId: t.line.itemId ?? undefined, description: t.line.description, amount: t.net,
+        accountId: t.line.accountId ?? undefined, itemId: t.line.itemId ?? undefined, description: t.line.description, amount: t.net, tradeLineId: t.line.id,
         ...(qty ? { qty, rate: Math.round((t.net / qty) * 1e6) / 1e6, unitsPerOrderUnit: Number(t.line.unitsPerOrderUnit) || 1 } : {}),
         taxRateId: t.line.taxRateId, classId: t.line.classId ?? undefined, locationId: t.line.locationId ?? undefined,
       };

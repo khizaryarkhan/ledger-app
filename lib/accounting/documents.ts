@@ -82,6 +82,8 @@ export type DocLineInput = {
   // posting logic above; closePoLinesOnBill reads it afterward to advance
   // that PO line's billed progress and status. See its own doc comment.
   poLineId?: string | null;
+  /** The Estimate / Purchase Order line this document line was converted from (set by convertTradeDoc). */
+  tradeLineId?: string | null;
 };
 
 export type PostDocInput = {
@@ -1457,6 +1459,35 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
         const invoicedNet = round2(refreshed.reduce((s, l) => s + Number(l.invoicedAmount), 0));
         const status = invoicedNet >= totalNet - 0.005 ? "Closed" : invoicedNet > 0.005 ? "Partial" : "Open";
         await db.update(tradeDocuments).set({ status, updatedAt: new Date() }).where(eq(tradeDocuments.id, poId));
+      }
+    }
+  }
+
+  // An Invoice or Bill made by converting an Estimate / Purchase Order (convertTradeDoc) advanced "invoiced so far"
+  // on the trade lines. Each converted line carries its trade line id in the stored payload (tradeLineId), so
+  // deleting the document gives exactly those amounts back and reopens the source — otherwise a deleted invoice
+  // leaves its estimate "fully invoiced" for ever, with nothing left to invoice it again.
+  if (entry.sourceType === "Invoice" || entry.sourceType === "Bill") {
+    const payload: any = entry.sourcePayload ?? {};
+    const givenBack = new Map<string, number>(
+      (Array.isArray(payload.lines) ? payload.lines : [])
+        .filter((l: any) => l?.tradeLineId)
+        .map((l: any) => [l.tradeLineId as string, round2(Number(l.amount) || 0)]),
+    );
+    if (givenBack.size) {
+      const touched = await db.select().from(tradeDocumentLines)
+        .where(and(eq(tradeDocumentLines.orgId, orgId), inArray(tradeDocumentLines.id, [...givenBack.keys()])));
+      for (const l of touched) {
+        await db.update(tradeDocumentLines)
+          .set({ invoicedAmount: round2(Math.max(0, Number(l.invoicedAmount) - (givenBack.get(l.id) ?? 0))).toFixed(2) })
+          .where(eq(tradeDocumentLines.id, l.id));
+      }
+      for (const docId of [...new Set(touched.map(l => l.documentId))]) {
+        const refreshed = await db.select().from(tradeDocumentLines).where(and(eq(tradeDocumentLines.orgId, orgId), eq(tradeDocumentLines.documentId, docId)));
+        const totalNet = round2(refreshed.reduce((s, l) => s + Number(l.amount), 0));
+        const invoicedNet = round2(refreshed.reduce((s, l) => s + Number(l.invoicedAmount), 0));
+        const status = invoicedNet >= totalNet - 0.005 ? "Closed" : invoicedNet > 0.005 ? "Partial" : "Open";
+        await db.update(tradeDocuments).set({ status, convertedEntryId: invoicedNet > 0.005 ? undefined : null, updatedAt: new Date() }).where(eq(tradeDocuments.id, docId));
       }
     }
   }

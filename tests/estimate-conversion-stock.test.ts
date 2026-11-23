@@ -22,3 +22,20 @@ describe("estimate / PO conversion carries quantity", () => {
     expect(conv).toMatch(/lineQty \* \(t\.net \/ lineAmt\)/);
   });
 });
+
+// Deleting the invoice must reopen the estimate it came from; before, the estimate
+// stayed "fully invoiced" for ever with no invoice left.
+describe("deleting a converted document reopens its source", () => {
+  const docs = readFileSync(join(__dirname, "..", "lib", "accounting", "documents.ts"), "utf8");
+
+  it("conversion tags every line with its trade line", () => {
+    expect(conv).toContain("tradeLineId: t.line.id");
+  });
+
+  it("delete gives the invoiced amounts back and recomputes the status", () => {
+    const del = docs.slice(docs.indexOf("export async function deleteDocument"));
+    expect(del).toContain("tradeLineId");
+    expect(del).toMatch(/Number\(l\.invoicedAmount\) - \(givenBack\.get/);
+    expect(del).toContain('"Open"');
+  });
+});
