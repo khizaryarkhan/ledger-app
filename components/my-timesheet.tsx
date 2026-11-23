@@ -35,6 +35,7 @@ import { askConfirm } from "@/lib/dialogs";
 
 interface Me {
   resource: { id: string; name: string; dailyCapacity: number } | null;
+  isOrgAdmin?: boolean;
 }
 interface Entry {
   id: string; date: string; hours: string; timesheetTypeId: string;
@@ -127,7 +128,9 @@ export function MyTimesheet() {
     return (
       <div className="p-6">
         <div className="max-w-md rounded-lg border border-stone-800 bg-stone-900 p-5 text-[13px] text-stone-300">
-          Your login is not linked to a person yet. Ask an admin to link it to your profile.
+          {me.isOrgAdmin
+            ? "Your login is not linked to a person yet, so there is no timesheet to fill in. You can add yourself under Resources → People if you want to log time."
+            : "Your login is not linked to a person yet. Ask an admin to link it to your profile."}
         </div>
       </div>
     );

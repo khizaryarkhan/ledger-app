@@ -80,7 +80,7 @@ export default function FixedAssetsPage() {
           <table className="w-full text-[13px]">
             <thead><tr>
               <th className={th}>Asset</th><th className={th}>Purchased</th>
-              <th className={th + " text-right"}>Cost</th><th className={th + " text-right"}>Accumulated</th>
+              <th className={th + " text-right"}>Cost</th><th className={th + " text-right"}>Accum. depreciation</th>
               <th className={th + " text-right"}>Net book value</th><th className={th}>Status</th>
             </tr></thead>
             <tbody>
@@ -207,7 +207,7 @@ function AssetDrawer({ id, onClose, onChanged }: { id: string; onClose: () => vo
       {!data ? <p className="text-[13px] text-stone-500">Loading...</p> : (
         <table className="w-full text-[13px]">
           <thead><tr><th className={th}>Month</th><th className={th + " text-right"}>Charge</th>
-            <th className={th + " text-right"}>Accumulated</th><th className={th + " text-right"}>NBV</th><th className={th}>Posted</th></tr></thead>
+            <th className={th + " text-right"}>Accum. depreciation</th><th className={th + " text-right"}>NBV</th><th className={th}>Posted</th></tr></thead>
           <tbody>
             {data.schedule.map(r => (
               <tr key={r.period} className={"border-b border-stone-800/70 " + (r.cancelled ? "opacity-40" : "")}>

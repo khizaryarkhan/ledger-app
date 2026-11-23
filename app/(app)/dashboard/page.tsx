@@ -885,7 +885,7 @@ export default function DashboardPage() {
     const integrationsConnected = invoices.length > 0;
     const hasAutoContacts = (contacts ?? []).filter((c: any) => c.receivesAuto).length > 0;
     return [
-      { label: "Connect QuickBooks or Xero", done: integrationsConnected, href: "/settings/integrations" },
+      { label: "Connect QuickBooks or Xero, or create your first invoice", done: integrationsConnected, href: "/settings/integrations" },
       { label: "Configure SMTP or connect Gmail / M365", done: !!emailConfigured, href: "/settings/email" },
       { label: "Create an email template", done: !!hasTemplates, href: "/automations" },
       { label: "Enable reminder programme", done: hasAutoContacts, href: "/automations" },
@@ -1198,7 +1198,7 @@ export default function DashboardPage() {
               <div className="text-sm font-semibold">Getting started</div>
               <div className="text-[12px] text-stone-400 mt-0.5">Complete these steps to go live</div>
             </div>
-            <div className="text-[11px] text-stone-400 shrink-0 ml-4">{setupDoneCount} of 4 steps complete</div>
+            <div className="text-[11px] text-stone-400 shrink-0 ml-4">{setupDoneCount} of {setupSteps.length} steps complete</div>
           </div>
           {/* Progress bar */}
           <div className="h-1.5 bg-stone-700 rounded-full overflow-hidden mb-4">
