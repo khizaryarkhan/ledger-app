@@ -326,8 +326,10 @@ export async function reverseJournalEntry(orgId: string, entryId: string, actorI
   const [orig] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!orig) throw new LedgerValidationError("Entry not found.");
-  if (orig.status === "Reversed") throw new LedgerValidationError(`Entry JE-${orig.entryNumber} has already been reversed.`);
-  if (orig.sourceType === "Reversal") throw new LedgerValidationError(`JE-${orig.entryNumber} is itself a reversal — post a new entry instead of un-reversing.`);
+  // The number a person sees (JE-0002), not the raw sequence behind it (17).
+  const origLabel = orig.docNumber || `JE-${orig.entryNumber}`;
+  if (orig.status === "Reversed") throw new LedgerValidationError(`Entry ${origLabel} has already been reversed.`);
+  if (orig.sourceType === "Reversal") throw new LedgerValidationError(`${origLabel} is itself a reversal — post a new entry instead of un-reversing.`);
 
   const lines = await db.select().from(journalLines)
     .where(and(eq(journalLines.entryId, entryId), eq(journalLines.orgId, orgId)));
@@ -335,7 +337,7 @@ export async function reverseJournalEntry(orgId: string, entryId: string, actorI
   const reversal = await postJournalEntry({
     orgId,
     entryDate: entryDate ?? new Date().toISOString().slice(0, 10),
-    memo: `Reversal of JE-${orig.entryNumber}${orig.memo ? ` — ${orig.memo}` : ""}`,
+    memo: `Reversal of ${origLabel}${orig.memo ? ` — ${orig.memo}` : ""}`,
     sourceType: "Reversal",
     sourceId: orig.id,
     createdBy: actorId,
