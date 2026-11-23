@@ -26,8 +26,9 @@ import {
   inventoryLots, inventoryMovements, apItems, users,
   jobWorkOrders, jobWorkReceipts, productionRuns, productionOutputs, productionConsumptions,
   salesShipments, shipmentLines, goodsReceipts, goodsReceiptLines, tradeDocuments, customers, itemSkus,
+  journalEntries, inventoryLotLocations, stockLocations,
 } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { linksFor } from "@/lib/accounting/links";
 
 const MAX_DEPTH = 15; // backstop against bad/cyclic data, not a realistic supply chain depth
@@ -362,7 +363,85 @@ export type LotTraceReport = {
   rawMaterials: RawMaterialRow[]; processing: ProcessingRow[];
   costRollup: CostRollupRow[]; distribution: DistributionRow[];
   usage: UsageRow[];
+  ledger: LotLedger;
 };
+
+/** One stock movement on this lot, in date order, with the lot's running balance after it. */
+export type MovementRow = {
+  id: string; date: string | null; type: string; label: string;
+  /** Signed, in the item's base unit: + into the lot, − out. 0 for a move between locations or a cost revision. */
+  qty: number; unitCost: number | null; value: number | null;
+  docNumber: string | null; entryId: string | null; note: string | null; by: string | null;
+  balance: number;
+};
+
+export type LotLedger = {
+  rows: MovementRow[];
+  /** What the movements add up to. Must equal the lot's own remaining quantity. */
+  computedOnHand: number;
+  onHand: number;
+  difference: number;
+  locations: { code: string; name: string; qty: number }[];
+};
+
+const MOVEMENT_LABEL: Record<string, string> = {
+  receipt: "Received", produce: "Produced", jobwork_receipt: "Received from job worker",
+  issue_sale: "Shipped / sold", issue_production: "Used in production", issue_jobwork: "Sent to job worker",
+  return_sale: "Customer return", return_purchase: "Returned to supplier",
+  adjustment: "Stock count adjustment", transfer: "Moved between locations", revalue: "Cost revised",
+};
+const INTO_LOT = new Set(["receipt", "produce", "jobwork_receipt", "return_sale"]);
+const OUT_OF_LOT = new Set(["issue_sale", "issue_production", "issue_jobwork", "return_purchase"]);
+const NO_QTY_EFFECT = new Set(["transfer", "revalue"]);
+
+/** Every movement on one lot with a running balance, plus where what is left sits. The balance
+ *  is rebuilt from the movements, never read from the lot, so a disagreement with the lot's
+ *  remaining quantity is visible instead of hidden. */
+export async function lotMovementLedger(orgId: string, lotId: string, onHand: number): Promise<LotLedger> {
+  const moves = await db.select({
+    id: inventoryMovements.id, type: inventoryMovements.movementType, qty: inventoryMovements.qty,
+    unitCost: inventoryMovements.unitCost, totalCost: inventoryMovements.totalCost,
+    entryId: inventoryMovements.entryId, note: inventoryMovements.note, createdBy: inventoryMovements.createdBy,
+    // Text straight from SQL: a date is a date, never round-tripped through a JS Date.
+    day: sql<string | null>`coalesce(${inventoryMovements.movementDate}::text, ${inventoryMovements.createdAt}::date::text)`,
+  }).from(inventoryMovements)
+    .where(and(eq(inventoryMovements.orgId, orgId), eq(inventoryMovements.lotId, lotId)))
+    .orderBy(sql`coalesce(${inventoryMovements.movementDate}::text, ${inventoryMovements.createdAt}::date::text)`, inventoryMovements.createdAt);
+
+  const entryIds = Array.from(new Set(moves.map(m => m.entryId).filter((x): x is string => !!x)));
+  const docNo = new Map<string, string | null>();
+  if (entryIds.length) {
+    const es = await db.select({ id: journalEntries.id, docNumber: journalEntries.docNumber })
+      .from(journalEntries).where(and(eq(journalEntries.orgId, orgId), inArray(journalEntries.id, entryIds)));
+    for (const e of es) docNo.set(e.id, e.docNumber ?? null);
+  }
+  const names = new Map<string, string | null>();
+  for (const uid of Array.from(new Set(moves.map(m => m.createdBy).filter((x): x is string => !!x)))) names.set(uid, await userName(orgId, uid));
+
+  let balance = 0;
+  const rows: MovementRow[] = moves.map(m => {
+    const raw = Number(m.qty);
+    // A count adjustment keeps the sign it was stored with; every other type has one fixed direction.
+    const signed = NO_QTY_EFFECT.has(m.type) ? 0 : INTO_LOT.has(m.type) ? Math.abs(raw) : OUT_OF_LOT.has(m.type) ? -Math.abs(raw) : raw;
+    balance = Math.round((balance + signed) * 1e6) / 1e6;
+    return {
+      id: m.id, date: m.day, type: m.type, label: MOVEMENT_LABEL[m.type] ?? m.type,
+      qty: signed, unitCost: m.unitCost == null ? null : Number(m.unitCost),
+      value: m.totalCost == null ? null : round2(signed < 0 ? -Math.abs(Number(m.totalCost)) : Number(m.totalCost)),
+      docNumber: m.entryId ? docNo.get(m.entryId) ?? null : null, entryId: m.entryId ?? null,
+      note: m.note ?? null, by: m.createdBy ? names.get(m.createdBy) ?? null : null, balance,
+    };
+  });
+
+  const locs = await db.select({ code: stockLocations.code, name: stockLocations.name, qty: inventoryLotLocations.qty })
+    .from(inventoryLotLocations).innerJoin(stockLocations, eq(stockLocations.id, inventoryLotLocations.locationId))
+    .where(and(eq(inventoryLotLocations.orgId, orgId), eq(inventoryLotLocations.lotId, lotId)));
+
+  return {
+    rows, computedOnHand: balance, onHand, difference: Math.round((balance - onHand) * 1e6) / 1e6,
+    locations: locs.map(l => ({ code: l.code, name: l.name, qty: Number(l.qty) })).filter(l => Math.abs(l.qty) > QTY_EPSILON),
+  };
+}
 
 function usageRows(edges: DescendantEdge[]): UsageRow[] {
   return edges.map(e => ({
@@ -543,5 +622,5 @@ export async function buildLotTraceReport(orgId: string, lotId: string): Promise
     }
   }
 
-  return { lot, operator, rawMaterials, processing, costRollup, distribution, usage: usageRows(descendantsTree) };
+  return { lot, operator, rawMaterials, processing, costRollup, distribution, usage: usageRows(descendantsTree), ledger: await lotMovementLedger(orgId, lotId, lot.remainingQty) };
 }

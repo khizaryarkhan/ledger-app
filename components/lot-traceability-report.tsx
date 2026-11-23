@@ -159,8 +159,15 @@ export function LotTraceabilityReport() {
                   <div className="px-3 py-2.5 bg-stone-950/40"><div className="text-[10px] uppercase tracking-wider text-stone-500">Lot / Batch</div><div className="text-[13px] font-semibold text-stone-100 font-mono mt-0.5">{data.lot.lotNo ?? data.lot.id.slice(0, 8)}</div></div>
                   <div className="px-3 py-2.5"><div className="text-[10px] uppercase tracking-wider text-stone-500">Total Quantity</div><div className="text-[13px] font-semibold text-stone-100 tabular-nums mt-0.5">{qty(data.lot.origQty)} {data.lot.baseUom ?? ""}</div>{data.lot.packs && <div className="text-[11px] text-stone-400 mt-0.5">{qty(data.lot.packs.qty)} × {data.lot.packs.label}</div>}</div>
                   <div className="px-3 py-2.5 bg-stone-950/40"><div className="text-[10px] uppercase tracking-wider text-stone-500">Unit Cost</div><div className="text-[13px] font-semibold text-stone-100 tabular-nums mt-0.5">{money(data.lot.unitCost)}</div></div>
-                  <div className="px-3 py-2.5"><div className="text-[10px] uppercase tracking-wider text-stone-500">Total Valuation</div><div className="text-[13px] font-semibold text-stone-100 tabular-nums mt-0.5">{money(declaredValue)}</div></div>
-                  <div className="px-3 py-2.5 bg-stone-950/40"><div className="text-[10px] uppercase tracking-wider text-stone-500">Operator</div><div className="text-[13px] font-semibold text-stone-100 mt-0.5">{data.operator ?? "—"}</div></div>
+                  <div className="px-3 py-2.5">
+                    <div className="text-[10px] uppercase tracking-wider text-stone-500">On hand now</div>
+                    <div className="text-[15px] font-semibold text-emerald-400 tabular-nums mt-0.5">{qty(data.lot.remainingQty)} {data.lot.baseUom ?? ""}</div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      {data.ledger.locations.length === 0 ? (data.lot.remainingQty > 0 ? "location not recorded" : "none left")
+                        : data.ledger.locations.map((l: any) => `${qty(l.qty)} in ${l.code}`).join(" · ")}
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5 bg-stone-950/40"><div className="text-[10px] uppercase tracking-wider text-stone-500">Value on hand</div><div className="text-[13px] font-semibold text-stone-100 tabular-nums mt-0.5">{money(data.lot.remainingQty * data.lot.unitCost)}</div><div className="text-[11px] text-stone-400 mt-0.5">of {money(declaredValue)} received</div></div>
                   <div className="px-3 py-2.5">
                     <div className="text-[10px] uppercase tracking-wider text-stone-500">Reconciliation</div>
                     {manufactured ? (
@@ -291,7 +298,38 @@ export function LotTraceabilityReport() {
               </SectionCard>
               )}
 
-              <SectionCard n={manufactured ? 4 : 2} title="Where this lot went" empty={(data.usage ?? []).length === 0 ? `Nothing has been issued from this lot yet — all ${qty(data.lot.remainingQty)} ${data.lot.baseUom ?? ""} is still on hand.` : undefined}>
+              <SectionCard n={manufactured ? 4 : 2} title="Stock movement" empty={data.ledger.rows.length === 0 ? "No stock movements are recorded for this lot." : undefined}>
+                <table className="w-full text-[13px] min-w-[860px]">
+                  <thead><tr className={tableHead}>
+                    <Th>Date</Th><Th>Movement</Th><Th>Document</Th><Th r>In</Th><Th r>Out</Th><Th r>Balance</Th><Th r>Unit cost</Th><Th r>Value</Th><Th>By</Th>
+                  </tr></thead>
+                  <tbody>
+                    {data.ledger.rows.map((m: any) => (
+                      <tr key={m.id} className="border-b border-stone-800/60">
+                        <td className="px-4 py-2 text-stone-500 whitespace-nowrap">{m.date ?? ""}</td>
+                        <td className="px-4 py-2 text-stone-200">{m.label}{m.note ? <div className="text-[11px] text-stone-500">{m.note}</div> : null}</td>
+                        <td className="px-4 py-2"><DocLink mono href={m.entryId ? `/accounting/transactions/${m.entryId}` : null}>{m.docNumber ?? "—"}</DocLink></td>
+                        <td className="px-4 py-2 text-right tabular-nums text-emerald-400">{m.qty > 0 ? qty(m.qty) : ""}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-rose-400">{m.qty < 0 ? qty(-m.qty) : ""}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-100 font-medium">{qty(m.balance)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-400">{m.unitCost == null ? "" : money(m.unitCost)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-stone-300">{m.value == null ? "" : money(m.value)}</td>
+                        <td className="px-4 py-2 text-stone-400">{m.by ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr className="border-t border-stone-700 bg-stone-950/40 font-semibold">
+                    <td colSpan={5} className="px-4 py-2.5 text-stone-200">On hand now</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400">{qty(data.lot.remainingQty)} {data.lot.baseUom ?? ""}</td>
+                    <td colSpan={3} className={`px-4 py-2.5 text-[12px] ${Math.abs(data.ledger.difference) < 0.000001 ? "text-emerald-400" : "text-amber-400"}`}>
+                      {Math.abs(data.ledger.difference) < 0.000001 ? "Movements add up to the lot's balance"
+                        : `REVIEW · movements add up to ${qty(data.ledger.computedOnHand)}, off by ${qty(Math.abs(data.ledger.difference))}`}
+                    </td>
+                  </tr></tfoot>
+                </table>
+              </SectionCard>
+
+              <SectionCard n={manufactured ? 5 : 3} title="What it became" empty={(data.usage ?? []).length === 0 ? `Nothing has been issued from this lot yet — all ${qty(data.lot.remainingQty)} ${data.lot.baseUom ?? ""} is still on hand.` : undefined}>
                 <table className="w-full text-[13px] min-w-[560px]">
                   <thead><tr className={tableHead}>
                     <Th>What happened</Th><Th>Date</Th><Th r>Qty used</Th><Th>Made</Th><Th>By</Th>
@@ -314,7 +352,7 @@ export function LotTraceabilityReport() {
                 </table>
               </SectionCard>
 
-              <SectionCard n={manufactured ? 5 : 3} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
+              <SectionCard n={manufactured ? 6 : 4} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
                   <thead><tr className={tableHead}>
                     <Th>Shipment</Th><Th>Invoice</Th><Th>Sold-To Customer</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Unit Price</Th><Th r>Amount</Th><Th>Date</Th>
