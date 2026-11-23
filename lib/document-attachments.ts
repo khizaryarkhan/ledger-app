@@ -27,5 +27,7 @@ export const ATTACHMENT_ALLOWED_TYPES = [
   "image/png", "image/jpeg", "image/webp", "image/heic",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Bank exports and supplier statements are routinely CSV or plain text.
+  "text/csv", "text/plain",
 ];
 export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024; // matches QBO's own per-attachment ceiling
