@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, Loader } from "lucide-react";
 import { txnTypeLabel } from "@/lib/accounting/doc-format";
-import { formatDateShort } from "@/lib/format";
+import { formatDateShort, localToday } from "@/lib/format";
+import { useFiscalFrom } from "@/components/use-report-from";
 import { useData } from "@/components/data-provider";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { ReportShell } from "@/components/ui";
 import { controlCompact, SelectField } from "@/components/form-kit";
 
-const today = () => new Date().toISOString().slice(0, 10);
-function fyStart() { const n = new Date(); const y = n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1; return `${y}-07-01`; }
+const today = () => localToday();
 // NOT fmt.num2 — this report's negative figures are parenthesized
 // ("(100.00)"), a display convention distinct from fmt's leading-minus
 // rule. Kept exactly as it was (this is a visual-consistency pass on the
@@ -34,7 +34,7 @@ function GeneralLedgerInner() {
   const [customerId, setCustomerId] = useState(sp.get("customerId") || "");
   const [projectId, setProjectId] = useState(sp.get("projectId") || "");
   const [nameId, setNameId] = useState(sp.get("nameId") || "");
-  const [from, setFrom] = useState(sp.get("from") || fyStart());
+  const [from, setFrom] = useFiscalFrom(sp.get("from"));
   const [to, setTo] = useState(sp.get("to") || today());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);

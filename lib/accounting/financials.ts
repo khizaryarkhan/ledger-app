@@ -19,7 +19,7 @@ import { notReversalOfClosing } from "@/lib/accounting/closing-filter";
 import { db } from "@/db";
 import { journalLines, journalEntries, accounts, apDimensions } from "@/db/schema";
 import { and, eq, ne, inArray, gte, lte, sql, isNull } from "drizzle-orm";
-import { typeDef, type Classification, type Statement } from "./account-types";
+import { typeDef, classificationForType, type Classification, type Statement } from "./account-types";
 import { isProvision, isOciReserve, equityCategory } from "./ifrs";
 
 export type AccountBalance = {
@@ -104,15 +104,23 @@ async function balances(orgIds: string[], opts: { from?: string; to?: string; ex
 const round = (n: number) => Math.round(n * 100) / 100;
 
 // ── Trial Balance ─────────────────────────────────────────────────────────────
+const TB_ORDER = ["Asset", "Liability", "Equity", "Revenue", "Expense"];
+const tbRank = (type: string | null, classification: string | null) => {
+  const i = TB_ORDER.indexOf(classificationForType(type ?? "") ?? classification ?? "");
+  return i === -1 ? TB_ORDER.length : i;
+};
 export async function trialBalance(orgIds: string[], asOf?: string) {
   const bs = await balances(orgIds, { to: asOf });
   const rows = bs
     .map((b) => {
       const net = round(b.debit - b.credit);
-      return { accountId: b.accountId, name: b.name, code: b.code, type: b.type, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0 };
+      return { accountId: b.accountId, name: b.name, code: b.code, type: b.type, classification: b.classification, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0 };
     })
     .filter((r) => r.debit !== 0 || r.credit !== 0)
-    .sort((a, b) => (a.code ?? "").localeCompare(b.code ?? "") || a.name.localeCompare(b.name));
+    // The conventional order: assets, liabilities, equity, income, expenses; within each, by account code (an account
+    // with no code after the coded ones), then name. Sorting by code alone put every uncoded account first.
+    .sort((a, b) => tbRank(a.type, a.classification) - tbRank(b.type, b.classification)
+      || (a.code ? 0 : 1) - (b.code ? 0 : 1) || (a.code ?? "").localeCompare(b.code ?? "") || a.name.localeCompare(b.name));
   const totalDebit = round(rows.reduce((s, r) => s + r.debit, 0));
   const totalCredit = round(rows.reduce((s, r) => s + r.credit, 0));
   return { asOf: asOf ?? null, rows, totalDebit, totalCredit, balanced: Math.abs(totalDebit - totalCredit) < 0.01 };

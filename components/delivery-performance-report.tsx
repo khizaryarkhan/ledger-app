@@ -14,6 +14,7 @@ import { Timer } from "lucide-react";
 import { ReportShell } from "@/components/ui";
 import { SelectField, control } from "@/components/form-kit";
 import { formatDate, localToday, fmt } from "@/lib/format";
+import { useFiscalFrom } from "@/components/use-report-from";
 import { listTable, listRow } from "@/components/list-view";
 
 type Score = {
@@ -44,7 +45,7 @@ export function DeliveryPerformanceReport() {
   const sp = useSearchParams();
   const side = sp.get("side") === "customer" ? "customer" : "supplier";
   const today = localToday();
-  const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
+  const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(today);
   const [show, setShow] = useState<"exceptions" | "all">("exceptions");
   const [data, setData] = useState<{ overall?: Score; parties: PartyRow[]; lines: LineRow[] } | null>(null);
@@ -102,6 +103,9 @@ export function DeliveryPerformanceReport() {
             </div>
           ))}
         </div>
+      )}
+      {o && o.onTimePct == null && (data?.lines?.length ?? 0) > 0 && (
+        <p className="text-[12px] text-stone-500 -mt-3 mb-5">On time and OTIF show “—” because none of these order lines has a requested or promised date to measure against. Record a promised date when confirming the order and they will fill in.</p>
       )}
 
       <div className="rounded-lg border border-stone-800 overflow-x-auto mb-6">

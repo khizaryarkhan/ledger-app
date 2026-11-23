@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, ScrollText, Scale, TrendingUp, Landmark } from "lucide-react";
 import { ReportShell } from "@/components/ui";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { controlCompact, SelectField } from "@/components/form-kit";
 import {
   RANGE_PRESETS, AS_OF_PRESETS, COLUMN_BUCKETS, COMPARE_MODES,
@@ -44,7 +44,7 @@ const fmtDateShort = (s?: string | null) => {
   const d = new Date(s + "T00:00:00");
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localToday();
 
 export default function FinancialStatementPage() {
   const statement = String(useParams().statement || "trial-balance");

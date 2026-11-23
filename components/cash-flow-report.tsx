@@ -6,13 +6,15 @@ import { useEffect, useState } from "react";
 import { TrendingUp } from "lucide-react";
 import { controlCompact } from "@/components/form-kit";
 import { ReportShell } from "@/components/ui";
-import { localToday } from "@/lib/format";
+import { localToday, formatDateLong } from "@/lib/format";
+import { useData } from "@/components/data-provider";
+import { useFiscalFrom } from "@/components/use-report-from";
 
 const money = (n: number) => { const v = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return n < 0 ? `(${v})` : v; };
 
 export function CashFlowReport() {
-  const y = new Date().getFullYear();
-  const [from, setFrom] = useState(`${y}-01-01`);
+  const { orgSettings } = useData();
+  const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(localToday());
   const [d, setD] = useState<any>(null);
   async function load() { setD(await fetch(`/api/accounting/cash-flow?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
@@ -32,6 +34,12 @@ export function CashFlowReport() {
 
       {d === null ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden max-w-3xl">
+          <div className="px-4 py-4 text-center border-b border-stone-800">
+            <div className="text-[15px] font-semibold text-stone-100">{orgSettings.displayName || orgSettings.name}</div>
+            <div className="text-[13px] font-semibold text-stone-300 mt-0.5">Statement of Cash Flows</div>
+            <div className="text-[12px] text-stone-400 mt-0.5">For the period {formatDateLong(from)} to {formatDateLong(to)}</div>
+            <div className="text-[11px] text-stone-500 mt-0.5">All amounts in {orgSettings.currency}</div>
+          </div>
           <table className="w-full text-[13px]">
             <tbody>
               <tr className="border-b border-stone-800"><td className="px-4 py-2 font-medium text-stone-200">Net income</td><td className="px-4 py-2 text-right tabular-nums text-stone-100">{money(d.netIncome)}</td></tr>

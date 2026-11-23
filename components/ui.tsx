@@ -4,6 +4,8 @@ import { useEffect, ReactNode } from "react";
 import Link from "next/link";
 import { X, Check, AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
 import { t, Drawer } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
+import { fmt, localToday } from "@/lib/format";
 
 /**
  * Standard wrapper for a single accounting report page — back-link to the
@@ -15,6 +17,11 @@ import { t, Drawer } from "@/components/form-kit";
  * different product from the rest of the app.
  */
 export function ReportShell({ title, sub, children, onRefresh, loading }: { title: string; sub: string; icon: any; children: ReactNode; onRefresh: () => void; loading: boolean }) {
+  // Every report says whose figures these are, in what currency, and when they were run: a snapshot report (stock,
+  // open orders) has no date parameter, so the run date is the only "as at" it can state.
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const orgName = org ? (org.displayName || org.name) : "";
   return (
     <div className="flex flex-col h-[calc(100vh-44px)]">
       <div className="px-6 py-4 border-b border-stone-800 bg-stone-950 flex-shrink-0 flex items-start justify-between gap-4 flex-wrap">
@@ -22,6 +29,7 @@ export function ReportShell({ title, sub, children, onRefresh, loading }: { titl
           <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 mb-1.5"><ArrowLeft size={12} /> All reports</Link>
           <h1 className="text-[20px] font-semibold text-white tracking-tight">{title}</h1>
           <p className="text-[13px] text-stone-400 mt-0.5">{sub}</p>
+          {orgName && <p className="text-[11px] text-stone-500 mt-1">{orgName} · Currency {org?.currency} · Run on {fmt.shortDate(localToday())}</p>}
         </div>
         <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
       </div>

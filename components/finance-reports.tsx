@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, Users, Building2, Receipt, ArrowLeft } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
+import { useFiscalFrom } from "@/components/use-report-from";
 import { ReportShell } from "@/components/ui";
 import { controlCompact } from "@/components/form-kit";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
@@ -74,8 +75,7 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
 
 export function TaxLiabilityReport() {
   const [data, setData] = useState<any>(null);
-  const y = new Date().getFullYear();
-  const [from, setFrom] = useState(`${y}-01-01`);
+  const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(localToday());
   async function load() { setData(await fetch(`/api/accounting/tax-liability?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { load(); }, [from, to]);

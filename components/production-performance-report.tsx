@@ -13,6 +13,7 @@ import { Gauge, Plus } from "lucide-react";
 import { ReportShell } from "@/components/ui";
 import { SelectField, control, controlInset, Drawer, DrawerFooter, Field } from "@/components/form-kit";
 import { formatDate, localToday, fmt } from "@/lib/format";
+import { useFiscalFrom } from "@/components/use-report-from";
 import { listTable, listRow } from "@/components/list-view";
 import { DOWNTIME_REASONS } from "@/lib/inventory/production-performance";
 
@@ -151,7 +152,7 @@ function LogDowntimeDrawer({ onClose, onSaved }: { onClose: () => void; onSaved:
 
 export function ProductionPerformanceReport() {
   const today = localToday();
-  const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
+  const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(today);
   const [tab, setTab] = useState<"production" | "downtime" | "jobwork">("production");
   const [data, setData] = useState<Data | null>(null);
@@ -203,6 +204,9 @@ export function ProductionPerformanceReport() {
             ["Yield", pct(p.yieldPct), band(p.yieldPct)],
             ["Scrap cost", fmt.money(p.scrapCost), p.scrapCost ? "text-rose-400" : "text-stone-200"],
           ]} />
+          {p.timing.onTimePct == null && p.timing.orders > 0 && (
+            <p className="text-[12px] text-stone-500 -mt-3 mb-5">On time shows “—” because none of these orders has a due date to measure against. Set a due date on the order and it will fill in.</p>
+          )}
           <div className="grid md:grid-cols-3 gap-3 mb-5">
             <ParetoCard title="Why orders were late" rows={p.delayReasons} unit={v => `${v}`} />
             <ParetoCard title="Why output was rejected (qty)" rows={p.scrapReasons} unit={v => fmt.qty(v)} />

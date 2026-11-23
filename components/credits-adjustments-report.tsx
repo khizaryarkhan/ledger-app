@@ -13,6 +13,7 @@ import { Undo2 } from "lucide-react";
 import { ReportShell } from "@/components/ui";
 import { control } from "@/components/form-kit";
 import { formatDate, localToday, fmt } from "@/lib/format";
+import { useFiscalFrom } from "@/components/use-report-from";
 import { listTable, listRow } from "@/components/list-view";
 
 type Group = { code: string; label: string; count: number; amount: number };
@@ -53,7 +54,7 @@ function ReasonCard({ title, sub, groups }: { title: string; sub: string; groups
 
 export function CreditsAdjustmentsReport() {
   const today = localToday();
-  const [from, setFrom] = useState(`${today.slice(0, 4)}-01-01`);
+  const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(today);
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
