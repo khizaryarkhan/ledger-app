@@ -95,7 +95,7 @@ export function TaxLiabilityReport() {
         {data === null ? <div className="px-4 py-8 text-center text-stone-500">Loading…</div> : (<>
           <Row label="Opening balance" value={data.openingBalance} hint="owed at period start" />
           <Row label="Output tax (on sales)" value={data.outputTax} />
-          <Row label="Input tax (on purchases)" value={-data.inputTax} />
+          <Row label="Input tax (on purchases)" value={data.inputTax ? -data.inputTax : 0} />
           {data.adjustments !== 0 && <Row label="Adjustments / payments" value={data.adjustments} />}
           <Row label="Net for period" value={data.netLiability} strong />
           <Row label="Closing balance (payable)" value={data.closingBalance} strong hint="owed to tax authority" />

@@ -40,7 +40,7 @@ function ReasonCard({ title, sub, groups }: { title: string; sub: string; groups
         <div key={g.code} className="mb-1.5">
           <div className="flex justify-between text-[12px]">
             <span className={g.code === "unrecorded" ? "text-amber-400" : "text-stone-300"}>{g.label}</span>
-            <span className="tabular-nums text-stone-400">{fmt.money(g.amount)} · {g.count}</span>
+            <span className="tabular-nums text-stone-400">{fmt.num2(g.amount)} · {g.count}</span>
           </div>
           <div className="h-1.5 rounded-full bg-stone-800 mt-0.5">
             <div className={`h-1.5 rounded-full ${g.code === "unrecorded" ? "bg-amber-500/60" : "bg-teal-500/70"}`} style={{ width: `${(g.amount / max) * 100}%` }} />
@@ -67,9 +67,9 @@ export function CreditsAdjustmentsReport() {
 
   const d = data && !data.empty && data.customerCredits ? data : null;
   const tiles: [string, string, string][] = d ? [
-    ["Customer credits", fmt.money(d.customerCredits.amount), "text-stone-200"],
+    ["Customer credits", fmt.num2(d.customerCredits.amount), "text-stone-200"],
     ["% of sales", d.customerCredits.pctOfSales == null ? "—" : `${d.customerCredits.pctOfSales}%`, (d.customerCredits.pctOfSales ?? 0) > 5 ? "text-rose-400" : "text-stone-200"],
-    ["Supplier credits", fmt.money(d.supplierCredits.amount), "text-stone-200"],
+    ["Supplier credits", fmt.num2(d.supplierCredits.amount), "text-stone-200"],
     ["Manual journals", String(d.journals.count), "text-stone-200"],
     ["Bill capture lag", d.billCapture.avgLagDays == null ? "—" : `${d.billCapture.avgLagDays} d`, (d.billCapture.avgLagDays ?? 0) > 7 ? "text-amber-400" : "text-stone-200"],
     ["Edited after posting", String(d.editedAfterPosting), d.editedAfterPosting ? "text-amber-400" : "text-stone-200"],
@@ -122,7 +122,7 @@ export function CreditsAdjustmentsReport() {
                     <td className="px-3 py-2 font-mono text-[12px]"><Link href={`/accounting/transactions/${l.id}`} className="text-teal-400 hover:text-teal-300">{l.docNumber ?? "—"}</Link></td>
                     <td className="px-2 py-2 text-stone-300">{TYPE_LABEL[l.type] ?? l.type}</td>
                     <td className="px-2 py-2 text-stone-400">{formatDate(l.date)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums text-stone-200">{fmt.money(l.amount)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-stone-200">{fmt.num2(l.amount)}</td>
                     <td className={`px-2 py-2 ${l.unrecorded ? "text-amber-400" : "text-stone-300"}`}>{l.reason ?? "—"}</td>
                     <td className="px-2 py-2 text-stone-500 max-w-[260px] truncate">{l.memo ?? "—"}</td>
                     <td className="px-3 py-2 text-stone-400">{l.editedAt ? formatDate(l.editedAt) : "—"}</td>

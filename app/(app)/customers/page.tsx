@@ -103,7 +103,9 @@ export default function CustomersPage() {
 
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("Active");
+  // Default to everyone. "Active" here means "owes us money", so defaulting to it
+  // hid every customer with nothing outstanding, including one just created.
+  const [statusFilter, setStatusFilter] = useState("");
   const [repFilter, setRepFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);

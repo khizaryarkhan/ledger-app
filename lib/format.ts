@@ -169,11 +169,20 @@ function tinyButNotZero(n: number, maxDp: number): string | null {
   return n > 0 ? `<${Math.pow(10, -maxDp)}` : `>-${Math.pow(10, -maxDp)}`;
 }
 
+/** The organisation's own currency: what money prints in when a caller names none. Set once settings load. */
+let defaultCurrency = "EUR";
+export function setDefaultCurrency(c?: string | null) {
+  const u = String(c ?? "").toUpperCase();
+  if (/^[A-Z]{3}$/.test(u)) defaultCurrency = u;
+}
+export function getDefaultCurrency(): string { return defaultCurrency; }
+
 export const fmt = {
-  money: (n: number | null | undefined, ccy = "EUR") => {
+  money: (n: number | null | undefined, ccy?: string | null) => {
+    const want = ccy ?? defaultCurrency;
     if (n == null || isNaN(n)) return "—";
     // Guard against invalid/placeholder currency codes (e.g. "?") which throw RangeError
-    const safeCcy = /^[A-Z]{3}$/.test(ccy ?? "") ? ccy : "EUR";
+    const safeCcy = /^[A-Z]{3}$/.test(want ?? "") ? (want as string) : defaultCurrency;
     try {
       return new Intl.NumberFormat(currencyLocale(safeCcy), {
         style: "currency", currency: safeCcy,

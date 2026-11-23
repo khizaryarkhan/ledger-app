@@ -31,7 +31,7 @@
 
 import { useState, useMemo, useEffect, type ReactNode } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Filter, X } from "lucide-react";
-import { fmt } from "@/lib/format";
+import { fmt, getDefaultCurrency } from "@/lib/format";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Style tokens — copied from board-list.tsx so the two cannot be told apart.
@@ -121,7 +121,7 @@ export type ListViewState<T> = {
 /** fmt.money renders anything that isn't a 3-letter code as EUR, so the totals
  *  key on the same normalised code — otherwise a blank and an explicit EUR
  *  would print as two separate € lines. */
-const normCcy = (c?: string | null) => (/^[A-Z]{3}$/.test(c ?? "") ? (c as string) : "EUR");
+const normCcy = (c?: string | null) => (/^[A-Z]{3}$/.test(c ?? "") ? (c as string) : getDefaultCurrency());
 
 export function sumByCurrency<T>(rows: T[], money: (r: T) => { amount: number; currency?: string | null }): Record<string, number> {
   const m: Record<string, number> = {};

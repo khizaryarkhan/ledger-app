@@ -1,5 +1,6 @@
 "use client";
 
+import { setDefaultCurrency } from "@/lib/format";
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 
 type DataContextType = {
@@ -130,7 +131,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (reps_)       setReps(reps_);
       if (regions_)    setRegions(regions_);
       if (countries_)  setCountries(countries_);
-      if (settings_)   setOrgSettings(settings_);
+      if (settings_)   { setOrgSettings(settings_); setDefaultCurrency((settings_ as any).currency); }
     } catch (e: any) {
       console.error("Refresh failed:", e);
     } finally {

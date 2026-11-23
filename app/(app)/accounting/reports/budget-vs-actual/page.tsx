@@ -97,7 +97,7 @@ export default function BudgetVsActualPage() {
 
   return (
     <ReportShell title="Budget vs Actual" icon={Target} onRefresh={run} loading={loading}
-      sub={`${data?.meta.entity ?? ""} — budget against the posted ledger, by account. Variance is actual minus budget.`}>
+      sub={`${data?.meta.entity ? `${data.meta.entity} — b` : "B"}udget against the posted ledger, by account. Variance is actual minus budget.`}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Budget</label>
           <SelectField value={budgetId} onChange={(e) => setBudgetId(e.target.value)} className="h-8 min-w-[220px] text-[12px]">

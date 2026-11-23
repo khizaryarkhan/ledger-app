@@ -46,7 +46,7 @@ export function EdiConsole() {
 
   return (
     <ListPage>
-      <ListPageHeader title="EDI" subtitle="Purchase orders as X12 files for trading partners. Generate from the purchase order, download, deliver, mark sent; upload what the partner sends back.">
+      <ListPageHeader title="EDI" subtitle="Orders, acknowledgements, ship notices and invoices as X12 files for trading partners. Generate from the document, download, deliver, mark sent; upload what the partner sends back.">
         {pill("files", "Files")}{pill("partners", "Partners")}
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} /></button>
         {tab === "files" && <button onClick={() => setUploading(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary hover:bg-primary-hover text-white text-[12px] font-medium"><Upload size={13} /> Upload a received file</button>}
