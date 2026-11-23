@@ -36,6 +36,12 @@ describe("invoice from shipments", () => {
     expect(block.indexOf('"shipment_invoice"')).toBeLessThan(del.slice(del.indexOf('entry.sourceType === "Invoice"')).indexOf("db.delete(transactionLinks)"));
   });
 
+  it("dates the invoice by the customer's payment terms, not the day it is issued", () => {
+    // With no due date and no terms the engine sets due = invoice date, so every such invoice read Overdue at once.
+    expect(fn).toMatch(/customersTable\.paymentTerms/);
+    expect(fn).toMatch(/dueDate:\s*input\.dueDate\s*\?\?\s*null,\s*termsDays/);
+  });
+
   it("keeps a line-level link per invoiced shipment line (what an EDI 810 traces to the order line)", () => {
     expect(fn).toMatch(/fromLineId:\s*t\.lineId/);
     expect(fn).toMatch(/relation:\s*"shipment_invoice"[^}]*qty:\s*t\.qty/);

@@ -11,7 +11,7 @@
  */
 
 import { db } from "@/db";
-import { salesShipments, shipmentLines, tradeDocumentLines, apItems, organisations, customers } from "@/db/schema";
+import { salesShipments, shipmentLines, tradeDocumentLines, apItems, organisations, customers as customersTable } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { loadItemCostInfo, planIssue, commitIssue } from "@/lib/inventory/valuation";
@@ -86,7 +86,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
   // report, e.g. Lot Traceability's "Sold-To Customer" column).
   let customerLabel = input.customerLabel ?? null;
   if (!customerLabel && input.customerId) {
-    const [customer] = await db.select({ name: customers.name }).from(customers).where(and(eq(customers.id, input.customerId), eq(customers.orgId, orgId))).limit(1);
+    const [customer] = await db.select({ name: customersTable.name }).from(customersTable).where(and(eq(customersTable.id, input.customerId), eq(customersTable.orgId, orgId))).limit(1);
     customerLabel = customer?.name ?? null;
   }
 
@@ -236,12 +236,21 @@ export async function invoiceFromShipments(orgId: string, input: InvoiceFromShip
   if (!invLines.length) err("These shipments are already fully invoiced.");
   if (invLines.some(l => !l.accountId)) err("An item on these shipments has no income account set — set one on the item first.");
 
+  // With neither a due date nor terms the engine dates the invoice due the day it is issued, so it read as
+  // overdue at once. Use the customer's own payment terms, as the New Invoice form does.
+  let termsDays: number | null = null;
+  if (!input.dueDate && customerId) {
+    const [c] = await db.select({ t: customersTable.paymentTerms }).from(customersTable)
+      .where(and(eq(customersTable.id, customerId), eq(customersTable.orgId, orgId))).limit(1);
+    termsDays = c?.t ?? null;
+  }
+
   const entry = await postDocument(orgId, {
     type: "Invoice", date: input.invoiceDate,
     memo: input.memo?.trim() || `Invoice for shipments (${shipments.map(s => s.shipmentNo).filter(Boolean).join(", ")})`,
     partyType: "Customer", partyId: customerId, partyLabel: customerLabel,
     currency: currency ?? undefined, exchangeRate: exchangeRate ?? undefined,
-    dueDate: input.dueDate ?? null, reference: input.reference?.trim() || null,
+    dueDate: input.dueDate ?? null, termsDays, reference: input.reference?.trim() || null,
     lines: invLines,
   }, actorId);
 
