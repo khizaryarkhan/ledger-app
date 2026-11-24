@@ -115,3 +115,10 @@ Rule: only Test Organization and MSQ. Note every document created so it can be c
 - MSQ is empty (0 invoices), so no cross-org cycle was possible without creating data.
 - EDI on an invoice not made from shipments refuses clearly ("This customer has no EDI profile").
 - Still open: ~60 native confirm()/alert() left across the app, onboarding checklist assumes QuickBooks, super-admin copy on My Timesheet.
+
+## Pass 5 (2026-11-24): reports by parameter, EDI review queue
+
+- All 28 reports opened in the UI and the request each sends was read. Defaults now follow the org's fiscal year start (GL, Cash Flow, Tax Liability, Credits & Adjustments, Delivery/Production Performance); "today" is the viewer's local date; every report states org, currency and run date; Cash Flow has a statement header; Trial Balance is ordered by class; blank OTIF tiles explain themselves. Closed-PO lines, reversed year-end closes, direct-invoice lot traces and budget monthly totals were fixed earlier in the pass.
+- NOT done: changing presets, columns, compare-to or custom dates and confirming the request follows; Stock Valuation / Stock Status / open-order reports have no as-at date.
+- EDI: files list shows sent/received status and partner acknowledgement; "needs review" opens a drawer that names the order, the unknown part number and the fix (850 with an unregistered BP number). The status text only underlines on hover, so it is easy to miss that it is clickable.
+- Still open: PAX console chat (needs a model key), 375px checks in the browser tool, printed lot-trace sheet, Team invite/Sign in as (creating users needs permission).
