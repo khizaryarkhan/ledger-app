@@ -103,68 +103,50 @@ const TAG_LABEL: Record<string, string> = { returned: "Action", unsubmitted: "So
 
 type AheadRow = { key: string; label: string; weeks: number[]; total: number };
 
-/**
- * One stacked bar per week, split by booking, with its own Show table toggle.
- * `from`/`to` pick the weeks of the shared data this card shows, so "this week"
- * and "weeks ahead" read the same figures and cannot disagree.
- */
-function PlannedBlock({ weeks, rows, totals, colorOf, from, to, thisWeekFirst, empty }: {
-  weeks: string[]; rows: AheadRow[]; totals: number[]; colorOf: Map<string, string>;
-  from: number; to: number; thisWeekFirst: boolean; empty: string;
-}) {
+/** Planned hours only, one bar per row, with its own Show table toggle (the Weeks ahead cards). */
+function PlannedOnlyCard({ title, rows, empty }: { title: string; rows: { label: string; hours: number }[]; empty: string }) {
   const [showTable, setShowTable] = useState(false);
-  const idx = Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
-  const shown = rows.filter((r) => idx.some((i) => (r.weeks[i] ?? 0) > 0));
-  const max = Math.max(1, ...idx.map((i) => totals[i] ?? 0));
-  const label = (i: number) => (thisWeekFirst && i === 0 ? "This week" : wk(weeks[i]));
+  const max = Math.max(1, ...rows.map((r) => r.hours));
+  const total = rows.reduce((s, r) => s + r.hours, 0);
   return (
-    <Card title="Planned project hours"
-      right={shown.length > 0 ? (
+    <Card title={title}
+      right={rows.length > 0 ? (
         <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
           {showTable ? "Hide table" : "Show table"}
         </button>
       ) : undefined}>
-      {shown.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-[12px] text-stone-400">{empty}</p>
       ) : (
         <>
-          <div className="space-y-2.5">
-            {idx.map((i) => (
-              <div key={weeks[i]} className="grid grid-cols-[90px_1fr_60px] items-center gap-3">
-                <div className="text-[12px] text-stone-400">{label(i)}</div>
-                <div className="flex h-5 rounded-sm overflow-hidden bg-stone-800">
-                  {shown.map((row) => (row.weeks[i] ?? 0) > 0 ? (
-                    <div key={row.key} className={colorOf.get(row.key)} style={{ width: `${((row.weeks[i] ?? 0) / max) * 100}%` }}
-                      title={`${row.label}: ${h(row.weeks[i] ?? 0)}`} />
-                  ) : null)}
+          <div className="space-y-3">
+            {rows.map((r) => (
+              <div key={r.label} className="grid grid-cols-[minmax(0,170px)_1fr] gap-3 items-center">
+                <div className="text-[12px] text-stone-300 truncate" title={r.label}>{r.label}</div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2.5 rounded-sm bg-stone-800 overflow-hidden">
+                    <div className={`h-full ${PLANNED}`} style={{ width: `${(r.hours / max) * 100}%` }} />
+                  </div>
+                  <span className="w-16 text-right text-[11px] tabular-nums text-stone-400">{fmt.num2(r.hours)}</span>
                 </div>
-                <div className="text-right text-[12px] tabular-nums text-stone-300">{fmt.num2(totals[i] ?? 0)}</div>
               </div>
             ))}
           </div>
-          <Legend items={shown.map((row) => ({ label: row.label, cls: colorOf.get(row.key)! }))} />
+          <Legend items={[{ label: "Planned", cls: PLANNED }]} />
           {showTable && (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-[12px]">
-                <thead>
-                  <tr className={tableHead}>
-                    <th className={th}>Booking</th>
-                    {idx.map((i) => <th key={weeks[i]} className={`${th} !text-right`}>{label(i)}</th>)}
-                    <th className={`${th} !text-right`}>Total</th>
-                  </tr>
-                </thead>
+                <thead><tr className={tableHead}><th className={th}>Item</th><th className={`${th} !text-right`}>Planned</th></tr></thead>
                 <tbody>
-                  {shown.map((row) => (
-                    <tr key={row.key} className="border-b border-stone-800/60">
-                      <td className="py-2 pr-3 text-stone-200"><span className={`inline-block w-2 h-2 rounded-sm mr-2 ${colorOf.get(row.key)}`} />{row.label}</td>
-                      {idx.map((i) => <td key={i} className="py-2 px-3 text-right tabular-nums text-stone-300">{fmt.num2(row.weeks[i] ?? 0)}</td>)}
-                      <td className="py-2 pl-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(idx.reduce((s, i) => s + (row.weeks[i] ?? 0), 0))}</td>
+                  {rows.map((r) => (
+                    <tr key={r.label} className="border-b border-stone-800/60">
+                      <td className="py-2 pr-3 text-stone-200">{r.label}</td>
+                      <td className="py-2 pl-3 text-right tabular-nums text-stone-300">{fmt.num2(r.hours)}</td>
                     </tr>
                   ))}
                   <tr>
                     <td className="py-2 pr-3 font-semibold text-stone-100">Planned total</td>
-                    {idx.map((i) => <td key={i} className="py-2 px-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(totals[i] ?? 0)}</td>)}
-                    <td className="py-2 pl-3 text-right tabular-nums font-semibold text-white">{fmt.num2(idx.reduce((s, i) => s + (totals[i] ?? 0), 0))}</td>
+                    <td className="py-2 pl-3 text-right tabular-nums font-semibold text-white">{fmt.num2(total)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -405,8 +387,15 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             </SelectField>
           </div>
         </div>
-        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
-          from={1} to={data.ahead.weeks.length} thisWeekFirst={false} empty="Nothing is planned for you in these weeks yet." />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-4">
+          <PlannedOnlyCard title="Planned — per week" empty="Nothing is planned for you in these weeks yet."
+            rows={data.ahead.weeks.slice(1).map((w, i) => ({ label: wk(w), hours: data.ahead.totals[i + 1] ?? 0 }))
+              .filter(() => data.ahead.totals.slice(1).some((v) => v > 0))} />
+          <PlannedOnlyCard title="Planned — per project" empty="Nothing is planned for you in these weeks yet."
+            rows={data.ahead.rows
+              .map((r) => ({ label: r.label, hours: r.weeks.slice(1).reduce((s, v) => s + v, 0) }))
+              .filter((r) => r.hours > 0).sort((x, y) => y.hours - x.hours)} />
+        </div>
       </div>
     </ReportShell>
   );
