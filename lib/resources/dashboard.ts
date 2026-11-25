@@ -65,3 +65,33 @@ export function behindByProject(planned: readonly PlannedWeekRow[], logged: read
     .filter((p) => p.planned > 0 || p.logged > 0)
     .sort((a, b) => Math.max(b.planned, b.logged) - Math.max(a.planned, a.logged));
 }
+
+export interface BehindMatrixRow { key: string; weeks: { planned: number; logged: number }[] }
+
+/**
+ * Planned against logged for every booking AND every past week, so the table
+ * behind the charts can show each project's plan and actual week by week. Same
+ * rule as the charts: leave and internal time ("type:" keys) are left out, a
+ * booking worked but never planned still gets a row (planned 0), and a row with
+ * nothing in any week is dropped.
+ */
+export function behindMatrix(weeks: readonly string[], planned: readonly PlannedWeekRow[], logged: readonly WeeklyLoggedRow[]): BehindMatrixRow[] {
+  const map = new Map<string, BehindMatrixRow>();
+  const rowFor = (key: string) => {
+    let r = map.get(key);
+    if (!r) { r = { key, weeks: weeks.map(() => ({ planned: 0, logged: 0 })) }; map.set(key, r); }
+    return r;
+  };
+  for (const p of planned) p.weeks.forEach((v, i) => { if (i < weeks.length) rowFor(p.key).weeks[i].planned += v; });
+  for (const l of logged) {
+    if (l.key.startsWith("type:")) continue;
+    l.weeks.forEach((s, i) => { if (i < weeks.length) rowFor(l.key).weeks[i].logged += splitTotal(s); });
+  }
+  return [...map.values()]
+    .map((r) => ({ key: r.key, weeks: r.weeks.map((w) => ({ planned: round2(w.planned), logged: round2(w.logged) })) }))
+    .filter((r) => r.weeks.some((w) => w.planned > 0 || w.logged > 0))
+    .sort((a, b) => {
+      const tot = (r: BehindMatrixRow) => r.weeks.reduce((s, w) => s + Math.max(w.planned, w.logged), 0);
+      return tot(b) - tot(a);
+    });
+}

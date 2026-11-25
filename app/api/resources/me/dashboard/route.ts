@@ -17,7 +17,7 @@ import { weekWindow, weekEnd, plannedByWeek, loggedByWeek, round2, splitTotal } 
 import { loadCalendars, loadEntries, loadAssignments, loadLabels, labelFor, validDate } from "@/lib/resources/reports-server";
 import { returnsFor } from "@/lib/resources/approval-server";
 import { balanceAsAt } from "@/lib/payroll/leave-balance";
-import { weekStatus, behindByWeek, behindByProject } from "@/lib/resources/dashboard";
+import { weekStatus, behindByWeek, behindByProject, behindMatrix } from "@/lib/resources/dashboard";
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 
 const BEHIND_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 12];
@@ -103,6 +103,8 @@ export async function GET(req: Request) {
   ]);
   const labels = await loadLabels(orgId!, keys);
   const label = (k: string) => labelFor(k, labels, typeNames);
+  // The project's own code ("C26001"), shown beside its name in the tables.
+  const code = (k: string) => labels.get(k)?.code ?? null;
 
   const manager = me.managerId ? people.find((p) => p.id === me.managerId) : null;
   const attention = [
@@ -129,14 +131,19 @@ export async function GET(req: Request) {
     attention,
     ahead: {
       weeks: aheadWeeks,
-      rows: ahead.rows.map((r) => ({ key: r.key, label: label(r.key), weeks: r.weeks, total: r.total })),
+      rows: ahead.rows.map((r) => ({ key: r.key, label: label(r.key), code: code(r.key), weeks: r.weeks, total: r.total })),
       totals: ahead.planned,
     },
-    thisWeekLogged: thisLogged.map((r) => ({ key: r.key, label: label(r.key), logged: splitTotal(r.weeks[0] ?? r.total) })),
+    thisWeekLogged: thisLogged.map((r) => ({ key: r.key, label: label(r.key), code: code(r.key), logged: splitTotal(r.weeks[0] ?? r.total) })),
     behind: {
       weeksBack,
+      // Each past week's timesheet in a word, and each project's plan and logged hours week by week (the table behind the charts).
+      statuses: win.past.map((w) => ({
+        week: w, status: weekStatus(entries.filter((e) => e.date >= w && e.date <= weekEnd(w)).map((e) => e.status)),
+      })),
+      matrix: behindMatrix(win.past, pastPlanned.rows, pastLogged).map((r) => ({ ...r, label: label(r.key), code: code(r.key) })),
       weeks: behindByWeek(win.past, pastPlanned.rows, pastLogged),
-      projects: byProject.map((p) => ({ ...p, label: label(p.key) })),
+      projects: byProject.map((p) => ({ ...p, label: label(p.key), code: code(p.key) })),
     },
   });
 }

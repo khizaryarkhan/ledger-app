@@ -14,7 +14,7 @@ import { buildDashboardModel } from "@/lib/reports/builders/resources";
 import Link from "next/link";
 import { RefreshCw, CheckCircle2, AlertTriangle, Clock, Inbox } from "lucide-react";
 import { ReportShell, type ReportShellKind } from "@/components/resource-report-shell";
-import { SelectField, tableHead, th } from "@/components/form-kit";
+import { ThisWeekSection, WeeksBehindSection, WeeksAheadSection, type AheadData, type BehindData, type LoggedRow } from "@/components/employee-dashboard-sections";
 import { formatDateShort, fmt, localToday } from "@/lib/format";
 
 type Status = "approved" | "submitted" | "returned" | "draft" | "missing";
@@ -23,13 +23,12 @@ interface Dash {
   timesheets: { week: string; status: Status }[];
   leave: { name: string; taken: number; remaining: number }[];
   attention: { kind: string; title: string; detail: string; action: string | null }[];
-  ahead: { weeks: string[]; rows: { key: string; label: string; weeks: number[]; total: number }[]; totals: number[] };
-  thisWeekLogged?: { key: string; label: string; logged: number }[];
-  behind: { weeksBack: number; weeks: { week: string; planned: number; logged: number }[]; projects: { key: string; label: string; planned: number; logged: number }[] };
+  ahead: AheadData;
+  thisWeekLogged?: LoggedRow[];
+  behind: BehindData;
 }
 
 // Literal classes only — Tailwind cannot see a class built at runtime.
-const SERIES = ["bg-sky-500", "bg-orange-400", "bg-emerald-500", "bg-amber-400", "bg-violet-500", "bg-rose-400", "bg-cyan-500", "bg-lime-500"];
 const LOGGED = "bg-sky-500";
 const PLANNED = "bg-orange-400";
 
@@ -41,57 +40,19 @@ const STATUS_CHIP: Record<Status, { label: string; cls: string }> = {
   draft:     { label: "Overdue", cls: "bg-rose-500/20 text-rose-300 ring-rose-500/40" },
   missing:   { label: "Overdue", cls: "bg-rose-500/20 text-rose-300 ring-rose-500/40" },
 };
-const WEEK_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const h = (n: number) => `${fmt.num2(n)} h`;
 const wk = (d: string) => `w/c ${formatDateShort(d)}`;
 
 function Card({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <section className="rounded-lg ring-1 ring-stone-800 bg-stone-900">
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-stone-800">
+    <section className="rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm">
+      <header className="flex items-center gap-3 px-5 py-3.5 border-b border-stone-800">
         <h2 className="text-[13px] font-semibold text-stone-100">{title}</h2>
         <div className="ml-auto">{right}</div>
       </header>
-      <div className="p-4">{children}</div>
+      <div className="px-5 py-4">{children}</div>
     </section>
-  );
-}
-
-function Legend({ items }: { items: { label: string; cls: string }[] }) {
-  return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
-      {items.map((i) => (
-        <span key={i.label} className="inline-flex items-center gap-1.5 text-[11px] text-stone-400">
-          <span className={`w-2.5 h-2.5 rounded-sm ${i.cls}`} />{i.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** Two bars per row (logged over planned), scaled to the largest value on the card. */
-function PairedBars({ rows }: { rows: { label: string; planned: number; logged: number }[] }) {
-  const max = Math.max(1, ...rows.flatMap((r) => [r.planned, r.logged]));
-  if (!rows.length) return <p className="text-[12px] text-stone-400">Nothing planned or logged in this window.</p>;
-  return (
-    <div className="space-y-3">
-      {rows.map((r) => (
-        <div key={r.label} className="grid grid-cols-[minmax(0,170px)_1fr] gap-3 items-center">
-          <div className="text-[12px] text-stone-300 truncate" title={r.label}>{r.label}</div>
-          <div className="space-y-1">
-            {([["logged", r.logged, LOGGED], ["planned", r.planned, PLANNED]] as const).map(([k, v, cls]) => (
-              <div key={k} className="flex items-center gap-2">
-                <div className="flex-1 h-2.5 rounded-sm bg-stone-800 overflow-hidden">
-                  <div className={`h-full ${cls}`} style={{ width: `${(v / max) * 100}%` }} />
-                </div>
-                <span className="w-16 text-right text-[11px] tabular-nums text-stone-400">{fmt.num2(v)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -101,122 +62,6 @@ const TAG_CLS: Record<string, string> = {
   over_plan: "bg-stone-700/60 text-stone-300 ring-stone-600",
 };
 const TAG_LABEL: Record<string, string> = { returned: "Action", unsubmitted: "Soon", over_plan: "Info" };
-
-type AheadRow = { key: string; label: string; weeks: number[]; total: number };
-
-/** Planned hours only, one bar per row, with its own Show table toggle (the Weeks ahead cards). */
-function PlannedOnlyCard({ title, rows, empty }: { title: string; rows: { label: string; hours: number }[]; empty: string }) {
-  const [showTable, setShowTable] = useState(false);
-  const max = Math.max(1, ...rows.map((r) => r.hours));
-  const total = rows.reduce((s, r) => s + r.hours, 0);
-  return (
-    <Card title={title}
-      right={rows.length > 0 ? (
-        <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
-          {showTable ? "Hide table" : "Show table"}
-        </button>
-      ) : undefined}>
-      {rows.length === 0 ? (
-        <p className="text-[12px] text-stone-400">{empty}</p>
-      ) : (
-        <>
-          <div className="space-y-3">
-            {rows.map((r) => (
-              <div key={r.label} className="grid grid-cols-[minmax(0,170px)_1fr] gap-3 items-center">
-                <div className="text-[12px] text-stone-300 truncate" title={r.label}>{r.label}</div>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-2.5 rounded-sm bg-stone-800 overflow-hidden">
-                    <div className={`h-full ${PLANNED}`} style={{ width: `${(r.hours / max) * 100}%` }} />
-                  </div>
-                  <span className="w-16 text-right text-[11px] tabular-nums text-stone-400">{fmt.num2(r.hours)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Legend items={[{ label: "Planned", cls: PLANNED }]} />
-          {showTable && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-[12px]">
-                <thead><tr className={tableHead}><th className={th}>Item</th><th className={`${th} !text-right`}>Planned</th></tr></thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.label} className="border-b border-stone-800/60">
-                      <td className="py-2 pr-3 text-stone-200">{r.label}</td>
-                      <td className="py-2 pl-3 text-right tabular-nums text-stone-300">{fmt.num2(r.hours)}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td className="py-2 pr-3 font-semibold text-stone-100">Planned total</td>
-                    <td className="py-2 pl-3 text-right tabular-nums font-semibold text-white">{fmt.num2(total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </Card>
-  );
-}
-
-/** This week: planned against logged, one pair of bars per project, so the plan and the timesheet can be read side by side. */
-function ThisWeekByProject({ rows, logged, weekIndex }: { rows: AheadRow[]; logged: { key: string; label: string; logged: number }[]; weekIndex: number }) {
-  const byKey = new Map<string, { label: string; planned: number; logged: number }>();
-  for (const r of rows) byKey.set(r.key, { label: r.label, planned: r.weeks[weekIndex] ?? 0, logged: 0 });
-  for (const l of logged) {
-    const cur = byKey.get(l.key) ?? { label: l.label, planned: 0, logged: 0 };
-    byKey.set(l.key, { ...cur, logged: cur.logged + l.logged });
-  }
-  const items = Array.from(byKey.values()).filter((r) => r.planned > 0 || r.logged > 0)
-    .sort((a, b) => Math.max(b.planned, b.logged) - Math.max(a.planned, a.logged));
-  const planned = items.reduce((s, r) => s + r.planned, 0);
-  const done = items.reduce((s, r) => s + r.logged, 0);
-  return (
-    <Card title="Planned vs logged — by project"
-      right={items.length > 0 ? <span className="text-[12px] text-stone-400 tabular-nums">Planned {h(planned)} · Logged {h(done)}</span> : undefined}>
-      {items.length === 0 ? (
-        <p className="text-[12px] text-stone-400">Nothing is planned or logged for you this week.</p>
-      ) : (
-        <>
-          <PairedBars rows={items} />
-          <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
-        </>
-      )}
-    </Card>
-  );
-}
-
-/** Paired bars with their own Show table toggle. */
-function BehindCard({ title, rows }: { title: string; rows: { label: string; planned: number; logged: number }[] }) {
-  const [showTable, setShowTable] = useState(false);
-  return (
-    <Card title={title}
-      right={rows.length > 0 ? (
-        <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
-          {showTable ? "Hide table" : "Show table"}
-        </button>
-      ) : undefined}>
-      <PairedBars rows={rows} />
-      <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
-      {showTable && (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-[12px]">
-            <thead><tr className={tableHead}><th className={th}>Item</th><th className={`${th} !text-right`}>Logged</th><th className={`${th} !text-right`}>Planned</th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.label} className="border-b border-stone-800/60">
-                  <td className="py-2 pr-3 text-stone-200">{r.label}</td>
-                  <td className="py-2 px-3 text-right tabular-nums text-stone-300">{fmt.num2(r.logged)}</td>
-                  <td className="py-2 pl-3 text-right tabular-nums text-stone-300">{fmt.num2(r.planned)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
 
 export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const [weeksBack, setWeeksBack] = useState(3);
@@ -273,14 +118,13 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const r = data.resource;
   const initials = r.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
   const thisWeekLoggedTotal = (data.thisWeekLogged ?? []).reduce((t, x) => t + x.logged, 0);
-  const colorOf = new Map(data.ahead.rows.map((row, i) => [row.key, SERIES[i % SERIES.length]]));
 
   return (
     <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh} exportModel={exportModel}>
       <div className="space-y-5 max-w-[1280px]">
         {/* Summary cards stay in view while the page scrolls, as on EDC Pulse. */}
         <div className="sticky top-0 z-10 -mt-1 pt-1 pb-3 bg-stone-950 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4 flex items-center gap-3">
+          <div className="rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm p-4 flex items-center gap-3">
             <div className="w-11 h-11 rounded-full bg-stone-700 flex items-center justify-center text-[13px] font-semibold text-stone-200 shrink-0">{initials}</div>
             <div className="min-w-0">
               <div className="text-[15px] font-semibold text-white truncate">{r.name}</div>
@@ -289,7 +133,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             </div>
           </div>
 
-          <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
+          <div className="rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">My timesheet status</div>
             <div className="grid grid-cols-2 gap-2">
               {data.timesheets.map((t) => (
@@ -304,7 +148,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             </div>
           </div>
 
-          <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
+          <div className="rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">Leave balance</div>
             {data.leave.length === 0 ? (
               <p className="text-[12px] text-stone-400">No leave type tracks a balance yet.</p>
@@ -325,7 +169,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
             })}
           </div>
 
-          <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
+          <div className="rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">This week</div>
             <div className="text-[20px] font-semibold text-white tabular-nums">{h(thisWeekLoggedTotal)} <span className="text-[12px] font-normal text-stone-400">logged</span></div>
             <div className="text-[11px] text-stone-400">{h(data.ahead.totals[0] ?? 0)} planned across {data.ahead.rows.filter((x) => (x.weeks[0] ?? 0) > 0).length} booking(s)</div>
@@ -359,45 +203,9 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           )}
         </Card>
 
-        {/* This week */}
-        <h2 className="text-[15px] font-semibold text-white">This week</h2>
-        <ThisWeekByProject rows={data.ahead.rows} logged={data.thisWeekLogged ?? []} weekIndex={0} />
-
-        {/* Weeks behind */}
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-semibold text-white">Weeks behind</h2>
-          <div className="w-32">
-            <SelectField value={String(weeksBack)} onChange={(e) => setWeeksBack(Number(e.target.value))}>
-              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
-              <option value="12">12 weeks</option>
-            </SelectField>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-4">
-          <BehindCard title="Planned vs logged — per week"
-            rows={data.behind.weeks.map((w) => ({ label: wk(w.week), planned: w.planned, logged: w.logged }))} />
-          <BehindCard title="Planned vs logged — per project"
-            rows={data.behind.projects.map((p) => ({ label: p.label, planned: p.planned, logged: p.logged }))} />
-        </div>
-
-        {/* Weeks ahead */}
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-semibold text-white">Weeks ahead</h2>
-          <div className="w-32">
-            <SelectField value={String(weeksAhead)} onChange={(e) => setWeeksAhead(Number(e.target.value))}>
-              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
-            </SelectField>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-4">
-          <PlannedOnlyCard title="Planned — per week" empty="Nothing is planned for you in these weeks yet."
-            rows={data.ahead.weeks.slice(1).map((w, i) => ({ label: wk(w), hours: data.ahead.totals[i + 1] ?? 0 }))
-              .filter(() => data.ahead.totals.slice(1).some((v) => v > 0))} />
-          <PlannedOnlyCard title="Planned — per project" empty="Nothing is planned for you in these weeks yet."
-            rows={data.ahead.rows
-              .map((r) => ({ label: r.label, hours: r.weeks.slice(1).reduce((s, v) => s + v, 0) }))
-              .filter((r) => r.hours > 0).sort((x, y) => y.hours - x.hours)} />
-        </div>
+        <ThisWeekSection ahead={data.ahead} logged={data.thisWeekLogged ?? []} />
+        <WeeksBehindSection behind={data.behind} weeksBack={weeksBack} onWeeksBack={setWeeksBack} />
+        <WeeksAheadSection ahead={data.ahead} weeksAhead={weeksAhead} onWeeksAhead={setWeeksAhead} />
       </div>
     </ReportShell>
   );
