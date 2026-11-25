@@ -104,8 +104,12 @@ export default function ProjectsPage() {
     const overdue = Object.values(overdueByCcy).reduce((s, v) => s + v, 0);
     const region = regions.find((r: any) => r.id === p.regionId);
     const country = (countries ?? []).find((x: any) => x.id === p.countryId);
-    // Compute status from outstanding — real-time, same logic as customers.
-    const effectiveStatus = p.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
+    // The status someone set is respected. A project is Inactive only when it is
+    // finished (Completed/Cancelled) or has been billed and is fully paid. A new
+    // project with no invoices yet is Active: work is planned before it is invoiced.
+    const finished = p.status === "Completed" || p.status === "Cancelled";
+    const billedOut = projInvoices.length > 0 && outstanding <= 0;
+    const effectiveStatus = p.status === "On Hold" ? "On Hold" : finished || billedOut ? "Inactive" : "Active";
     return { ...p, customer, openCount: open.length, outstanding, overdue, outstandingByCcy, overdueByCcy, repName: p.repId ? repNameById.get(p.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus };
   }), [projects, customers, invoices, regions, countries, repNameById]);
 
