@@ -55,4 +55,16 @@ describe("saved views wiring", () => {
     const page = read("app/(app)/accounting/reports/[statement]/page.tsx");
     expect(page).toMatch(/pickOption\(/);
   });
+
+  it("every report with a Views menu re-checks stored values before applying them", () => {
+    for (const p of [
+      "app/(app)/accounting/reports/[statement]/page.tsx",
+      "app/(app)/accounting/reports/general-ledger/page.tsx",
+      "app/(app)/accounting/reports/budget-vs-actual/page.tsx",
+    ]) {
+      const src = read(p);
+      expect(src, p).toMatch(/<SavedViewsMenu /);
+      expect(src, p).toMatch(/pickOption\(/);
+    }
+  });
 });

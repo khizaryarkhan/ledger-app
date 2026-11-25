@@ -12,6 +12,8 @@ import { listTable, listRow, listCell, listNumCell } from "@/components/list-vie
 import { ReportShell } from "@/components/ui";
 import { controlCompact, SelectField } from "@/components/form-kit";
 import { buildGeneralLedgerModel } from "@/lib/reports/builders/general-ledger";
+import { SavedViewsMenu } from "@/components/saved-views-menu";
+import { pickOption, type ViewParams } from "@/lib/reports/saved-views";
 
 const today = () => localToday();
 // NOT fmt.num2 — this report's negative figures are parenthesized
@@ -98,6 +100,18 @@ function GeneralLedgerInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, dataKey, loading, accounts, accountId, customers, customerId, suppliers, nameId, projects, projectId, from, to, showFx]);
 
+  // Saved views remember the FILTERS (not the dates: an absolute date goes stale). A stored id is applied only if it
+  // is still in the list the screen loaded, so a deleted account or project falls back to "All".
+  const currentView: ViewParams = { accountId, customerId, nameId, projectId, showFx };
+  function applyView(v: ViewParams) {
+    const ids = (list: any[]) => ["", ...list.map((x) => String(x.id))];
+    setAccountId(pickOption(v.accountId, ids(accounts), ""));
+    setCustomerId(pickOption(v.customerId, ids(customers), ""));
+    setNameId(pickOption(v.nameId, ids(suppliers), ""));
+    setProjectId(pickOption(v.projectId, ids(projects), ""));
+    setShowFx(v.showFx === true);
+  }
+
   return (
     <ReportShell title="General Ledger" sub={`${data?.meta?.entity ?? ""} — every posting with its type, document and running balance.`} icon={BookOpen} onRefresh={run} loading={loading} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
@@ -132,6 +146,7 @@ function GeneralLedgerInner() {
             <input type="checkbox" checked={showFx} onChange={e => setShowFx(e.target.checked)} /> Show foreign currency
           </label>
         )}
+        <SavedViewsMenu reportKey="general-ledger" current={currentView} onApply={applyView} />
         {loading && <Loader size={16} className="animate-spin text-stone-500 mb-2" />}
       </div>
 

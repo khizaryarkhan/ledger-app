@@ -9,6 +9,8 @@ import { listTable, listRow, listCell, listNumCell } from "@/components/list-vie
 import { fmt } from "@/lib/format";
 import { MONTH_LABELS, type Variance, type VarianceRow } from "@/lib/accounting/budgets";
 import { buildBudgetModel, groupTotal, monthSum, varianceOf } from "@/lib/reports/builders/budget";
+import { SavedViewsMenu } from "@/components/saved-views-menu";
+import { pickOption, type ViewParams } from "@/lib/reports/saved-views";
 
 type Budget = { id: string; name: string; year: number; status: string };
 type Report = {
@@ -119,6 +121,17 @@ export default function BudgetVsActualPage() {
     </>);
   }
 
+  // Saved views remember the budget, the month range and the by-month switch. A stored value is applied only if it is
+  // still offered here (the budget must still exist, months must be 1–12).
+  const currentView: ViewParams = { budgetId, fromM, toM, byMonth };
+  function applyView(v: ViewParams) {
+    setBudgetId(pickOption(v.budgetId, budgets.map((b) => b.id), budgetId));
+    const months = MONTHS.map(String);
+    setFromM(Number(pickOption(String(v.fromM), months, String(fromM))));
+    setToM(Number(pickOption(String(v.toM), months, String(toM))));
+    setByMonth(v.byMonth === true);
+  }
+
   return (
     <ReportShell title="Budget vs Actual" icon={Target} onRefresh={run} loading={loading} exportModel={exportModel}
       sub={`${data?.meta.entity ? `${data.meta.entity} — b` : "B"}udget against the posted ledger, by account. Variance is actual minus budget.`}>
@@ -140,6 +153,7 @@ export default function BudgetVsActualPage() {
           className={`h-8 px-3 text-xs rounded-md ring-1 ${byMonth ? "ring-stone-600 bg-stone-700 text-stone-100" : "ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"}`}>
           Variance by month
         </button>
+        <SavedViewsMenu reportKey="budget-vs-actual" current={currentView} onApply={applyView} />
       </div>
 
       {err && <p className="text-sm text-rose-400 mb-3">{err}</p>}
