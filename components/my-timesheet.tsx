@@ -68,6 +68,12 @@ const dotFor = (id: string | null) => {
   return DOT_COLOURS[h % DOT_COLOURS.length];
 };
 
+// "25 Nov": the year is already in the week range above the grid. Built from the date's own parts, never from a UTC-midnight string.
+const dayMonth = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+};
+
 const hrs = (n: number) => String(Math.round(n * 100) / 100);
 
 async function api<T>(url: string, init?: RequestInit): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
@@ -330,7 +336,7 @@ export function MyTimesheet() {
                 return (
                   <th key={d} className={`px-1 py-2 font-semibold text-center w-[76px] ${weekend ? "bg-stone-950/40" : ""}`}>
                     <div className={isToday ? "text-primary-ink" : ""}>{DAY_NAMES[i]}</div>
-                    <div className={`mx-auto mt-0.5 inline-flex items-center justify-center rounded-full px-2 h-5 normal-case tracking-normal text-[11px] tabular-nums ${isToday ? "bg-primary text-white" : "text-stone-300"}`}>{formatDateShort(d)}</div>
+                    <div className={`mx-auto mt-0.5 inline-flex items-center justify-center rounded-full px-2 py-0.5 whitespace-nowrap normal-case tracking-normal text-[11px] tabular-nums ${isToday ? "bg-primary text-white" : "text-stone-300"}`}>{dayMonth(d)}</div>
                   </th>
                 );
               })}
