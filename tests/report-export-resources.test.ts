@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildProjectHoursModel, buildEmployeeHoursModel, buildMyHoursModel } from "@/lib/reports/builders/resources";
+import { buildProjectHoursModel, buildEmployeeHoursModel, buildMyHoursModel, buildDashboardModel } from "@/lib/reports/builders/resources";
 import { weekEnd } from "@/lib/resources/reports";
 
 const base = { entity: "Acme Ltd", currency: "EUR", periodLine: "For the period 01 Nov 2026 to 30 Nov 2026", from: "2026-11-01", to: "2026-11-30" };
@@ -96,7 +96,45 @@ describe("Resources report exports", () => {
   });
 });
 
+describe("Employee dashboard export", () => {
+  const dash: any = {
+    resource: { name: "Sam", designation: "Engineer", department: null, manager: "Pat" },
+    timesheets: [{ week: "2026-11-09", status: "approved" }, { week: "2026-11-16", status: "returned" }],
+    leave: [{ name: "Annual", taken: 16, remaining: 104 }],
+    attention: [{ kind: "returned", title: "Timesheet returned", detail: "Week of 16 Nov", action: "timesheet" }],
+    ahead: { weeks: ["2026-11-23", "2026-11-30"], rows: [{ key: "a", label: "Alpha", weeks: [20, 0], total: 20 }], totals: [20, 0] },
+    behind: { weeksBack: 3, weeks: [{ week: "2026-11-02", planned: 40, logged: 38 }], projects: [{ key: "a", label: "Alpha", planned: 40, logged: 38 }] },
+  };
+  const info = { entity: "Acme Ltd", currency: null, today: "2026-11-25" };
+
+  it("every row has one cell per column, one section per populated card", () => {
+    const m = buildDashboardModel(dash, info)!;
+    expect(m.sections.map((s) => s.heading)).toEqual([
+      "My timesheets", "Leave balance", "What needs your attention",
+      "Planned hours — this week and the next three",
+      "How the last 3 weeks went — per week", "How the last 3 weeks went — per project",
+    ]);
+    for (const s of m.sections) for (const r of s.rows) expect(r.cells).toHaveLength(s.columns.length);
+    expect(m.sections[0].rows[1].cells[1]).toBe("Returned");
+    expect(m.sections[0].rows[1].flags?.[1]).toBe(true);
+    expect(m.sections[3].rows.at(-1)!.cells).toEqual(["Planned total", 20, 0, 20]);
+    expect(m.params.map((p) => p.value)).toEqual(["Sam", "Engineer", "Pat"]);
+  });
+
+  it("empty cards are left out, and nothing is exported without a linked person", () => {
+    const m = buildDashboardModel({ ...dash, leave: [], attention: [], ahead: { weeks: [], rows: [], totals: [] } }, info)!;
+    expect(m.sections.map((s) => s.heading)).toEqual(["My timesheets", "How the last 3 weeks went — per week", "How the last 3 weeks went — per project"]);
+    expect(buildDashboardModel({ ...dash, resource: null }, info)).toBeNull();
+  });
+});
+
 describe("Resources report wiring", () => {
+  it("the dashboard hands the shell a model held to the window it was fetched for", () => {
+    const src = readFileSync(join(process.cwd(), "components/employee-dashboard.tsx"), "utf8");
+    expect(src).toMatch(/exportModel=\{exportModel\}/);
+    expect(src).toMatch(/data\.behind\.weeksBack !== weeksBack/);
+  });
+
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
   it("both screens hand the shell an export model, and the team one holds it to the period it was fetched for", () => {
     expect(read("components/team-reports.tsx")).toMatch(/exportModel=\{exportModel\}/);

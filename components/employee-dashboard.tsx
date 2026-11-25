@@ -8,7 +8,9 @@
  * Bars are plain elements, not a chart library: there is none in this app, and
  * a stacked bar is a row of widths.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useData } from "@/components/data-provider";
+import { buildDashboardModel } from "@/lib/reports/builders/resources";
 import Link from "next/link";
 import { RefreshCw, CheckCircle2, AlertTriangle, Clock, Inbox } from "lucide-react";
 import { ReportShell, type ReportShellKind } from "@/components/resource-report-shell";
@@ -124,6 +126,20 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   );
   const subtitle = "Your timesheets, leave, what's planned for you and how the last weeks went.";
 
+  // Export / Print of exactly what is on screen. Held back (null) unless the data was fetched for the window now selected.
+  let org: { name: string; displayName: string | null } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (!data || data.behind.weeksBack !== weeksBack) return null;
+    try {
+      return buildDashboardModel(data, { entity: org ? (org.displayName || org.name) : "", currency: null, today: localToday() });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, weeksBack, org?.name, org?.displayName]);
+
   if (err) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh}><p className="text-[13px] text-rose-400">{err}</p></ReportShell>;
   if (!data) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle}><p className="text-[13px] text-stone-400">Loading…</p></ReportShell>;
   if (!data.resource) {
@@ -140,7 +156,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const aheadMax = Math.max(1, ...data.ahead.totals);
 
   return (
-    <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh}>
+    <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh} exportModel={exportModel}>
       <div className="space-y-5 max-w-[1280px]">
         {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

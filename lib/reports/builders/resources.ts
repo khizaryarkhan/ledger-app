@@ -197,3 +197,79 @@ export function buildMyHoursModel(data: MyReportIn, info: ResourceInfo & { today
     fileBase: "My-hours",
   };
 }
+
+// ───────────────────────── Employee dashboard ─────────────────────────
+
+export type DashStatus = "approved" | "submitted" | "returned" | "draft" | "missing";
+export const DASH_STATUS_LABEL: Record<DashStatus, string> = {
+  approved: "Approved", submitted: "Awaiting approval", returned: "Returned", draft: "Draft", missing: "Not started",
+};
+const ATTENTION_LABEL: Record<string, string> = { returned: "Action", unsubmitted: "Due", over_plan: "Info" };
+
+export interface DashboardIn {
+  resource: { name: string; designation: string | null; department: string | null; manager: string | null } | null;
+  timesheets: { week: string; status: DashStatus }[];
+  leave: { name: string; taken: number; remaining: number }[];
+  attention: { kind: string; title: string; detail: string; action: string | null }[];
+  ahead: { weeks: string[]; rows: { key: string; label: string; weeks: number[]; total: number }[]; totals: number[] };
+  behind: { weeksBack: number; weeks: { week: string; planned: number; logged: number }[]; projects: { key: string; label: string; planned: number; logged: number }[] };
+}
+
+/** The dashboard as tables: one section per card, nothing the screen does not show. */
+export function buildDashboardModel(data: DashboardIn, info: ResourceInfo & { today: string }): ReportExportModel | null {
+  if (!data.resource) return null;
+  const r = data.resource;
+  const sections: ReportExportModel["sections"] = [];
+  const wk = (d: string) => `Week of ${fmt.shortDate(d)}`;
+
+  if (data.timesheets.length > 0) {
+    sections.push({
+      heading: "My timesheets", columns: [text("week", "Week"), text("status", "Status")],
+      rows: data.timesheets.map((t) => line("line", [wk(t.week), DASH_STATUS_LABEL[t.status] ?? t.status],
+        t.status === "returned" ? [false, true] : undefined)),
+    });
+  }
+  if (data.leave.length > 0) {
+    sections.push({
+      heading: "Leave balance", columns: [text("name", "Leave type"), hours("taken", "Taken (h)"), hours("left", "Remaining (h)")],
+      rows: data.leave.map((l) => line("line", [l.name, num(l.taken), num(l.remaining)])),
+    });
+  }
+  if (data.attention.length > 0) {
+    sections.push({
+      heading: "What needs your attention", columns: [text("tag", "Type"), text("title", "Item"), text("detail", "Detail")],
+      rows: data.attention.map((a) => line("line", [ATTENTION_LABEL[a.kind] ?? "Info", a.title, a.detail])),
+    });
+  }
+  if (data.ahead.rows.length > 0) {
+    const columns: ExportColumn[] = [text("name", "Booking"), ...data.ahead.weeks.map((w, i) => hours(`a${i}`, i === 0 ? "This week" : wk(w))), hours("total", "Total")];
+    const rows: ExportRow[] = data.ahead.rows.map((x) => line("line", [x.label, ...x.weeks.map((h) => (h > 0 ? num(h) : null)), num(x.total)]));
+    rows.push(line("total", ["Planned total", ...data.ahead.totals.map((v) => num(v)), num(data.ahead.totals.reduce((s, v) => s + v, 0))]));
+    sections.push({ heading: "Planned hours — this week and the next three", columns, rows });
+  }
+  const pair = (label: string): ExportColumn[] => [text("name", label), hours("planned", "Planned (h)"), hours("logged", "Logged (h)")];
+  if (data.behind.weeks.length > 0) {
+    sections.push({
+      heading: `How the last ${data.behind.weeksBack} weeks went — per week`, columns: pair("Week"),
+      rows: data.behind.weeks.map((w) => line("line", [wk(w.week), num(w.planned), num(w.logged)])),
+    });
+  }
+  if (data.behind.projects.length > 0) {
+    sections.push({
+      heading: `How the last ${data.behind.weeksBack} weeks went — per project`, columns: pair("Project"),
+      rows: data.behind.projects.map((p) => line("line", [p.label, num(p.planned), num(p.logged)])),
+    });
+  }
+
+  const params = [{ label: "Person", value: r.name }];
+  if (r.designation) params.push({ label: "Designation", value: r.designation });
+  if (r.department) params.push({ label: "Department", value: r.department });
+  if (r.manager) params.push({ label: "Manager", value: r.manager });
+  return {
+    title: "Dashboard", formalTitle: `Dashboard — ${r.name}`,
+    entity: info.entity, currency: info.currency, periodLine: `As at ${fmt.shortDate(info.today)}`,
+    params, sections,
+    notes: ["Logged hours are approved and posted time."],
+    fileBase: "Dashboard",
+  };
+}

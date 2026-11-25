@@ -335,7 +335,7 @@ rows were fetched for the period selected now (`key`). An expanded-on-click list
 project's people); My hours exports approved hours per week with pending/draft in their own columns. This replaced the old
 Excel-only button on Team reports. **In the employee portal PDF is hidden** (`pdf={false}`): `/api/print/report` is refused to the
 employee role by `requireOrg()`, and the Excel/Print audit ping fails quietly for the same reason, so portal exports are not in the
-audit log. **Still not done**: the employee dashboard, Customize panel / saved views, scheduled or emailed reports. Phase 3 was
+audit log. **Phase 4 (2026-11-25) added the employee dashboard** (`buildDashboardModel`: one section per card, empty cards left out; held back unless fetched for the selected weeks-back window; PDF hidden in the portal like My hours; tsc and 2,048 tests only, not exercised live). **Still not done**: Customize panel / saved views, scheduled or emailed reports. Phase 3 was
 verified by tsc, 2,045 tests and nothing else: not exercised on production or in a browser. **Known screen-vs-file differences**:
 cards become one table (Delivery Risk), a click-to-expand list is exported expanded (Job Work Yield), a quantity+unit cell is split
 in two (Stock), charts become value tables (Production Performance), FX rates use the "qty" kind (5dp) because there is no rate kind.
