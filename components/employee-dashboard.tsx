@@ -176,6 +176,33 @@ function PlannedBlock({ weeks, rows, totals, colorOf, from, to, thisWeekFirst, e
   );
 }
 
+/** This week: one bar per project (not one stacked bar), largest first, each in the project's own colour. */
+function ThisWeekByProject({ rows, colorOf, weekIndex }: { rows: AheadRow[]; colorOf: Map<string, string>; weekIndex: number }) {
+  const items = rows.map((r) => ({ key: r.key, label: r.label, hours: r.weeks[weekIndex] ?? 0 }))
+    .filter((r) => r.hours > 0).sort((a, b) => b.hours - a.hours);
+  const max = Math.max(1, ...items.map((r) => r.hours));
+  const total = items.reduce((s, r) => s + r.hours, 0);
+  return (
+    <Card title="Planned project hours" right={items.length > 0 ? <span className="text-[12px] text-stone-400 tabular-nums">Total {h(total)}</span> : undefined}>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-stone-400">Nothing is planned for you this week.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {items.map((r) => (
+            <div key={r.key} className="grid grid-cols-[minmax(0,220px)_1fr_60px] items-center gap-3">
+              <div className="text-[12px] text-stone-300 truncate" title={r.label}>{r.label}</div>
+              <div className="h-5 rounded-sm bg-stone-800 overflow-hidden">
+                <div className={`h-full ${colorOf.get(r.key)}`} style={{ width: `${(r.hours / max) * 100}%` }} />
+              </div>
+              <div className="text-right text-[12px] tabular-nums text-stone-300">{fmt.num2(r.hours)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** Paired bars with their own Show table toggle. */
 function BehindCard({ title, rows }: { title: string; rows: { label: string; planned: number; logged: number }[] }) {
   const [showTable, setShowTable] = useState(false);
@@ -350,20 +377,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
 
         {/* This week */}
         <h2 className="text-[15px] font-semibold text-white">This week</h2>
-        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
-          from={0} to={1} thisWeekFirst empty="Nothing is planned for you this week." />
-
-        {/* Weeks ahead */}
-        <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-semibold text-white">Weeks ahead</h2>
-          <div className="w-32">
-            <SelectField value={String(weeksAhead)} onChange={(e) => setWeeksAhead(Number(e.target.value))}>
-              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
-            </SelectField>
-          </div>
-        </div>
-        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
-          from={1} to={data.ahead.weeks.length} thisWeekFirst={false} empty="Nothing is planned for you in these weeks yet." />
+        <ThisWeekByProject rows={data.ahead.rows} colorOf={colorOf} weekIndex={0} />
 
         {/* Weeks behind */}
         <div className="flex items-center gap-3">
@@ -381,6 +395,18 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           <BehindCard title="Planned vs logged — per project"
             rows={data.behind.projects.map((p) => ({ label: p.label, planned: p.planned, logged: p.logged }))} />
         </div>
+
+        {/* Weeks ahead */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-[15px] font-semibold text-white">Weeks ahead</h2>
+          <div className="w-32">
+            <SelectField value={String(weeksAhead)} onChange={(e) => setWeeksAhead(Number(e.target.value))}>
+              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
+            </SelectField>
+          </div>
+        </div>
+        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
+          from={1} to={data.ahead.weeks.length} thisWeekFirst={false} empty="Nothing is planned for you in these weeks yet." />
       </div>
     </ReportShell>
   );
