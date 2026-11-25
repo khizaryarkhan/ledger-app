@@ -507,7 +507,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/resources/me", methods: ["GET"] },
   { path: "/api/resources/me/approvals", methods: ["GET","POST"] },
   { path: "/api/resources/me/copy-week", methods: ["GET","POST"], params: ["back","weekStart"] },
-  { path: "/api/resources/me/dashboard", methods: ["GET"], params: ["today","weeksBack"] },
+  { path: "/api/resources/me/dashboard", methods: ["GET"], params: ["today","weeksAhead","weeksBack"] },
   { path: "/api/resources/me/notifications", methods: ["GET","POST"] },
   { path: "/api/resources/me/options", methods: ["GET"] },
   { path: "/api/resources/me/personal-details", methods: ["GET","PUT"] },
