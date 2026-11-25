@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw, AlertTriangle, X, Loader, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, AlertTriangle, X, Loader, Check } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { localToday, ymd } from "@/lib/format";
 import { ASSIGNABLE_LABEL, ASSIGNABLE_ENDPOINT, assignableOptionLabel, type AssignableType } from "@/lib/resources/assignable";
@@ -18,7 +18,33 @@ import { ASSIGNABLE_LABEL, ASSIGNABLE_ENDPOINT, assignableOptionLabel, type Assi
 // Monday-start, like the timesheet and every report (getDay() is 0 on Sunday).
 function startOfWeek(d: Date) { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
 const iso = (d: Date) => ymd(d);
-const dowLabel = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+
+// One colour per project, the same wherever it appears this week, so a bar can be read at a glance.
+const PROJECT_COLOURS = ["#3b82f6", "#f97316", "#10b981", "#eab308", "#ec4899", "#8b5cf6", "#06b6d4", "#84cc16"];
+const keyOf = (a: any) => `${a.assignableType}:${a.assignableId}`;
+const initials = (name: string) => name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const rangeLabel = (days: Date[]) => {
+  const f = (d: Date, withYear: boolean) => d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}) });
+  return `${f(days[0], false)} – ${f(days[6], true)}`;
+};
+
+/** Is this a day the resource works? (ISO weekday, Mon=1..Sun=7; null pattern = Mon-Fri.) */
+function worksOn(r: any, d: Date): boolean {
+  const isoDow = ((d.getDay() + 6) % 7) + 1;
+  return (r.workingDays?.length ? r.workingDays : [1, 2, 3, 4, 5]).includes(isoDow);
+}
+
+/** Average booked % over the days this resource works this week (0 when it works none). */
+function weekUtilisation(r: any, days: Date[]): number {
+  const working = days.filter((d) => worksOn(r, d));
+  if (!working.length) return 0;
+  const total = working.reduce((sum, d) => {
+    const dstr = iso(d);
+    return sum + (r.assignments ?? []).filter((a: any) => a.startDate <= dstr && (!a.endDate || a.endDate >= dstr))
+      .reduce((s2: number, a: any) => s2 + (Number(a.allocationPercent) || 0), 0);
+  }, 0);
+  return Math.round(total / working.length);
+}
 
 export function ResourceBoard() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
@@ -27,6 +53,8 @@ export function ResourceBoard() {
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; }), [weekStart]);
   const from = iso(days[0]), to = iso(days[6]);
+  const today = localToday();
+  const thisWeek = from <= today && today <= to;
 
   async function load() {
     const d = await fetch(`/api/resources/assignments?from=${from}&to=${to}`).then(r => r.json()).catch(() => []);
@@ -36,73 +64,124 @@ export function ResourceBoard() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [from, to]);
 
   const list = rows ?? [];
+  const shiftWeek = (n: number) => setWeekStart((d) => { const x = new Date(d); x.setDate(x.getDate() + 7 * n); return x; });
+
+  // Colour and legend: every booking this week, in a stable order.
+  const projects = useMemo(() => {
+    const seen = new Map<string, { key: string; name: string }>();
+    for (const r of list) for (const a of r.assignments ?? []) {
+      if (!seen.has(keyOf(a))) seen.set(keyOf(a), { key: keyOf(a), name: a.code ?? a.label ?? ASSIGNABLE_LABEL[a.assignableType as AssignableType] ?? a.assignableType });
+    }
+    return Array.from(seen.values()).sort((x, y) => x.name.localeCompare(y.name));
+  }, [list]);
+  const colourOf = (a: any) => PROJECT_COLOURS[Math.max(0, projects.findIndex((p) => p.key === keyOf(a))) % PROJECT_COLOURS.length];
 
   return (
-    <div className="p-6 max-w-6xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary-ink/10 flex items-center justify-center"><CalendarClock size={18} className="text-primary-ink" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Resource Board</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500"><ChevronLeft size={15} /></button>
-          <span className="text-[12px] text-stone-400 tabular-nums">{from} – {to}</span>
-          <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500"><ChevronRight size={15} /></button>
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-primary text-white rounded-lg px-3.5 py-2 hover:bg-primary-hover"><Plus size={14} /> New assignment</button>
+    <div className="flex flex-col h-[calc(100vh-44px)]">
+      <div className="flex-shrink-0 px-6 py-4 border-b border-stone-800 bg-stone-950">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="mr-auto">
+            <h1 className="text-[20px] font-semibold text-white tracking-tight">Resource Board</h1>
+            <p className="text-[13px] text-stone-400 mt-0.5">Who is booked on what this week, and who has room.</p>
+          </div>
+          <div className="inline-flex items-center rounded-md ring-1 ring-stone-700 bg-stone-900">
+            <button onClick={() => shiftWeek(-1)} className="h-8 w-8 inline-flex items-center justify-center text-stone-400 hover:text-stone-100" aria-label="Previous week"><ChevronLeft size={14} /></button>
+            <span className="px-3 text-[12px] font-medium text-stone-200 tabular-nums min-w-[150px] text-center">{rangeLabel(days)}</span>
+            <button onClick={() => shiftWeek(1)} className="h-8 w-8 inline-flex items-center justify-center text-stone-400 hover:text-stone-100" aria-label="Next week"><ChevronRight size={14} /></button>
+          </div>
+          <button onClick={() => setWeekStart(startOfWeek(new Date()))} disabled={thisWeek}
+            className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] font-medium text-stone-300 hover:text-stone-100 disabled:opacity-40">Today</button>
+          <button onClick={load} className="h-8 w-8 inline-flex items-center justify-center rounded-md ring-1 ring-stone-700 text-stone-400 hover:text-stone-100" title="Refresh"><RefreshCw size={13} className={rows === null ? "animate-spin" : ""} /></button>
+          <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-1.5 h-8 text-[13px] font-semibold bg-primary text-white rounded-md px-3.5 hover:bg-primary-hover"><Plus size={14} /> New assignment</button>
         </div>
       </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Who and what is booked this week, against which Project or production order.</p>
 
-      {showNew && <NewAssignmentDrawer bookable={list} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {showNew && <NewAssignmentDrawer bookable={list} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
-      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No active resources — add People or Equipment first.</div>
-      ) : (
-        <div className="rounded-lg border border-stone-800 overflow-x-auto">
-          <table className="w-full text-[12.5px] min-w-[820px]">
-            <thead>
-              <tr className="border-b border-stone-800 bg-stone-950/40">
-                <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-stone-500 sticky left-0 bg-stone-950/40">Resource</th>
-                {days.map(d => <th key={iso(d)} className="text-center px-2 py-2 text-[10px] uppercase tracking-wider text-stone-500 min-w-[100px]">{dowLabel(d)}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((r: any) => (
-                <tr key={r.id} className="border-b border-stone-800/50">
-                  <td className="px-3 py-2 sticky left-0 bg-stone-900">
-                    <div className="text-stone-100">{r.name}</div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-stone-500">
-                      <span>{r.category || (r.type === "person" ? "Person" : "Equipment")}</span>
-                      {r.overAllocated && <span className="inline-flex items-center gap-0.5 text-amber-400"><AlertTriangle size={10} /> Over-allocated</span>}
-                    </div>
-                  </td>
-                  {days.map(d => {
-                    const dstr = iso(d);
-                    const onDay = (r.assignments ?? []).filter((a: any) => a.startDate <= dstr && (!a.endDate || a.endDate >= dstr));
-                    // ISO weekday (Mon=1..Sun=7); a day the person does not work is greyed, not booked.
-                    const isoDow = ((d.getDay() + 6) % 7) + 1;
-                    const works = (r.workingDays?.length ? r.workingDays : [1, 2, 3, 4, 5]).includes(isoDow);
-                    if (!works) return <td key={dstr} className="px-1.5 py-2 align-top bg-stone-950/40" title="Not a working day" />;
+        {projects.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
+            {projects.map((p, i) => (
+              <span key={p.key} className="inline-flex items-center gap-1.5 text-[11px] text-stone-300">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PROJECT_COLOURS[i % PROJECT_COLOURS.length] }} />{p.name}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {rows === null ? <p className="text-[13px] text-stone-400">Loading…</p> : list.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-400 text-[13px]">No active resources — add People or Equipment first.</div>
+        ) : (
+          <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 shadow-sm overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse">
+              <thead>
+                <tr className="border-b border-stone-800 bg-stone-950/50">
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-400 sticky left-0 bg-stone-950 w-[230px]">Resource</th>
+                  {days.map((d) => {
+                    const isToday = iso(d) === today;
                     return (
-                      <td key={dstr} className="px-1.5 py-2 align-top">
-                        <div className="space-y-1">
-                          {onDay.map((a: any) => (
-                            <div key={a.id} className={`text-[10.5px] rounded px-1.5 py-1 border ${a.status === "cancelled" ? "border-stone-800 text-stone-600 line-through" : "border-primary-ink/30 bg-primary-ink/10 text-primary-ink"}`}>
-                              <div className="truncate font-medium" title={a.label ?? undefined}>{a.code ?? a.label ?? ASSIGNABLE_LABEL[a.assignableType as AssignableType] ?? a.assignableType}</div>
-                              <div className="opacity-80">{Number(a.allocationPercent)}%</div>
-                            </div>
-                          ))}
-                        </div>
-                      </td>
+                      <th key={iso(d)} className="px-2 py-3 text-center min-w-[112px]">
+                        <div className={`text-[11px] font-semibold uppercase tracking-wider ${isToday ? "text-primary-ink" : "text-stone-400"}`}>{d.toLocaleDateString(undefined, { weekday: "short" })}</div>
+                        <div className={`mx-auto mt-0.5 w-7 h-7 rounded-full inline-flex items-center justify-center text-[13px] font-semibold tabular-nums ${isToday ? "bg-primary text-white" : "text-stone-200"}`}>{d.getDate()}</div>
+                      </th>
                     );
                   })}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {list.map((r: any) => {
+                  const util = weekUtilisation(r, days);
+                  const over = util > 100 || r.overAllocated;
+                  return (
+                    <tr key={r.id} className="border-b border-stone-800/70 last:border-b-0 hover:bg-stone-800/20">
+                      <td className="px-4 py-3 sticky left-0 bg-stone-900 align-top">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full bg-stone-700 text-[11px] font-semibold text-stone-100 flex items-center justify-center shrink-0">{initials(r.name)}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-medium text-stone-100 truncate">{r.name}</div>
+                            <div className="text-[11px] text-stone-400">{r.category || (r.type === "person" ? "Person" : "Equipment")}</div>
+                            <div className="mt-1.5 flex items-center gap-2" title={`Average booked over the days ${r.name} works this week`}>
+                              <div className="flex-1 h-1.5 rounded-full bg-stone-800 overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(100, util)}%`, background: over ? "#f59e0b" : util === 0 ? "transparent" : "#10b981" }} />
+                              </div>
+                              <span className={`text-[11px] tabular-nums ${over ? "text-amber-400" : "text-stone-400"}`}>{util}%</span>
+                            </div>
+                            {over && <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-400"><AlertTriangle size={10} /> Over-allocated</div>}
+                          </div>
+                        </div>
+                      </td>
+                      {days.map((d) => {
+                        const dstr = iso(d);
+                        const onDay = (r.assignments ?? []).filter((a: any) => a.startDate <= dstr && (!a.endDate || a.endDate >= dstr));
+                        if (!worksOn(r, d)) return <td key={dstr} className="px-1.5 py-2 align-top bg-stone-950/50" title="Not a working day" />;
+                        return (
+                          <td key={dstr} className={`px-1.5 py-2 align-top ${dstr === today ? "bg-primary/5" : ""}`}>
+                            <div className="space-y-1">
+                              {onDay.length === 0 && <div className="text-[11px] text-stone-500 text-center py-2">Free</div>}
+                              {onDay.map((a: any) => {
+                                const colour = colourOf(a);
+                                const name = a.label ?? a.code ?? ASSIGNABLE_LABEL[a.assignableType as AssignableType];
+                                return (
+                                  <div key={a.id} title={`${name} · ${Number(a.allocationPercent)}% · ${a.startDate}${a.endDate ? ` to ${a.endDate}` : " onwards"}`}
+                                    className={`rounded-md pl-2 pr-1.5 py-1 text-[11px] leading-tight ${a.status === "cancelled" ? "text-stone-500 line-through" : "text-stone-100"}`}
+                                    style={{ background: `${colour}26`, borderLeft: `3px solid ${colour}` }}>
+                                    <div className="truncate font-semibold">{a.code ?? a.label ?? ASSIGNABLE_LABEL[a.assignableType as AssignableType] ?? a.assignableType}</div>
+                                    <div className="text-stone-300 tabular-nums">{Number(a.allocationPercent)}%</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
