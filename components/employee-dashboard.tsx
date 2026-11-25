@@ -36,9 +36,11 @@ const STATUS_CHIP: Record<Status, { label: string; cls: string }> = {
   approved:  { label: "Approved", cls: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30" },
   submitted: { label: "Awaiting approval", cls: "bg-sky-500/15 text-sky-300 ring-sky-500/30" },
   returned:  { label: "Returned", cls: "bg-rose-500/15 text-rose-300 ring-rose-500/30" },
-  draft:     { label: "Draft", cls: "bg-amber-500/15 text-amber-300 ring-amber-500/30" },
-  missing:   { label: "Not started", cls: "bg-stone-700/60 text-stone-300 ring-stone-600" },
+  // A finished week that was never handed in is overdue, whether it is a draft or empty.
+  draft:     { label: "Overdue", cls: "bg-rose-500/20 text-rose-300 ring-rose-500/40" },
+  missing:   { label: "Overdue", cls: "bg-rose-500/20 text-rose-300 ring-rose-500/40" },
 };
+const WEEK_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const h = (n: number) => `${fmt.num2(n)} h`;
 const wk = (d: string) => `w/c ${formatDateShort(d)}`;
@@ -97,19 +99,127 @@ const TAG_CLS: Record<string, string> = {
   unsubmitted: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
   over_plan: "bg-stone-700/60 text-stone-300 ring-stone-600",
 };
-const TAG_LABEL: Record<string, string> = { returned: "Action", unsubmitted: "Due", over_plan: "Info" };
+const TAG_LABEL: Record<string, string> = { returned: "Action", unsubmitted: "Soon", over_plan: "Info" };
+
+type AheadRow = { key: string; label: string; weeks: number[]; total: number };
+
+/**
+ * One stacked bar per week, split by booking, with its own Show table toggle.
+ * `from`/`to` pick the weeks of the shared data this card shows, so "this week"
+ * and "weeks ahead" read the same figures and cannot disagree.
+ */
+function PlannedBlock({ weeks, rows, totals, colorOf, from, to, thisWeekFirst, empty }: {
+  weeks: string[]; rows: AheadRow[]; totals: number[]; colorOf: Map<string, string>;
+  from: number; to: number; thisWeekFirst: boolean; empty: string;
+}) {
+  const [showTable, setShowTable] = useState(false);
+  const idx = Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
+  const shown = rows.filter((r) => idx.some((i) => (r.weeks[i] ?? 0) > 0));
+  const max = Math.max(1, ...idx.map((i) => totals[i] ?? 0));
+  const label = (i: number) => (thisWeekFirst && i === 0 ? "This week" : wk(weeks[i]));
+  return (
+    <Card title="Planned project hours"
+      right={shown.length > 0 ? (
+        <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
+          {showTable ? "Hide table" : "Show table"}
+        </button>
+      ) : undefined}>
+      {shown.length === 0 ? (
+        <p className="text-[12px] text-stone-400">{empty}</p>
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {idx.map((i) => (
+              <div key={weeks[i]} className="grid grid-cols-[90px_1fr_60px] items-center gap-3">
+                <div className="text-[12px] text-stone-400">{label(i)}</div>
+                <div className="flex h-5 rounded-sm overflow-hidden bg-stone-800">
+                  {shown.map((row) => (row.weeks[i] ?? 0) > 0 ? (
+                    <div key={row.key} className={colorOf.get(row.key)} style={{ width: `${((row.weeks[i] ?? 0) / max) * 100}%` }}
+                      title={`${row.label}: ${h(row.weeks[i] ?? 0)}`} />
+                  ) : null)}
+                </div>
+                <div className="text-right text-[12px] tabular-nums text-stone-300">{fmt.num2(totals[i] ?? 0)}</div>
+              </div>
+            ))}
+          </div>
+          <Legend items={shown.map((row) => ({ label: row.label, cls: colorOf.get(row.key)! }))} />
+          {showTable && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className={tableHead}>
+                    <th className={th}>Booking</th>
+                    {idx.map((i) => <th key={weeks[i]} className={`${th} !text-right`}>{label(i)}</th>)}
+                    <th className={`${th} !text-right`}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((row) => (
+                    <tr key={row.key} className="border-b border-stone-800/60">
+                      <td className="py-2 pr-3 text-stone-200"><span className={`inline-block w-2 h-2 rounded-sm mr-2 ${colorOf.get(row.key)}`} />{row.label}</td>
+                      {idx.map((i) => <td key={i} className="py-2 px-3 text-right tabular-nums text-stone-300">{fmt.num2(row.weeks[i] ?? 0)}</td>)}
+                      <td className="py-2 pl-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(idx.reduce((s, i) => s + (row.weeks[i] ?? 0), 0))}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="py-2 pr-3 font-semibold text-stone-100">Planned total</td>
+                    {idx.map((i) => <td key={i} className="py-2 px-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(totals[i] ?? 0)}</td>)}
+                    <td className="py-2 pl-3 text-right tabular-nums font-semibold text-white">{fmt.num2(idx.reduce((s, i) => s + (totals[i] ?? 0), 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Paired bars with their own Show table toggle. */
+function BehindCard({ title, rows }: { title: string; rows: { label: string; planned: number; logged: number }[] }) {
+  const [showTable, setShowTable] = useState(false);
+  return (
+    <Card title={title}
+      right={rows.length > 0 ? (
+        <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
+          {showTable ? "Hide table" : "Show table"}
+        </button>
+      ) : undefined}>
+      <PairedBars rows={rows} />
+      <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
+      {showTable && (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-[12px]">
+            <thead><tr className={tableHead}><th className={th}>Item</th><th className={`${th} !text-right`}>Logged</th><th className={`${th} !text-right`}>Planned</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label} className="border-b border-stone-800/60">
+                  <td className="py-2 pr-3 text-stone-200">{r.label}</td>
+                  <td className="py-2 px-3 text-right tabular-nums text-stone-300">{fmt.num2(r.logged)}</td>
+                  <td className="py-2 pl-3 text-right tabular-nums text-stone-300">{fmt.num2(r.planned)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const [weeksBack, setWeeksBack] = useState(3);
+  const [weeksAhead, setWeeksAhead] = useState(3);
   const [data, setData] = useState<Dash | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [showTable, setShowTable] = useState(false);
   const timesheetHref = shell === "portal" ? "/my-time" : "/resources/my-time";
+  const notificationsHref = shell === "portal" ? "/my-time/notifications" : "/resources/notifications";
 
   const load = () => {
     setErr(null);
     // Send the viewer's own date: the server's fallback is UTC, a day off west of Greenwich.
-    fetch(`/api/resources/me/dashboard?weeksBack=${weeksBack}&today=${localToday()}`)
+    fetch(`/api/resources/me/dashboard?weeksBack=${weeksBack}&weeksAhead=${weeksAhead}&today=${localToday()}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { setErr(d?.error || "Could not load your dashboard."); return; }
@@ -117,7 +227,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
       })
       .catch(() => setErr("Network problem. Reload to try again."));
   };
-  useEffect(load, [weeksBack]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(load, [weeksBack, weeksAhead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = (
     <button onClick={load} title="Refresh" className="h-8 w-8 inline-flex items-center justify-center rounded-md ring-1 ring-stone-700 text-stone-400 hover:text-stone-200">
@@ -130,7 +240,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   let org: { name: string; displayName: string | null } | null = null;
   try { org = useData().orgSettings; } catch { org = null; }
   const exportModel = useMemo(() => {
-    if (!data || data.behind.weeksBack !== weeksBack) return null;
+    if (!data || data.behind.weeksBack !== weeksBack || data.ahead.weeks.length - 1 !== weeksAhead) return null;
     try {
       return buildDashboardModel(data, { entity: org ? (org.displayName || org.name) : "", currency: null, today: localToday() });
     } catch (e) {
@@ -138,7 +248,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, weeksBack, org?.name, org?.displayName]);
+  }, [data, weeksBack, weeksAhead, org?.name, org?.displayName]);
 
   if (err) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh}><p className="text-[13px] text-rose-400">{err}</p></ReportShell>;
   if (!data) return <ReportShell shell={shell} title="Dashboard" subtitle={subtitle}><p className="text-[13px] text-stone-400">Loading…</p></ReportShell>;
@@ -153,13 +263,12 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
   const r = data.resource;
   const initials = r.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
   const colorOf = new Map(data.ahead.rows.map((row, i) => [row.key, SERIES[i % SERIES.length]]));
-  const aheadMax = Math.max(1, ...data.ahead.totals);
 
   return (
     <ReportShell shell={shell} title="Dashboard" subtitle={subtitle} actions={refresh} exportModel={exportModel}>
       <div className="space-y-5 max-w-[1280px]">
-        {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {/* Summary cards stay in view while the page scrolls, as on EDC Pulse. */}
+        <div className="sticky top-0 z-10 -mt-1 pt-1 pb-3 bg-stone-950 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4 flex items-center gap-3">
             <div className="w-11 h-11 rounded-full bg-stone-700 flex items-center justify-center text-[13px] font-semibold text-stone-200 shrink-0">{initials}</div>
             <div className="min-w-0">
@@ -170,7 +279,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           </div>
 
           <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
-            <div className="text-[13px] font-semibold text-stone-100 mb-2">My timesheets</div>
+            <div className="text-[13px] font-semibold text-stone-100 mb-2">My timesheet status</div>
             <div className="grid grid-cols-2 gap-2">
               {data.timesheets.map((t) => (
                 <div key={t.week}>
@@ -194,7 +303,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
                 <div key={l.name} className="mb-2 last:mb-0">
                   <div className="flex justify-between gap-2 text-[11px] text-stone-400 mb-1">
                     <span className="truncate">{l.name}</span>
-                    <span className="shrink-0"><span className="text-orange-300">Taken {h(l.taken)}</span> · <span className="text-sky-300">Left {h(l.remaining)}</span></span>
+                    <span className="shrink-0"><span className="text-orange-300">Taken {h(l.taken)}</span> · <span className="text-sky-300">Remaining {h(l.remaining)}</span></span>
                   </div>
                   <div className="flex h-2.5 rounded-sm overflow-hidden bg-stone-800">
                     <div className={PLANNED} style={{ width: `${(l.taken / total) * 100}%` }} />
@@ -214,7 +323,9 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
         </div>
 
         {/* What needs attention */}
-        <Card title="What needs your attention">
+        <h2 className="text-[15px] font-semibold text-white">Notifications</h2>
+        <Card title="What needs your attention"
+          right={<Link href={notificationsHref} className="text-[12px] text-stone-400 hover:text-stone-200">All notifications</Link>}>
           {data.attention.length === 0 ? (
             <div className="flex items-center gap-2 text-[13px] text-stone-400"><Inbox size={15} /> You're all caught up.</div>
           ) : (
@@ -237,83 +348,38 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
           )}
         </Card>
 
-        {/* Planned ahead */}
-        <Card title="Planned project hours — this week and the next three"
-          right={data.ahead.rows.length > 0 ? (
-            <button onClick={() => setShowTable((v) => !v)} className="h-8 px-3 rounded-md ring-1 ring-stone-700 text-[12px] text-stone-300 hover:text-stone-100">
-              {showTable ? "Hide table" : "Show table"}
-            </button>
-          ) : undefined}>
-          {data.ahead.rows.length === 0 ? (
-            <p className="text-[12px] text-stone-400">Nothing is planned for you in these weeks yet.</p>
-          ) : (
-            <>
-              <div className="space-y-2.5">
-                {data.ahead.weeks.map((w, i) => (
-                  <div key={w} className="grid grid-cols-[90px_1fr_60px] items-center gap-3">
-                    <div className="text-[12px] text-stone-400">{i === 0 ? "This week" : wk(w)}</div>
-                    <div className="flex h-5 rounded-sm overflow-hidden bg-stone-800">
-                      {data.ahead.rows.map((row) => (row.weeks[i] ?? 0) > 0 ? (
-                        <div key={row.key} className={colorOf.get(row.key)} style={{ width: `${((row.weeks[i] ?? 0) / aheadMax) * 100}%` }}
-                          title={`${row.label}: ${h(row.weeks[i] ?? 0)}`} />
-                      ) : null)}
-                    </div>
-                    <div className="text-right text-[12px] tabular-nums text-stone-300">{fmt.num2(data.ahead.totals[i] ?? 0)}</div>
-                  </div>
-                ))}
-              </div>
-              <Legend items={data.ahead.rows.map((row) => ({ label: row.label, cls: colorOf.get(row.key)! }))} />
-              {showTable && (
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full text-[12px]">
-                    <thead>
-                      <tr className={tableHead}>
-                        <th className={th}>Booking</th>
-                        {data.ahead.weeks.map((w, i) => <th key={w} className={`${th} !text-right`}>{i === 0 ? "This week" : wk(w)}</th>)}
-                        <th className={`${th} !text-right`}>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.ahead.rows.map((row) => (
-                        <tr key={row.key} className="border-b border-stone-800/60">
-                          <td className="py-2 pr-3 text-stone-200"><span className={`inline-block w-2 h-2 rounded-sm mr-2 ${colorOf.get(row.key)}`} />{row.label}</td>
-                          {row.weeks.map((v, i) => <td key={i} className="py-2 px-3 text-right tabular-nums text-stone-300">{fmt.num2(v)}</td>)}
-                          <td className="py-2 pl-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(row.total)}</td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td className="py-2 pr-3 font-semibold text-stone-100">Planned total</td>
-                        {data.ahead.totals.map((v, i) => <td key={i} className="py-2 px-3 text-right tabular-nums font-semibold text-stone-100">{fmt.num2(v)}</td>)}
-                        <td className="py-2 pl-3 text-right tabular-nums font-semibold text-white">{fmt.num2(data.ahead.totals.reduce((s, v) => s + v, 0))}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </Card>
+        {/* This week */}
+        <h2 className="text-[15px] font-semibold text-white">This week</h2>
+        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
+          from={0} to={1} thisWeekFirst empty="Nothing is planned for you this week." />
+
+        {/* Weeks ahead */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-[15px] font-semibold text-white">Weeks ahead</h2>
+          <div className="w-32">
+            <SelectField value={String(weeksAhead)} onChange={(e) => setWeeksAhead(Number(e.target.value))}>
+              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
+            </SelectField>
+          </div>
+        </div>
+        <PlannedBlock weeks={data.ahead.weeks} rows={data.ahead.rows} totals={data.ahead.totals} colorOf={colorOf}
+          from={1} to={data.ahead.weeks.length} thisWeekFirst={false} empty="Nothing is planned for you in these weeks yet." />
 
         {/* Weeks behind */}
         <div className="flex items-center gap-3">
-          <h2 className="text-[15px] font-semibold text-white">How the last weeks went</h2>
-          <div className="w-40">
+          <h2 className="text-[15px] font-semibold text-white">Weeks behind</h2>
+          <div className="w-32">
             <SelectField value={String(weeksBack)} onChange={(e) => setWeeksBack(Number(e.target.value))}>
-              <option value="3">Last 3 weeks</option>
-              <option value="6">Last 6 weeks</option>
-              <option value="12">Last 12 weeks</option>
+              {WEEK_CHOICES.map((n) => <option key={n} value={n}>{n} {n === 1 ? "week" : "weeks"}</option>)}
+              <option value="12">12 weeks</option>
             </SelectField>
           </div>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-4">
-          <Card title="Planned vs logged — per week">
-            <PairedBars rows={data.behind.weeks.map((w) => ({ label: wk(w.week), planned: w.planned, logged: w.logged }))} />
-            <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
-          </Card>
-          <Card title="Planned vs logged — per project">
-            <PairedBars rows={data.behind.projects.map((p) => ({ label: p.label, planned: p.planned, logged: p.logged }))} />
-            <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
-          </Card>
+          <BehindCard title="Planned vs logged — per week"
+            rows={data.behind.weeks.map((w) => ({ label: wk(w.week), planned: w.planned, logged: w.logged }))} />
+          <BehindCard title="Planned vs logged — per project"
+            rows={data.behind.projects.map((p) => ({ label: p.label, planned: p.planned, logged: p.logged }))} />
         </div>
       </div>
     </ReportShell>

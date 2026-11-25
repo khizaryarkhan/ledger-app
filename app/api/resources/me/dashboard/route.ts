@@ -20,7 +20,8 @@ import { balanceAsAt } from "@/lib/payroll/leave-balance";
 import { weekStatus, behindByWeek, behindByProject } from "@/lib/resources/dashboard";
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 
-const BEHIND_CHOICES = [3, 6, 12];
+const BEHIND_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 12];
+const AHEAD_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export async function GET(req: Request) {
   const { error, orgId, session, role } = await requireOrg({ allowEmployee: true });
@@ -31,6 +32,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const wb = Number(url.searchParams.get("weeksBack"));
   const weeksBack = BEHIND_CHOICES.includes(wb) ? wb : 3;
+  const wa = Number(url.searchParams.get("weeksAhead"));
+  const weeksAhead = AHEAD_CHOICES.includes(wa) ? wa : 3;
   const todayParam = url.searchParams.get("today");
   const today = validDate(todayParam) ? todayParam! : new Date().toISOString().slice(0, 10);
 
@@ -38,7 +41,7 @@ export async function GET(req: Request) {
   const { me, people } = await resolveActor(orgId!, userId, role);
   if (!me) return ok({ resource: null });
 
-  const win = weekWindow(today, weeksBack, 3);
+  const win = weekWindow(today, weeksBack, weeksAhead);
   const firstWeek = win.past[0] ?? win.current;
   const lastWeek = win.upcoming[win.upcoming.length - 1] ?? win.current;
   const ids = [me.id];
