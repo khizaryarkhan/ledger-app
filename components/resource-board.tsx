@@ -80,12 +80,17 @@ export function ResourceBoard() {
                   {days.map(d => {
                     const dstr = iso(d);
                     const onDay = (r.assignments ?? []).filter((a: any) => a.startDate <= dstr && (!a.endDate || a.endDate >= dstr));
+                    // ISO weekday (Mon=1..Sun=7); a day the person does not work is greyed, not booked.
+                    const isoDow = ((d.getDay() + 6) % 7) + 1;
+                    const works = (r.workingDays?.length ? r.workingDays : [1, 2, 3, 4, 5]).includes(isoDow);
+                    if (!works) return <td key={dstr} className="px-1.5 py-2 align-top bg-stone-950/40" title="Not a working day" />;
                     return (
                       <td key={dstr} className="px-1.5 py-2 align-top">
                         <div className="space-y-1">
                           {onDay.map((a: any) => (
                             <div key={a.id} className={`text-[10.5px] rounded px-1.5 py-1 border ${a.status === "cancelled" ? "border-stone-800 text-stone-600 line-through" : "border-primary-ink/30 bg-primary-ink/10 text-primary-ink"}`}>
-                              {ASSIGNABLE_LABEL[a.assignableType] ?? a.assignableType} · {a.allocationPercent}%
+                              <div className="truncate font-medium" title={a.label ?? undefined}>{a.code ?? a.label ?? ASSIGNABLE_LABEL[a.assignableType as AssignableType] ?? a.assignableType}</div>
+                              <div className="opacity-80">{Number(a.allocationPercent)}%</div>
                             </div>
                           ))}
                         </div>

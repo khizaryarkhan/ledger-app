@@ -19,6 +19,7 @@ import { and, eq, gte, lte, or, isNull, desc, ne } from "drizzle-orm";
 import { ASSIGNABLE_TYPES, type AssignableType, overlaps, peakDailyAllocation, parseAllocation } from "@/lib/resources/assignable";
 import { assignableExists } from "@/lib/resources/time-entries-server";
 import { isRealDate } from "@/lib/resources/time-entry-rules";
+import { loadLabels } from "@/lib/resources/reports-server";
 import { planningAccess, canPlanResource, boardSafeResource } from "@/lib/resources/planning-access";
 
 export async function GET(req: Request) {
@@ -77,10 +78,22 @@ export async function GET(req: Request) {
     byResource.set(a.resourceId, list);
   }
 
+  // A bar that only says "Project" cannot be told from another one: name what it is booked to.
+  const labels = await loadLabels(orgId!, allAssignments.map(a => `${a.assignableType}:${a.assignableId}`));
+
   const board = allResources.map(r => {
-    const assignments = (byResource.get(r.id) ?? []).filter(a => a.status !== "cancelled");
+    const assignments = (byResource.get(r.id) ?? []).filter(a => a.status !== "cancelled")
+      .map(a => {
+        const l = labels.get(`${a.assignableType}:${a.assignableId}`);
+        return { ...a, label: l?.label ?? null, code: l?.code ?? null };
+      });
     // Per day, not summed over the week: bookings on different days never clash.
-    return { ...boardSafeResource(r, access.ctx.actor.isOrgAdmin), assignments, overAllocated: peakDailyAllocation(assignments, from, to) > 100 };
+    return {
+      ...boardSafeResource(r, access.ctx.actor.isOrgAdmin), assignments,
+      // ISO weekdays this resource works (null = the org default Mon-Fri), so the board can grey the rest.
+      workingDays: r.workingDays ?? null,
+      overAllocated: peakDailyAllocation(assignments, from, to) > 100,
+    };
   });
 
   return ok(board);
