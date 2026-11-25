@@ -354,9 +354,13 @@ in two (Stock), charts become value tables (Production Performance), FX rates us
   so a blind request or a slow host is possible; a `data:` logo avoids it); there is no cap on simultaneous renders beyond the
   per-user rate limit; a failed audit write does not fail an export; a builder that throws on an unexpected response just leaves
   the Export menu disabled with no message. Budget vs Actual's red "unfavourable" cue travels as per-cell `flags`.
-- **Verified**: tsc clean, 1,984 tests, and a PDF rendered through the real engine locally (text content checked: figures, escaping,
-  hidden zero line, blank zero cells, page footer). **Not verified**: nothing clicked through in a browser (the dev server cannot
-  reach Neon); the PDF layout was not looked at, only its extracted text; Vercel's Chromium was not exercised.
+- **Verified**: tsc clean, 2,039 tests, and a PDF rendered through the real engine locally (text content checked: figures, escaping,
+  hidden zero line, blank zero cells, page footer). **Verified live on production (2026-11-25, Test Organization)**: the Export
+  menu appears and the real Excel export produces a valid xlsx on EVERY Phase 1 report tried (P&L, General Ledger, Aged Receivables,
+  Cash Flow, Balance Sheet) and all 18 Phase 2 reports; the PDF route works through Vercel's Chromium (P&L and Lot Traceability).
+  Method: patch the anchor click to capture the blob, so nothing is saved. **Not verified**: Print (opens a browser dialog); Budget
+  vs Actual and the remaining statements live; the CONTENT of the live files and any PDF's visual layout (only sizes and file
+  signatures were checked live; the screenshot tool timed out on a background tab); orgs other than the Test Organization.
 
 ## QBO-parity reporting controls — Phase 1: period presets, columns, compare-to (2026-10-22)
 
