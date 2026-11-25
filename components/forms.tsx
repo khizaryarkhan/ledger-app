@@ -45,8 +45,10 @@ export function ProjectModal({ project, preCustomerId, onClose }: { project?: an
     if (!form.customerId || !form.name || !form.code) { setError("Customer, name and code are required"); return; }
     setSubmitting(true); setError("");
     try {
-      if (isEdit) await updateProject(project.id, form);
-      else await addProject(form);
+      // "No lead" is "" until the picker is touched; the API wants null, not an empty string.
+      const payload = { ...form, leadResourceId: form.leadResourceId || null };
+      if (isEdit) await updateProject(project.id, payload);
+      else await addProject(payload);
       onClose();
     } catch (e: any) { setError(e.message || "Failed to save"); }
     finally { setSubmitting(false); }
