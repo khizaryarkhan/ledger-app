@@ -24,6 +24,7 @@ interface Dash {
   leave: { name: string; taken: number; remaining: number }[];
   attention: { kind: string; title: string; detail: string; action: string | null }[];
   ahead: { weeks: string[]; rows: { key: string; label: string; weeks: number[]; total: number }[]; totals: number[] };
+  thisWeekLogged?: { key: string; label: string; logged: number }[];
   behind: { weeksBack: number; weeks: { week: string; planned: number; logged: number }[]; projects: { key: string; label: string; planned: number; logged: number }[] };
 }
 
@@ -158,28 +159,28 @@ function PlannedOnlyCard({ title, rows, empty }: { title: string; rows: { label:
   );
 }
 
-/** This week: one bar per project (not one stacked bar), largest first, each in the project's own colour. */
-function ThisWeekByProject({ rows, colorOf, weekIndex }: { rows: AheadRow[]; colorOf: Map<string, string>; weekIndex: number }) {
-  const items = rows.map((r) => ({ key: r.key, label: r.label, hours: r.weeks[weekIndex] ?? 0 }))
-    .filter((r) => r.hours > 0).sort((a, b) => b.hours - a.hours);
-  const max = Math.max(1, ...items.map((r) => r.hours));
-  const total = items.reduce((s, r) => s + r.hours, 0);
+/** This week: planned against logged, one pair of bars per project, so the plan and the timesheet can be read side by side. */
+function ThisWeekByProject({ rows, logged, weekIndex }: { rows: AheadRow[]; logged: { key: string; label: string; logged: number }[]; weekIndex: number }) {
+  const byKey = new Map<string, { label: string; planned: number; logged: number }>();
+  for (const r of rows) byKey.set(r.key, { label: r.label, planned: r.weeks[weekIndex] ?? 0, logged: 0 });
+  for (const l of logged) {
+    const cur = byKey.get(l.key) ?? { label: l.label, planned: 0, logged: 0 };
+    byKey.set(l.key, { ...cur, logged: cur.logged + l.logged });
+  }
+  const items = Array.from(byKey.values()).filter((r) => r.planned > 0 || r.logged > 0)
+    .sort((a, b) => Math.max(b.planned, b.logged) - Math.max(a.planned, a.logged));
+  const planned = items.reduce((s, r) => s + r.planned, 0);
+  const done = items.reduce((s, r) => s + r.logged, 0);
   return (
-    <Card title="Planned project hours" right={items.length > 0 ? <span className="text-[12px] text-stone-400 tabular-nums">Total {h(total)}</span> : undefined}>
+    <Card title="Planned vs logged — by project"
+      right={items.length > 0 ? <span className="text-[12px] text-stone-400 tabular-nums">Planned {h(planned)} · Logged {h(done)}</span> : undefined}>
       {items.length === 0 ? (
-        <p className="text-[12px] text-stone-400">Nothing is planned for you this week.</p>
+        <p className="text-[12px] text-stone-400">Nothing is planned or logged for you this week.</p>
       ) : (
-        <div className="space-y-2.5">
-          {items.map((r) => (
-            <div key={r.key} className="grid grid-cols-[minmax(0,220px)_1fr_60px] items-center gap-3">
-              <div className="text-[12px] text-stone-300 truncate" title={r.label}>{r.label}</div>
-              <div className="h-5 rounded-sm bg-stone-800 overflow-hidden">
-                <div className={`h-full ${colorOf.get(r.key)}`} style={{ width: `${(r.hours / max) * 100}%` }} />
-              </div>
-              <div className="text-right text-[12px] tabular-nums text-stone-300">{fmt.num2(r.hours)}</div>
-            </div>
-          ))}
-        </div>
+        <>
+          <PairedBars rows={items} />
+          <Legend items={[{ label: "Logged", cls: LOGGED }, { label: "Planned", cls: PLANNED }]} />
+        </>
       )}
     </Card>
   );
@@ -271,6 +272,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
 
   const r = data.resource;
   const initials = r.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  const thisWeekLoggedTotal = (data.thisWeekLogged ?? []).reduce((t, x) => t + x.logged, 0);
   const colorOf = new Map(data.ahead.rows.map((row, i) => [row.key, SERIES[i % SERIES.length]]));
 
   return (
@@ -325,8 +327,8 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
 
           <div className="rounded-lg ring-1 ring-stone-800 bg-stone-900 p-4">
             <div className="text-[13px] font-semibold text-stone-100 mb-2">This week</div>
-            <div className="text-[20px] font-semibold text-white tabular-nums">{h(data.ahead.totals[0] ?? 0)}</div>
-            <div className="text-[11px] text-stone-400">planned across {data.ahead.rows.filter((x) => (x.weeks[0] ?? 0) > 0).length} booking(s)</div>
+            <div className="text-[20px] font-semibold text-white tabular-nums">{h(thisWeekLoggedTotal)} <span className="text-[12px] font-normal text-stone-400">logged</span></div>
+            <div className="text-[11px] text-stone-400">{h(data.ahead.totals[0] ?? 0)} planned across {data.ahead.rows.filter((x) => (x.weeks[0] ?? 0) > 0).length} booking(s)</div>
             <Link href={timesheetHref} className="mt-2 inline-block text-[12px] text-emerald-400 hover:text-emerald-300">Open my timesheet →</Link>
           </div>
         </div>
@@ -359,7 +361,7 @@ export function EmployeeDashboard({ shell }: { shell: ReportShellKind }) {
 
         {/* This week */}
         <h2 className="text-[15px] font-semibold text-white">This week</h2>
-        <ThisWeekByProject rows={data.ahead.rows} colorOf={colorOf} weekIndex={0} />
+        <ThisWeekByProject rows={data.ahead.rows} logged={data.thisWeekLogged ?? []} weekIndex={0} />
 
         {/* Weeks behind */}
         <div className="flex items-center gap-3">

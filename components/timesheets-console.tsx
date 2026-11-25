@@ -100,7 +100,14 @@ export function TimesheetsConsole() {
                   <td className="py-2 pr-2 text-stone-200">{resourceName(e.resourceId)}</td>
                   <td className="py-2 pr-2 text-stone-400">{type?.name ?? "—"}</td>
                   <td className="py-2 pr-2 text-right text-stone-200">{e.hours}</td>
-                  <td className="py-2 pr-2 text-stone-500">{e.assignableType ? `${ASSIGNABLE_LABEL[e.assignableType as AssignableType] ?? e.assignableType}` : "—"}</td>
+                  <td className="py-2 pr-2">
+                    {e.assignableType ? (
+                      <>
+                        <div className="text-stone-200">{e.assignableName ?? ASSIGNABLE_LABEL[e.assignableType as AssignableType] ?? e.assignableType}</div>
+                        {e.description && <div className="text-[12px] text-stone-400">{e.description}</div>}
+                      </>
+                    ) : <span className="text-stone-500">—</span>}
+                  </td>
                   <td className="py-2 pr-2"><span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${STATUS_CLASS[e.status]}`}>{STATUS_LABEL[e.status]}</span></td>
                   <td className="py-2 pr-2 text-right space-x-2">
                     {(e.status === "draft" || e.status === "rejected") && <button onClick={() => act(e.id, "submit")} className="text-[12px] text-stone-400 hover:text-stone-200">{e.status === "rejected" ? "Resubmit" : "Submit"}</button>}

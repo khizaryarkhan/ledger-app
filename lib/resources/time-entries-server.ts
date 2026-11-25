@@ -328,7 +328,7 @@ export interface ApprovalRow {
   planned: number | null; actual: number | null;
 }
 
-async function assignableNames(orgId: string, rows: TimeEntryRow[]): Promise<Map<string, string>> {
+export async function assignableNames(orgId: string, rows: TimeEntryRow[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const idsOf = (t: string) => Array.from(new Set(rows.filter((r) => r.assignableType === t && r.assignableId).map((r) => r.assignableId as string)));
   const pids = idsOf("project"), mids = idsOf("manufacturing_order"), jids = idsOf("job_work_order");

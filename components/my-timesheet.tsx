@@ -40,6 +40,7 @@ interface Me {
 interface Entry {
   id: string; date: string; hours: string; timesheetTypeId: string;
   assignableType: string | null; assignableId: string | null; status: string; rejectedReason: string | null;
+  description?: string | null;
 }
 interface Options {
   types: { id: string; name: string; category: string; requiresAssignable: boolean; billable: boolean }[];
@@ -92,6 +93,9 @@ export function MyTimesheet() {
   const [newType, setNewType] = useState("");
   const [newAssignable, setNewAssignable] = useState("");
   const [copyOpen, setCopyOpen] = useState(false);
+  // Submit asks for an optional note to the approver first; the ids wait here meanwhile.
+  const [noteFor, setNoteFor] = useState<string[] | null>(null);
+  const [note, setNote] = useState("");
 
   const days = useMemo(() => weekDates(weekStart), [weekStart]);
 
@@ -189,8 +193,13 @@ export function MyTimesheet() {
     }
     if (ids.length === 0) { setSelected(new Set()); return; }
     if (action === "delete" && !await askConfirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? This cannot be undone.`)) return;
+    if (action === "submit") { setNote(""); setNoteFor(ids); return; }
+    await send(action, ids);
+  }
+
+  async function send(action: LineAction, ids: string[], noteText?: string) {
     setBusy(true);
-    const res = await api<{ message: string }>("/api/resources/me/timesheet-lines", postJson({ action, ids }));
+    const res = await api<{ message: string }>("/api/resources/me/timesheet-lines", postJson({ action, ids, ...(noteText ? { note: noteText } : {}) }));
     if (res.ok === false) setErr(res.error); else setMsg(res.data.message);
     setSelected(new Set());
     await loadWeek();
@@ -288,6 +297,7 @@ export function MyTimesheet() {
                   <td className="px-3 py-2">
                     <div className="text-stone-100">{typeName(l.typeId)}</div>
                     {reasons.map((r) => <div key={r} className="text-[12px] text-rose-400 mt-0.5">Returned: {r}</div>)}
+                    {Array.from(new Set(l.entries.map((e) => e.description).filter((x): x is string => !!x))).map((d) => <div key={d} className="text-[12px] text-stone-400 mt-0.5">Note: {d}</div>)}
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-stone-300">{sub || <span className="text-stone-600">—</span>}</div>
@@ -373,6 +383,18 @@ export function MyTimesheet() {
       <p className="text-[12px] text-stone-500">
         Tick the lines you are ready to hand in and press Submit. If an approver approves part of a line and returns the rest, the line splits so each part shows its own status.
       </p>
+
+      {noteFor && (
+        <Drawer title="Submit for approval" subtitle="Add a short note for your approver: what you worked on, or why hours differ from the plan. It is optional, but approvers see it next to your hours." onClose={() => setNoteFor(null)} size="lg"
+          footer={<DrawerFooter saving={busy} onClose={() => setNoteFor(null)} saveLabel={`Submit ${noteFor.length} ${noteFor.length === 1 ? "entry" : "entries"}`}
+            onSave={async () => { const ids = noteFor; setNoteFor(null); await send("submit", ids, note); }} />}>
+          <label className="block text-[12px] font-medium text-stone-400 mb-1" htmlFor="submit-note">Note for your approver (optional)</label>
+          <textarea id="submit-note" value={note} onChange={(e) => setNote(e.target.value.slice(0, 255))} rows={4} autoFocus
+            placeholder="e.g. Site visit on Tuesday, drawings reviewed on Monday"
+            className="w-full rounded-md bg-stone-950 ring-1 ring-stone-700 px-3 py-2 text-[13px] text-stone-100 placeholder:text-stone-500 focus:outline-none focus:ring-stone-500" />
+          <div className="mt-1 text-right text-[11px] text-stone-500 tabular-nums">{note.length}/255</div>
+        </Drawer>
+      )}
 
       {copyOpen && (
         <CopyWeekDrawer weekStart={weekStart} typeName={typeName} assignableLabel={assignableLabel}

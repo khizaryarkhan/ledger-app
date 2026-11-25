@@ -26,6 +26,8 @@ export interface LineEntry {
   assignableId: string | null;
   status: string;
   rejectedReason?: string | null;
+  /** The person's note to the approver, when they gave one. */
+  description?: string | null;
 }
 
 export interface Booking { typeId: string; aType: string | null; aId: string | null }

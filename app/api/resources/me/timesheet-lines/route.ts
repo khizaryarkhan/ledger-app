@@ -1,5 +1,6 @@
 /**
- * POST /api/resources/me/timesheet-lines { action: "submit"|"recall"|"delete", ids: string[] }
+ * POST /api/resources/me/timesheet-lines { action: "submit"|"recall"|"delete", ids: string[], note?: string }
+ * (`note` is an optional message to the approver, stored on the submitted entries.)
  *
  * The weekly grid's bulk actions over the ticked lines. Only the caller's own
  * entries are ever touched; each action takes only the entries in a status it
@@ -21,5 +22,5 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   if (!isLineAction(body?.action)) return bad("action must be submit, recall or delete");
   const ctx = await buildCtx(orgId!, session, role);
-  return respond(await applyLineAction(ctx, body.action, body?.ids));
+  return respond(await applyLineAction(ctx, body.action, body?.ids, body?.note));
 }

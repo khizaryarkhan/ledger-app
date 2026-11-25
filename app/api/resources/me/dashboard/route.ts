@@ -13,7 +13,7 @@ import { hoursVarianceEnquiries, leavePolicies, leaveBalanceEntries, timesheetTy
 import { requireOrg, ok } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { resolveActor } from "@/lib/resources/access-server";
-import { weekWindow, weekEnd, plannedByWeek, loggedByWeek, round2 } from "@/lib/resources/reports";
+import { weekWindow, weekEnd, plannedByWeek, loggedByWeek, round2, splitTotal } from "@/lib/resources/reports";
 import { loadCalendars, loadEntries, loadAssignments, loadLabels, labelFor, validDate } from "@/lib/resources/reports-server";
 import { returnsFor } from "@/lib/resources/approval-server";
 import { balanceAsAt } from "@/lib/payroll/leave-balance";
@@ -91,8 +91,14 @@ export async function GET(req: Request) {
   const pastLogged = loggedByWeek(entries.filter((e) => e.date < win.current), win.past);
   const byProject = behindByProject(pastPlanned.rows, pastLogged);
 
+  // What has actually been logged THIS week, per project (leave and internal time are not project work).
+  // Without it the dashboard shows only the plan and cannot agree with the timesheet.
+  const thisLogged = loggedByWeek(
+    entries.filter((e) => e.date >= win.current && e.date <= weekEnd(win.current)), [win.current],
+  ).filter((r) => !r.key.startsWith("type:"));
+
   const keys = new Set<string>([
-    ...ahead.rows.map((r) => r.key), ...byProject.map((p) => p.key),
+    ...ahead.rows.map((r) => r.key), ...byProject.map((p) => p.key), ...thisLogged.map((r) => r.key),
     ...enquiries.map((e) => `${e.assignableType}:${e.assignableId}`),
   ]);
   const labels = await loadLabels(orgId!, keys);
@@ -126,6 +132,7 @@ export async function GET(req: Request) {
       rows: ahead.rows.map((r) => ({ key: r.key, label: label(r.key), weeks: r.weeks, total: r.total })),
       totals: ahead.planned,
     },
+    thisWeekLogged: thisLogged.map((r) => ({ key: r.key, label: label(r.key), logged: splitTotal(r.weeks[0] ?? r.total) })),
     behind: {
       weeksBack,
       weeks: behindByWeek(win.past, pastPlanned.rows, pastLogged),

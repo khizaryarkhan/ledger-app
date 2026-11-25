@@ -25,7 +25,14 @@ const fail = (error: string, status = 400): { ok: false; error: string; status: 
 
 export interface LineActionResult { done: number; skipped: number; failed: number; message: string }
 
-export async function applyLineAction(ctx: TimeCtx, action: LineAction, idsRaw: unknown): Promise<Result<LineActionResult>> {
+/** An optional note for the approver, kept on each submitted entry's description (255 characters at most). */
+export function cleanNote(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.replace(/\s+/g, " ").trim().slice(0, 255);
+  return t || null;
+}
+
+export async function applyLineAction(ctx: TimeCtx, action: LineAction, idsRaw: unknown, noteRaw?: unknown): Promise<Result<LineActionResult>> {
   const me = ctx.actor.resourceId;
   if (!me) return fail("Your login is not linked to a person yet", 403);
   if (!Array.isArray(idsRaw) || idsRaw.length === 0) return fail("Tick at least one line");
@@ -47,7 +54,9 @@ export async function applyLineAction(ctx: TimeCtx, action: LineAction, idsRaw: 
 
   let done = 0;
   if (action === "submit") {
-    const r = await db.update(timeEntries).set({ status: "submitted", rejectedReason: null, updatedAt: new Date() })
+    // A note, when given, goes on every entry handed in; no note leaves existing descriptions as they are.
+    const note = cleanNote(noteRaw);
+    const r = await db.update(timeEntries).set({ status: "submitted", rejectedReason: null, updatedAt: new Date(), ...(note ? { description: note } : {}) })
       .where(and(mine, inArray(timeEntries.status, ["draft", "rejected"]))).returning({ id: timeEntries.id });
     done = r.length;
   } else if (action === "recall") {

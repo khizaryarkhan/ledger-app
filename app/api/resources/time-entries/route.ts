@@ -7,7 +7,7 @@
 
 import { requireOrg, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { buildCtx, listEntries, createEntry, respond } from "@/lib/resources/time-entries-server";
+import { buildCtx, listEntries, createEntry, respond, assignableNames } from "@/lib/resources/time-entries-server";
 
 export async function GET(req: Request) {
   const { error, orgId, session, role } = await requireOrg();
@@ -20,7 +20,13 @@ export async function GET(req: Request) {
   const res = await listEntries(ctx, {
     resourceId: sp.get("resourceId"), status: sp.get("status"), from: sp.get("from"), to: sp.get("to"),
   });
-  return respond(res);
+  if (!res.ok) return respond(res);
+  // Name what each entry is booked to: "Project" alone does not tell an approver which one.
+  const names = await assignableNames(orgId!, res.value);
+  return respond({
+    ok: true as const,
+    value: res.value.map((e) => ({ ...e, assignableName: e.assignableId ? names.get(e.assignableId) ?? null : null })),
+  });
 }
 
 export async function POST(req: Request) {
