@@ -10,11 +10,13 @@
  * per order.
  */
 
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import { Gauge, ChevronDown, ChevronRight } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
 import { tableHead } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
+import { buildJobWorkYieldModel } from "@/lib/reports/builders/jobwork-yield";
 
 const money = fmt.num2;
 const qty = fmt.qty;
@@ -23,6 +25,9 @@ export function JobWorkYieldReport() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
 
   async function load() {
     setLoading(true);
@@ -33,8 +38,20 @@ export function JobWorkYieldReport() {
 
   const vendors = data?.vendors ?? [];
 
+  // A response without a vendor list (failed request) is never exported as "no closed orders".
+  const exportModel = useMemo(() => {
+    if (loading || !data || !Array.isArray(data.vendors)) return null;
+    try {
+      return buildJobWorkYieldModel(data, { entity: org ? (org.displayName || org.name) : "", currency: org?.currency ?? null });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loading, org?.name, org?.displayName, org?.currency]);
+
   return (
-    <ReportShell title="Subcontractor Yield & Wastage Performance" sub="Actual material yield vs. sent, per job-work vendor — only closed orders (wastage is only final once an order is closed)." icon={Gauge} onRefresh={load} loading={loading}>
+    <ReportShell title="Subcontractor Yield & Wastage Performance" sub="Actual material yield vs. sent, per job-work vendor — only closed orders (wastage is only final once an order is closed)." icon={Gauge} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[820px]">

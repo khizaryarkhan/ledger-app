@@ -13,12 +13,14 @@
  * entry in a new tab when one exists.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, GitBranch, Truck, ShieldCheck, ShieldAlert, FileDown } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
 import { controlInset, tableHead, SelectField } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
+import { buildLotTraceabilityModel } from "@/lib/reports/builders/lot-traceability";
 
 const qty = fmt.qty;
 const money = fmt.num2;
@@ -93,8 +95,22 @@ export function LotTraceabilityReport() {
   const processingTotal = data ? sum(data.processing) : 0;
   const distributionTotal = data ? sum(data.distribution) : 0;
 
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  // Export only the lot that is selected now: data for a previous lot is held back, and a failed load never exports as an empty trace.
+  const exportModel = useMemo(() => {
+    if (loading || !data || !selectedId || data.lot?.id !== selectedId) return null;
+    try {
+      return buildLotTraceabilityModel(data, { entity: org ? (org.displayName || org.name) : "", currency: org?.currency ?? null });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loading, selectedId, org?.name, org?.displayName, org?.currency]);
+
   return (
-    <ReportShell title="Lot Traceability" sub="A lot's complete history — raw materials, processing, cost rollup and distribution." icon={GitBranch} onRefresh={() => selectedId && load(selectedId)} loading={loading}>
+    <ReportShell title="Lot Traceability" sub="A lot's complete history — raw materials, processing, cost rollup and distribution." icon={GitBranch} onRefresh={() => selectedId && load(selectedId)} loading={loading} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <label className="block w-56">
           <span className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Item</span>

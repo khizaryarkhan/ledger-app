@@ -7,6 +7,9 @@ import Link from "next/link";
 import { ShoppingCart, Truck, FileText } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { useData } from "@/components/data-provider";
+import { tradeDataUnusable } from "@/lib/reports/builders/trade-shared";
+import { buildOpenSosModel, buildAwaitingInvoicingModel, buildOpenInvoicesModel } from "@/lib/reports/builders/sales";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
@@ -15,9 +18,19 @@ const money = fmt.num2;
 // stock-reports.tsx for the fuller explanation.
 const footCls = "border-t-2 border-stone-800 bg-stone-900/60 font-semibold";
 
+function useOrg() {
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  return { entity: org ? (org.displayName || org.name) : "", currency: org?.currency ?? null };
+}
+
 function useReport(type: string) {
   const [data, setData] = useState<any>(null);
-  async function load() { setData(await fetch(`/api/inventory/sales-reports?type=${type}`).then(r => r.json()).catch(() => ({ rows: [], total: 0 }))); }
+  async function load() {
+    // Clear first so an export can never carry the old figures while a refresh is in flight.
+    setData(null);
+    setData(await fetch(`/api/inventory/sales-reports?type=${type}`).then(async r => { const j = await r.json(); return r.ok ? j : { failed: true, rows: [], total: 0 }; }).catch(() => ({ failed: true, rows: [], total: 0 })));
+  }
   useEffect(() => { load(); }, []);
   return { data, load, loading: data === null };
 }
@@ -33,8 +46,14 @@ export function OpenSosReport() {
     { key: "remaining", label: "Remaining value", align: "right", sort: r => Number(r.remainingValue) || 0, descFirst: true },
   ], []);
   const lv = useListView(rows, COLS, { storageKey: "sales-open-sos" });
+  const org = useOrg();
+  const exportModel = useMemo(() => {
+    if (tradeDataUnusable(data)) return null;
+    try { return buildOpenSosModel(data, lv.rows, org); } catch (e) { console.error("export model failed", e); return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, lv.rows, org.entity, org.currency]);
   return (
-    <ReportShell title="Open Sales Orders" sub="Confirmed but not fully shipped — the value still committed to customers." icon={ShoppingCart} onRefresh={load} loading={loading}>
+    <ReportShell title="Open Sales Orders" sub="Confirmed but not fully shipped — the value still committed to customers." icon={ShoppingCart} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className={`${listTable} min-w-[640px]`}>
           <ListHead lv={lv} />
@@ -70,8 +89,14 @@ export function AwaitingInvoicingReport() {
     { key: "open",     label: "Awaiting invoice", align: "right", sort: r => Number(r.openAmount) || 0, descFirst: true },
   ], []);
   const lv = useListView(rows, COLS, { storageKey: "sales-awaiting-invoicing" });
+  const org = useOrg();
+  const exportModel = useMemo(() => {
+    if (tradeDataUnusable(data)) return null;
+    try { return buildAwaitingInvoicingModel(data, lv.rows, org); } catch (e) { console.error("export model failed", e); return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, lv.rows, org.entity, org.currency]);
   return (
-    <ReportShell title="Awaiting Invoicing" sub="Goods shipped to customers but not yet invoiced — revenue still to be billed." icon={Truck} onRefresh={load} loading={loading}>
+    <ReportShell title="Awaiting Invoicing" sub="Goods shipped to customers but not yet invoiced — revenue still to be billed." icon={Truck} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className={`${listTable} min-w-[620px]`}>
           <ListHead lv={lv} />
@@ -107,8 +132,14 @@ export function OpenInvoicesReport() {
     { key: "open",     label: "Open",      align: "right", sort: r => Number(r.open) || 0, descFirst: true },
   ], []);
   const lv = useListView(rows, COLS, { storageKey: "sales-open-invoices" });
+  const org = useOrg();
+  const exportModel = useMemo(() => {
+    if (tradeDataUnusable(data)) return null;
+    try { return buildOpenInvoicesModel(data, lv.rows, org); } catch (e) { console.error("export model failed", e); return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, lv.rows, org.entity, org.currency]);
   return (
-    <ReportShell title="Open Invoices" sub="Posted customer invoices with an unpaid Accounts Receivable balance." icon={FileText} onRefresh={load} loading={loading}>
+    <ReportShell title="Open Invoices" sub="Posted customer invoices with an unpaid Accounts Receivable balance." icon={FileText} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className={`${listTable} min-w-[640px]`}>
           <ListHead lv={lv} />

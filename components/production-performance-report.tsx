@@ -8,7 +8,7 @@
  * centre as much as to any one order.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Gauge, Plus } from "lucide-react";
 import { ReportShell } from "@/components/ui";
 import { SelectField, control, controlInset, Drawer, DrawerFooter, Field } from "@/components/form-kit";
@@ -16,6 +16,8 @@ import { formatDate, localToday, fmt } from "@/lib/format";
 import { useFiscalFrom } from "@/components/use-report-from";
 import { listTable, listRow } from "@/components/list-view";
 import { DOWNTIME_REASONS } from "@/lib/inventory/production-performance";
+import { useData } from "@/components/data-provider";
+import { buildProductionPerformanceModel } from "@/lib/reports/builders/production-performance";
 
 type Timing = { orders: number; scored: number; onTimePct: number | null; onTimeVsOriginalPct: number | null; avgDaysLate: number | null; overdue: number; rescheduled: number; avgStartSlip: number | null };
 type Pareto = { code: string; label: string; count: number; value: number }[];
@@ -158,20 +160,46 @@ export function ProductionPerformanceReport() {
   const [data, setData] = useState<Data | null>(null);
   const [logging, setLogging] = useState(false);
 
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const reqId = useRef(0);
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+
+  // The response is stamped with the period it was fetched for and an out-of-date response is dropped, so a new period is never exported over old figures.
+  // A failed response leaves data empty, which holds the export back.
   async function load() {
-    setData(null);
+    const mine = ++reqId.current;
+    const key = `${from}|${to}`;
+    setData(null); setLoadedKey(null);
     const q = new URLSearchParams({ from, to, asOf: today });
     const x = await fetch(`/api/production/performance?${q}`).then(r => r.json()).catch(() => null);
+    if (mine !== reqId.current) return;
     setData(x && x.production ? x : null);
+    setLoadedKey(key);
   }
   useEffect(() => { load(); }, [from, to]);
 
   const p = data?.production, dt = data?.downtime, jw = data?.jobWork;
+  const exportModel = useMemo(() => {
+    if (!data || loadedKey !== `${from}|${to}` || !data.production || !data.downtime || !data.jobWork) return null;
+    try {
+      return buildProductionPerformanceModel(data, {
+        tab, from, to,
+        entity: org ? (org.displayName || org.name) : "",
+        currency: org?.currency ?? null,
+        periodLine: `Orders due from ${fmt.shortDate(from)} to ${fmt.shortDate(to)}`,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loadedKey, tab, from, to, org?.name, org?.displayName, org?.currency]);
   const TABS: [typeof tab, string][] = [["production", "Manufacturing orders"], ["downtime", "Downtime"], ["jobwork", "Job work"]];
 
   return (
     <ReportShell title="Production Performance" sub="Planned vs actual for manufacturing orders and job work, with the reasons behind every delay, stoppage and reject."
-      icon={Gauge} onRefresh={load} loading={data === null}>
+      icon={Gauge} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <div className="flex rounded-md ring-1 ring-stone-700 overflow-hidden">
           {TABS.map(([k, label]) => (

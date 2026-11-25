@@ -8,7 +8,7 @@
  * time" because a promise that keeps moving should not score as on time.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Timer } from "lucide-react";
 import { ReportShell } from "@/components/ui";
@@ -16,6 +16,8 @@ import { SelectField, control } from "@/components/form-kit";
 import { formatDate, localToday, fmt } from "@/lib/format";
 import { useFiscalFrom } from "@/components/use-report-from";
 import { listTable, listRow } from "@/components/list-view";
+import { useData } from "@/components/data-provider";
+import { buildDeliveryPerformanceModel } from "@/lib/reports/builders/delivery-performance";
 
 type Score = {
   lines: number; open: number; overdue: number; onTimePct: number | null; onTimeVsOriginalPct: number | null;
@@ -51,11 +53,23 @@ export function DeliveryPerformanceReport() {
   const [data, setData] = useState<{ overall?: Score; parties: PartyRow[]; lines: LineRow[] } | null>(null);
   const [party, setParty] = useState("");
 
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const reqId = useRef(0);
+  let org: { name: string; displayName: string | null } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+
+  // The response is stamped with the side and period it was fetched for; an out-of-date response is dropped, and a failed one is flagged
+  // so it is never exported as "no orders".
   async function load() {
-    setData(null);
+    const mine = ++reqId.current;
+    const key = `${side}|${from}|${to}`;
+    setData(null); setLoadedKey(null); setFailed(false);
     const q = new URLSearchParams({ side, from, to, asOf: today });
     const d = await fetch(`/api/inventory/delivery-performance?${q}`).then(r => r.json()).catch(() => null);
-    setData(d && Array.isArray(d.parties) ? d : { parties: [], lines: [] });
+    if (mine !== reqId.current) return;
+    if (d && Array.isArray(d.parties)) setData(d); else { setFailed(true); setData({ parties: [], lines: [] }); }
+    setLoadedKey(key);
   }
   useEffect(() => { setParty(""); load(); }, [side, from, to]);
 
@@ -65,6 +79,20 @@ export function DeliveryPerformanceReport() {
     .filter(l => !party || l.partyLabel === party)
     .filter(l => show === "all" || isException(l));
   const o = data?.overall;
+  const exportModel = useMemo(() => {
+    if (data === null || failed || loadedKey !== `${side}|${from}|${to}`) return null;
+    try {
+      return buildDeliveryPerformanceModel(data, lines, {
+        side, from, to, party, show,
+        entity: org ? (org.displayName || org.name) : "",
+        periodLine: `Orders from ${fmt.shortDate(from)} to ${fmt.shortDate(to)}`,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, failed, loadedKey, side, from, to, party, show, org?.name, org?.displayName]);
   const tiles: [string, string, string][] = o ? [
     ["OTIF", pct(o.otifPct), band(o.otifPct)],
     ["On time", pct(o.onTimePct), band(o.onTimePct)],
@@ -78,7 +106,7 @@ export function DeliveryPerformanceReport() {
     : "Did suppliers deliver what we ordered, when they promised? Purchase order lines against goods receipts.";
 
   return (
-    <ReportShell title="Delivery Performance" sub={sub} icon={Timer} onRefresh={load} loading={data === null}>
+    <ReportShell title="Delivery Performance" sub={sub} icon={Timer} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <div className="w-52">
           <SelectField value={side} onChange={e => router.replace(`?side=${e.target.value}`)} className="h-8 text-[12px]">

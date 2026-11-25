@@ -10,6 +10,15 @@ import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
 import { controlInset } from "@/components/form-kit";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
+import { useData } from "@/components/data-provider";
+import { buildStockValuationSummaryModel, buildStockValuationLotsModel, buildStockStatusModel } from "@/lib/reports/builders/stock";
+
+/** The org for the export header; the provider can be absent (or throw) outside the app shell. */
+function useExportOrg(): { entity: string; currency: string | null } {
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  return { entity: org ? (org.displayName || org.name) : "", currency: org?.currency ?? null };
+}
 
 const money = fmt.num2;
 const qty = fmt.qty;
@@ -32,10 +41,19 @@ export function StockValuationReport() {
   const [lots, setLots] = useState<any[] | null>(null);
   const [q, setQ] = useState("");
 
+  const [failed, setFailed] = useState(false);
+  const org = useExportOrg();
+
+  // Both are cleared first, so the Export menu is off while a view loads. A failed or malformed response is flagged so it is never exported as "no stock".
   async function load() {
-    setSummary(null); setLots(null);
-    if (view === "summary") setSummary(await fetch(`/api/inventory/reports?type=valuation`).then(r => r.json()).catch(() => ({ rows: [], total: 0 })));
-    else setLots(await fetch(`/api/inventory/reports?type=lots`).then(r => r.json()).catch(() => []));
+    setSummary(null); setLots(null); setFailed(false);
+    if (view === "summary") {
+      const d = await fetch(`/api/inventory/reports?type=valuation`).then(r => r.json()).catch(() => null);
+      if (!d || !Array.isArray(d.rows)) { setFailed(true); setSummary({ rows: [], total: 0 }); } else setSummary(d);
+    } else {
+      const d = await fetch(`/api/inventory/reports?type=lots`).then(r => r.json()).catch(() => null);
+      if (!Array.isArray(d)) { setFailed(true); setLots([]); } else setLots(d);
+    }
   }
   useEffect(() => { load(); }, [view]);
 
@@ -74,8 +92,22 @@ export function StockValuationReport() {
   ], []);
   const lvLots = useListView(filteredLots, LOTS_COLS, { storageKey: "stock-valuation-lots" });
 
+  // Export / Print / PDF: the rows the list is showing now (search, column filters and sort applied) for the view on screen.
+  const exportModel = useMemo(() => {
+    if (loading || failed) return null;
+    try {
+      const info = { ...org, search: q };
+      if (view === "summary") return summary === null ? null : buildStockValuationSummaryModel(summary, lvSummary.rows, info);
+      return lots === null ? null : buildStockValuationLotsModel(filteredLots, lvLots.rows, info);
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, failed, view, summary, lots, filteredLots, lvSummary.rows, lvLots.rows, q, org.entity, org.currency]);
+
   return (
-    <ReportShell title="Stock Valuation" sub="Value of inventory on hand, at FIFO cost." icon={Boxes} onRefresh={load} loading={loading}>
+    <ReportShell title="Stock Valuation" sub="Value of inventory on hand, at FIFO cost." icon={Boxes} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-1 bg-stone-900 border border-stone-800 rounded-lg p-1">
           {(["summary", "lots"] as const).map(v => (
@@ -159,7 +191,14 @@ export function StockStatusReport() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [q, setQ] = useState("");
   const [only, setOnly] = useState(false);
-  async function load() { setRows(await fetch(`/api/inventory/reports?type=status`).then(r => r.json()).catch(() => [])); }
+  const [failed, setFailed] = useState(false);
+  const org = useExportOrg();
+  // Cleared first so the Export menu is off while refreshing; a failed response is never exported as "no items".
+  async function load() {
+    setRows(null); setFailed(false);
+    const d = await fetch(`/api/inventory/reports?type=status`).then(r => r.json()).catch(() => null);
+    if (!Array.isArray(d)) { setFailed(true); setRows([]); } else setRows(d);
+  }
   useEffect(() => { load(); }, []);
   const filtered = useMemo(() => {
     let list = rows ?? [];
@@ -185,8 +224,19 @@ export function StockStatusReport() {
 
   const lv = useListView(filtered, COLS, { storageKey: "stock-status" });
 
+  const exportModel = useMemo(() => {
+    if (rows === null || failed) return null;
+    try {
+      return buildStockStatusModel(rows, lv.rows, { ...org, search: q, onlyAttention: only });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, failed, lv.rows, q, only, org.entity, org.currency]);
+
   return (
-    <ReportShell title="Stock Status" sub="On-hand quantity against each item's minimum reorder level." icon={ClipboardList} onRefresh={load} loading={rows === null}>
+    <ReportShell title="Stock Status" sub="On-hand quantity against each item's minimum reorder level." icon={ClipboardList} onRefresh={load} loading={rows === null} exportModel={exportModel}>
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />

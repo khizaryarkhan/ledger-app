@@ -11,6 +11,7 @@ import { ReportShell } from "@/components/ui";
 import { controlCompact } from "@/components/form-kit";
 import { useData } from "@/components/data-provider";
 import { buildAgingModel, AGING_BUCKETS, AGING_BUCKET_LABEL } from "@/lib/reports/builders/aging";
+import { buildTaxLiabilityModel } from "@/lib/reports/builders/tax-liability";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
@@ -100,8 +101,32 @@ export function TaxLiabilityReport() {
   const [data, setData] = useState<any>(null);
   const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(localToday());
-  async function load() { setData(await fetch(`/api/accounting/tax-liability?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
+  // The period the figures on screen were fetched for: the export is held back unless it matches the dates selected now.
+  const [loadedKey, setLoadedKey] = useState("");
+  async function load() {
+    const key = `${from}|${to}`;
+    setData(null);
+    setData(await fetch(`/api/accounting/tax-liability?from=${from}&to=${to}`).then(r => r.json()).catch(() => null));
+    setLoadedKey(key);
+  }
   useEffect(() => { load(); }, [from, to]);
+  let taxOrg: { name: string; displayName: string | null; currency: string } | null = null;
+  try { taxOrg = useData().orgSettings; } catch { taxOrg = null; }
+  const exportModel = useMemo(() => {
+    if (data === null || data.error || data.closingBalance == null || loadedKey !== `${from}|${to}`) return null;
+    try {
+      return buildTaxLiabilityModel(data, {
+        entity: taxOrg ? (taxOrg.displayName || taxOrg.name) : "",
+        currency: taxOrg?.currency ?? null,
+        periodLine: `For the period ${fmt.shortDate(from)} to ${fmt.shortDate(to)}`,
+        from, to,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loadedKey, from, to, taxOrg?.name, taxOrg?.displayName, taxOrg?.currency]);
   const Row = ({ label, value, strong, hint }: { label: string; value: number; strong?: boolean; hint?: string }) => (
     <div className={`flex items-center justify-between px-4 py-2.5 border-b border-stone-800/60 ${strong ? "bg-stone-950/40" : ""}`}>
       <div><span className={strong ? "font-semibold text-stone-100" : "text-stone-300"}>{label}</span>{hint && <span className="text-[11px] text-stone-500 ml-2">{hint}</span>}</div>
@@ -109,7 +134,7 @@ export function TaxLiabilityReport() {
     </div>
   );
   return (
-    <ReportShell title="Sales Tax Liability" sub="Output tax collected on sales, less input tax reclaimed on purchases, for the period." icon={Receipt} onRefresh={load} loading={data === null}>
+    <ReportShell title="Sales Tax Liability" sub="Output tax collected on sales, less input tax reclaimed on purchases, for the period." icon={Receipt} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">
         From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} />
         to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} />

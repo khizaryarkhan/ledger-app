@@ -13,6 +13,8 @@ import Link from "next/link";
 import { Scale } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { useData } from "@/components/data-provider";
+import { buildStockVsGlModel } from "@/lib/reports/builders/stock-vs-gl";
 import { control, t } from "@/components/form-kit";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
@@ -31,12 +33,16 @@ export function StockVsGlReport() {
   const [data, setData] = useState<{ rows: Row[]; wip: Wip[]; unassignedValue: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // The date the figures on screen were fetched for: the export is held back unless it matches the date selected now.
+  const [loadedKey, setLoadedKey] = useState("");
   async function load() {
+    const key = asAt;
     setData(null); setErr(null);
     const res = await fetch(`/api/accounting/stock-vs-gl?asAt=${asAt}`);
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { setErr(d?.error || "Could not load the report"); setData({ rows: [], wip: [], unassignedValue: 0 }); return; }
+    if (!res.ok) { setErr(d?.error || "Could not load the report"); setData({ rows: [], wip: [], unassignedValue: 0 }); setLoadedKey(key); return; }
     setData(d);
+    setLoadedKey(key);
   }
   useEffect(() => { load(); }, [asAt]);
 
@@ -59,8 +65,27 @@ export function StockVsGlReport() {
   ], []);
   const lvWip = useListView(data?.wip ?? [], WIP_COLS, { storageKey: "stock-vs-gl-wip" });
 
+  // Export / Print / PDF: both tables as the screen shows them (after the user's sort and filters). A failed load is never exported as an empty report.
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (data === null || err !== null || loadedKey !== asAt) return null;
+    try {
+      return buildStockVsGlModel(data, lvAccounts.rows, lvWip.rows, {
+        entity: org ? (org.displayName || org.name) : "",
+        currency: org?.currency ?? null,
+        asAt,
+        asAtLine: `As at ${fmt.shortDate(asAt)}`,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, err, loadedKey, asAt, lvAccounts.rows, lvWip.rows, org?.name, org?.displayName, org?.currency]);
+
   return (
-    <ReportShell title="Stock vs GL" sub="Stock value against the ledger balance of each inventory account, as at a date." icon={Scale} onRefresh={load} loading={data === null}>
+    <ReportShell title="Stock vs GL" sub="Stock value against the ledger balance of each inventory account, as at a date." icon={Scale} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <label className={`flex items-center gap-2 ${t.secondary}`}>As at
           <input type="date" value={asAt} onChange={e => setAsAt(e.target.value)} className={`${control} !w-44`} />

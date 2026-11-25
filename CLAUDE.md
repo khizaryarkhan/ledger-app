@@ -323,9 +323,15 @@ Prompted by "is our reporting better than Crystal Reports?": the honest gap was 
 `ReportShell` (`components/ui.tsx`) now shows an **Export** menu (Excel / PDF / Print) whenever a report passes it an
 `exportModel`; a report that passes nothing shows no menu. **Done (Phase 1)**: Trial Balance, P&L, Balance Sheet,
 Comprehensive Income, Changes in Equity (single and multi-column), General Ledger, Aged Receivables/Payables, Cash Flow,
-Budget vs Actual. **Not done (Phase 2)**: the other ~15 reports on the shared shell (stock, purchasing, sales, lot trace,
-item ledger, delivery, production), and the Resources report shell. Not built at all: Customize panel / saved views, scheduled
-or emailed reports.
+Budget vs Actual. **Phase 2 (2026-11-25) added every other report on the shared shell**: Sales Tax Liability, FX Exposure,
+Stock vs GL, Credits & Adjustments, Item Ledger (builders in `lib/reports/builders/`), the six purchasing/sales lists
+(`trade-shared.ts` is the common shape), Stock Valuation/Status, Delivery Risk, Delivery Performance, Subcontractor Yield,
+Production Performance (exports the tab shown), Lot Traceability (`ops-common.ts`). Each has its own test file
+(`tests/report-export-finance|trade|ops.test.ts`). **Still not done**: the Resources report shell (`resource-report-shell.tsx`:
+team/my reports, dashboard), Customize panel / saved views, scheduled or emailed reports. **Known screen-vs-file differences**:
+cards become one table (Delivery Risk), a click-to-expand list is exported expanded (Job Work Yield), a quantity+unit cell is split
+in two (Stock), charts become value tables (Production Performance), FX rates use the "qty" kind (5dp) because there is no rate kind.
+**Every one of these reports holds its model back unless the data on screen was fetched with the selection now showing.**
 
 - **One pure model, built from the SAME data object the screen renders.** `lib/reports/export-model.ts` is the shape;
   `lib/reports/builders/*` mirror each screen's display rules (a line netting to zero is hidden; a multi-column zero cell

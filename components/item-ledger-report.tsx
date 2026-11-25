@@ -9,7 +9,9 @@
  * to the inventory accounts of the books so the two can never quietly part company.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useData } from "@/components/data-provider";
+import { buildItemLedgerModel } from "@/lib/reports/builders/item-ledger";
 import Link from "next/link";
 import { BookOpen, ShieldCheck, ShieldAlert } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
@@ -35,15 +37,39 @@ export function ItemLedgerReport() {
   const [data, setData] = useState<Result | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // The parameters the figures on screen were fetched with: the export is held back unless they match the selection now.
+  const [loadedKey, setLoadedKey] = useState("");
   async function load() {
+    const key = `${from}|${to}|${itemId}`;
     setData(null); setErr(null);
     const q = new URLSearchParams({ to, ...(from ? { from } : {}), ...(itemId ? { itemId } : {}) });
     const res = await fetch(`/api/inventory/item-ledger?${q}`);
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { setErr(d?.error || "Could not load the report"); setData({ from, to, ledgers: [], truncated: false, itemOptions: [], tie: { stockValue: 0, glBalance: 0, difference: 0 } }); return; }
+    if (!res.ok) { setErr(d?.error || "Could not load the report"); setData({ from, to, ledgers: [], truncated: false, itemOptions: [], tie: { stockValue: 0, glBalance: 0, difference: 0 } }); setLoadedKey(key); return; }
     setData(d);
+    setLoadedKey(key);
   }
   useEffect(() => { load(); }, [from, to, itemId]);
+
+  // Export / Print / PDF: every item block on screen, with the truncation warning and the tie-to-books result.
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (data === null || err !== null || loadedKey !== `${from}|${to}|${itemId}`) return null;
+    try {
+      return buildItemLedgerModel(data, {
+        entity: org ? (org.displayName || org.name) : "",
+        currency: org?.currency ?? null,
+        periodLine: `${from ? `For the period ${fmt.shortDate(from)} to ` : "Up to "}${fmt.shortDate(to)}`,
+        from, to,
+        itemName: itemId ? (data.itemOptions.find(o => o.id === itemId)?.name ?? null) : null,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, err, loadedKey, from, to, itemId, org?.name, org?.displayName, org?.currency]);
 
   const tie = data?.tie;
   // The same tolerance Stock vs GL uses (a cent or two of rounding when a cost is spread over quantity), so the
@@ -52,7 +78,7 @@ export function ItemLedgerReport() {
   const roundingCent = tie ? tied && Math.abs(tie.difference) >= 0.005 : false;
 
   return (
-    <ReportShell title="Item Ledger" sub="Every movement of each item, with its document and lot, and the running quantity and value." icon={BookOpen} onRefresh={load} loading={data === null}>
+    <ReportShell title="Item Ledger" sub="Every movement of each item, with its document and lot, and the running quantity and value." icon={BookOpen} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex items-end gap-3 mb-4 flex-wrap">
         <label className={`${t.secondary} flex flex-col gap-1`}>Item
           <div className="w-64">

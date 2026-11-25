@@ -8,7 +8,9 @@
  */
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useData } from "@/components/data-provider";
+import { buildCreditsAdjustmentsModel } from "@/lib/reports/builders/credits-adjustments";
 import { Undo2 } from "lucide-react";
 import { ReportShell } from "@/components/ui";
 import { control } from "@/components/form-kit";
@@ -59,14 +61,39 @@ export function CreditsAdjustmentsReport() {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // The period the figures on screen were fetched for: the export is held back unless it matches the dates selected now.
+  const [loadedKey, setLoadedKey] = useState("");
   async function load() {
+    const key = `${from}|${to}`;
     setLoading(true);
+    setData(null);
     const x = await fetch(`/api/accounting/adjustments?${new URLSearchParams({ from, to })}`).then(r => r.json()).catch(() => null);
-    setData(x); setLoading(false);
+    setData(x); setLoadedKey(key); setLoading(false);
   }
   useEffect(() => { load(); }, [from, to]);
 
   const d = data && !data.empty && data.customerCredits ? data : null;
+
+  // Export / Print / PDF. Held while loading, after a failed request, or when the figures are for other dates.
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (loading || data === null || (data as any).error || loadedKey !== `${from}|${to}`) return null;
+    if (!data.empty && !data.customerCredits) return null;
+    try {
+      return buildCreditsAdjustmentsModel(data, {
+        entity: org ? (org.displayName || org.name) : "",
+        currency: org?.currency ?? null,
+        periodLine: `For the period ${formatDate(from)} to ${formatDate(to)}`,
+        from, to,
+        formatDate,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, loading, loadedKey, from, to, org?.name, org?.displayName, org?.currency]);
   const tiles: [string, string, string][] = d ? [
     ["Customer credits", fmt.num2(d.customerCredits.amount), "text-stone-200"],
     ["% of sales", d.customerCredits.pctOfSales == null ? "—" : `${d.customerCredits.pctOfSales}%`, (d.customerCredits.pctOfSales ?? 0) > 5 ? "text-rose-400" : "text-stone-200"],
@@ -78,7 +105,7 @@ export function CreditsAdjustmentsReport() {
 
   return (
     <ReportShell title="Credits & Adjustments" sub="Why money was given back, why the ledger was adjusted by hand, and how quickly supplier bills reach you."
-      icon={Undo2} onRefresh={load} loading={loading}>
+      icon={Undo2} onRefresh={load} loading={loading} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <label className="text-[11px] text-stone-500">From
           <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={`${control} h-8 text-[12px] mt-0.5`} />

@@ -8,10 +8,12 @@
  * the Order Production Tracker's per-step badges read.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { ReportShell } from "@/components/ui";
+import { useData } from "@/components/data-provider";
+import { buildDeliveryRiskModel } from "@/lib/reports/builders/delivery-risk";
 
 const SOURCE_LABEL: Record<string, string> = { jobwork: "Job Work", po: "Purchase Order", mo: "Manufacturing Order" };
 
@@ -19,13 +21,30 @@ export function DeliveryRiskReport() {
   const [alerts, setAlerts] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [failed, setFailed] = useState(false);
+  let org: { name: string; displayName: string | null } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+
   async function load() {
-    setLoading(true);
+    setLoading(true); setFailed(false);
     const d = await fetch(`/api/inventory/alerts`).then(r => r.json()).catch(() => null);
+    // A failed response is flagged so it is never exported as "nothing at risk".
+    if (!Array.isArray(d?.alerts)) setFailed(true);
     setAlerts(Array.isArray(d?.alerts) ? d.alerts : []);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+
+  const exportModel = useMemo(() => {
+    if (alerts === null || loading || failed) return null;
+    try {
+      return buildDeliveryRiskModel(alerts, { entity: org ? (org.displayName || org.name) : "" });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alerts, loading, failed, org?.name, org?.displayName]);
 
   const groups = new Map<string, { label: string; href: string | null; alerts: any[] }>();
   for (const a of alerts ?? []) {
@@ -41,7 +60,7 @@ export function DeliveryRiskReport() {
   }
 
   return (
-    <ReportShell title="Delivery Risk" sub="Job Work, Purchase Orders and Manufacturing Orders currently running past their expected date, grouped by the Sales Order they're for." icon={AlertTriangle} onRefresh={load} loading={loading}>
+    <ReportShell title="Delivery Risk" sub="Job Work, Purchase Orders and Manufacturing Orders currently running past their expected date, grouped by the Sales Order they're for." icon={AlertTriangle} onRefresh={load} loading={loading} exportModel={exportModel}>
       {(!alerts || alerts.length === 0) ? (
         <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">
           {loading ? "Loading…" : "Nothing at risk right now — every open step is within its expected date."}
