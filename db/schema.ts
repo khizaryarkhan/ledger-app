@@ -4819,6 +4819,21 @@ export const announcements = pgTable("announcements", {
 }));
 export type Announcement = typeof announcements.$inferSelect;
 
+/** A person's named choice of period / columns / compare-to for one report. Settings only, never figures. */
+export const reportViews = pgTable("report_views", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  userId:    uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  reportKey: varchar("report_key", { length: 64 }).notNull(),
+  name:      varchar("name", { length: 80 }).notNull(),
+  params:    jsonb("params").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  byUser: index("report_views_user_idx").on(t.orgId, t.userId, t.reportKey),
+}));
+export type ReportView = typeof reportViews.$inferSelect;
+
 export const announcementReads = pgTable("announcement_reads", {
   id:             uuid("id").defaultRandom().primaryKey(),
   announcementId: uuid("announcement_id").notNull().references(() => announcements.id, { onDelete: "cascade" }),

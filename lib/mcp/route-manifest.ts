@@ -20,6 +20,7 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/accounting/posting-groups/[id]", methods: ["DELETE","PATCH"], body: ["confirm","effectiveDate","name","roles"] },
   { path: "/api/accounting/posting-groups/provision", methods: ["POST"], params: ["dryRun"] },
   { path: "/api/accounting/reconcile", methods: ["DELETE","GET","POST"], params: ["accountId","id"] },
+  { path: "/api/accounting/report-views", methods: ["DELETE","GET","POST"], params: ["id","reportKey"] },
   { path: "/api/accounting/stock-vs-gl", methods: ["GET"], params: ["asAt"] },
   { path: "/api/accounting/tax-agencies", methods: ["GET","POST"], body: ["country","filingFrequency","liabilityAccountId"] },
   { path: "/api/accounting/tax-agencies/[id]", methods: ["DELETE"] },

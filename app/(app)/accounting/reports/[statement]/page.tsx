@@ -12,6 +12,8 @@ import {
   rangeForPreset, asOfForPreset, type RangePresetKey, type AsOfPresetKey, type BucketSize, type CompareMode,
 } from "@/lib/accounting/report-periods";
 import { buildStatementModel } from "@/lib/reports/builders/statements";
+import { SavedViewsMenu } from "@/components/saved-views-menu";
+import { pickOption, pickDate, type ViewParams } from "@/lib/reports/saved-views";
 
 type ColumnMode = BucketSize | "class" | "location";
 
@@ -96,6 +98,30 @@ export default function FinancialStatementPage() {
     setAsOfPreset(p);
     const a = asOfForPreset(p, today(), fym);
     if (a) setAsOf(a.asOf);
+  }
+
+  // Saved views: what is remembered is the SETTINGS (a custom period's dates only when the preset is "custom"),
+  // and a stored value is applied only if this report still offers it — a view is untrusted input.
+  const viewKey = `statement:${statement}`;
+  const currentView: ViewParams = isPeriod
+    ? { rangePreset, ...(rangePreset === "custom" ? { from, to } : {}), ...(hasColumnEngine ? { columns, compareTo } : {}) }
+    : { asOfPreset, ...(asOfPreset === "custom" ? { asOf } : {}), ...(hasColumnEngine ? { columns, compareTo } : {}) };
+
+  function applyView(v: ViewParams) {
+    if (isPeriod) {
+      const p = pickOption(v.rangePreset, RANGE_PRESETS.map((x) => x.value), "this_fy_to_date");
+      if (p === "custom") { setRangePreset("custom"); setFrom(pickDate(v.from, from)); setTo(pickDate(v.to, to)); }
+      else onRangePreset(p);
+    } else {
+      const p = pickOption(v.asOfPreset, AS_OF_PRESETS.map((x) => x.value), "today");
+      if (p === "custom") { setAsOfPreset("custom"); setAsOf(pickDate(v.asOf, asOf)); }
+      else onAsOfPreset(p);
+    }
+    if (hasColumnEngine) {
+      const cols = ["total", ...COLUMN_BUCKETS.map((b) => b.value), ...(hasClasses ? ["class"] : []), ...(hasLocations ? ["location"] : [])] as ColumnMode[];
+      setColumns(pickOption(v.columns, cols, "total"));
+      setCompareTo(pickOption(v.compareTo, COMPARE_MODES.map((c) => c.value), "none"));
+    }
   }
 
   function load() {
@@ -211,9 +237,10 @@ export default function FinancialStatementPage() {
             )}
           </>
         )}
+        <SavedViewsMenu reportKey={viewKey} current={currentView} onApply={applyView} />
       </div>
 
-      {error && <div className="mb-4 px-4 py-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">{error}</div>}
+      {error &&<div className="mb-4 px-4 py-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">{error}</div>}
       {!data && !error && <div className="text-sm text-stone-500 flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Building statement…</div>}
 
       {data && isMulti && isPL && <MultiProfitLoss table={{ ...data.table, meta: data.meta }} drill={drill} />}

@@ -176,6 +176,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/tax-codes", owner: "accounting" },
   { path: "/api/accounting/bill-suggestions", owner: "accounting" },
   { path: "/api/accounting/budgets", owner: "accounting" },
+  { path: "/api/accounting/report-views", owner: "accounting" },
   { path: "/api/accounting/budget-vs-actual", owner: "accounting" },
   { path: "/api/accounting/fixed-assets", owner: "accounting" },
   // QBO form-parity, Phase 6 "Make Recurring" — scoped to native ledger
