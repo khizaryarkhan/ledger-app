@@ -327,8 +327,16 @@ Budget vs Actual. **Phase 2 (2026-11-25) added every other report on the shared 
 Stock vs GL, Credits & Adjustments, Item Ledger (builders in `lib/reports/builders/`), the six purchasing/sales lists
 (`trade-shared.ts` is the common shape), Stock Valuation/Status, Delivery Risk, Delivery Performance, Subcontractor Yield,
 Production Performance (exports the tab shown), Lot Traceability (`ops-common.ts`). Each has its own test file
-(`tests/report-export-finance|trade|ops.test.ts`). **Still not done**: the Resources report shell (`resource-report-shell.tsx`:
-team/my reports, dashboard), Customize panel / saved views, scheduled or emailed reports. **Known screen-vs-file differences**:
+(`tests/report-export-finance|trade|ops.test.ts`). **Phase 3 (2026-11-25) added the Resources reports**: Team reports (Project and Employee tabs, whichever is shown) and My hours,
+through `resource-report-shell.tsx`'s own `ReportShell` (optional `exportModel`, same rule as the finance shell) and builders in
+`lib/reports/builders/resources.ts` (`tests/report-export-resources.test.ts`). **Cost is a column only when the API said
+`canSeeCost`** (the pay rate is admin-only; a test proves it never reaches the file otherwise). Team reports are held back unless the
+rows were fetched for the period selected now (`key`). An expanded-on-click list is exported expanded (each person's weeks, each
+project's people); My hours exports approved hours per week with pending/draft in their own columns. This replaced the old
+Excel-only button on Team reports. **In the employee portal PDF is hidden** (`pdf={false}`): `/api/print/report` is refused to the
+employee role by `requireOrg()`, and the Excel/Print audit ping fails quietly for the same reason, so portal exports are not in the
+audit log. **Still not done**: the employee dashboard, Customize panel / saved views, scheduled or emailed reports. Phase 3 was
+verified by tsc, 2,045 tests and nothing else: not exercised on production or in a browser. **Known screen-vs-file differences**:
 cards become one table (Delivery Risk), a click-to-expand list is exported expanded (Job Work Yield), a quantity+unit cell is split
 in two (Stock), charts become value tables (Production Performance), FX rates use the "qty" kind (5dp) because there is no rate kind.
 **Every one of these reports holds its model back unless the data on screen was fetched with the selection now showing.**

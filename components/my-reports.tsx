@@ -7,8 +7,10 @@
  * Colour is for exceptions only: an under-logged week, a day over capacity.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fmt, localToday } from "@/lib/format";
+import { useData } from "@/components/data-provider";
+import { buildMyHoursModel } from "@/lib/reports/builders/resources";
 import { ReportShell, WEEKDAY_SHORT, UNDER_LOGGED_RATIO, type ReportShellKind } from "@/components/resource-report-shell";
 
 type Split = { actual: number; pending: number; draft: number };
@@ -73,8 +75,22 @@ export function MyReports({ shell = "app" }: { shell?: ReportShellKind }) {
 
   const today = localToday();
 
+  // Export / Print / PDF of exactly what is on screen; null until the report has loaded.
+  let org: { name: string; displayName: string | null } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (!data) return null;
+    try {
+      return buildMyHoursModel(data, { entity: org ? (org.displayName || org.name) : "", currency: null, today });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, today, org?.name, org?.displayName]);
+
   return (
-    <ReportShell shell={shell} title="My hours" subtitle="Where your hours went, this week, and what is coming up.">
+    <ReportShell shell={shell} title="My hours" subtitle="Where your hours went, this week, and what is coming up." exportModel={exportModel}>
       {err && <p className="text-[13px] text-rose-400">{err}</p>}
       {!err && !data && <p className="text-[13px] text-stone-500">Loading…</p>}
       {data && !data.resource && (

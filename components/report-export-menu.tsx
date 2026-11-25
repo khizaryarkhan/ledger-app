@@ -65,7 +65,8 @@ function logExport(model: ReportExportModel, format: "xlsx" | "print") {
   }).catch(() => { /* the export already happened; a lost audit ping must not undo it */ });
 }
 
-export function ReportExportMenu({ model }: { model: ReportExportModel | null }) {
+/** `pdf={false}` hides PDF where the caller cannot reach the server route (the employee portal's logins are refused by it). */
+export function ReportExportMenu({ model, pdf = true }: { model: ReportExportModel | null; pdf?: boolean }) {
   let org: { name: string; displayName: string | null; logoUrl: string | null } | null = null;
   try { org = useData().orgSettings; } catch { org = null; }
   const orgName = org ? (org.displayName || org.name) : "";
@@ -127,10 +128,12 @@ export function ReportExportMenu({ model }: { model: ReportExportModel | null })
       {open && (
         <div role="menu" className="absolute right-0 mt-1 w-48 rounded-lg bg-stone-900 ring-1 ring-stone-700 shadow-lg z-30 py-1">
           <button role="menuitem" type="button" className={item} onClick={() => run("xlsx")}><FileSpreadsheet size={13} /> Excel (.xlsx)</button>
-          <button
-            role="menuitem" type="button" className={item} onClick={() => run("pdf")} disabled={pdfTooLong}
-            title={pdfTooLong ? `Too long for a PDF (over ${EXPORT_LIMITS.pdfRows.toLocaleString()} rows) — use Excel` : undefined}
-          ><FileText size={13} /> PDF</button>
+          {pdf && (
+            <button
+              role="menuitem" type="button" className={item} onClick={() => run("pdf")} disabled={pdfTooLong}
+              title={pdfTooLong ? `Too long for a PDF (over ${EXPORT_LIMITS.pdfRows.toLocaleString()} rows) — use Excel` : undefined}
+            ><FileText size={13} /> PDF</button>
+          )}
           <button role="menuitem" type="button" className={item} onClick={() => run("print")} disabled={pdfTooLong}
             title={pdfTooLong ? "Too long to print — use Excel" : undefined}
           ><Printer size={13} /> Print</button>

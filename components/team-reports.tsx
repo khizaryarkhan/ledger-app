@@ -9,10 +9,12 @@
  * over-capacity people, under-logged finished weeks.
  */
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
-import { usePeriodFilter, ListPeriodFilter, ListExportButton, exportRowsToExcel } from "@/components/list-chrome";
+import { usePeriodFilter, ListPeriodFilter } from "@/components/list-chrome";
+import { useData } from "@/components/data-provider";
+import { buildProjectHoursModel, buildEmployeeHoursModel } from "@/lib/reports/builders/resources";
 import { ReportShell, UNDER_LOGGED_RATIO, type ReportShellKind } from "@/components/resource-report-shell";
 import { weekEnd } from "@/lib/resources/reports";
 
@@ -44,7 +46,8 @@ const pill = (active: boolean): string =>
 const pctText = (p: number | null): string => (p === null ? "—" : `${fmt.qty(p)}%`);
 const dash = <span className="text-stone-600">—</span>;
 
-type LoadState<T> = { rows: T[]; canSeeCost: boolean } | { error: string; forbidden: boolean } | null;
+/** `key` is the period the rows were fetched for: an export is held back unless it matches the period selected now. */
+type LoadState<T> = { rows: T[]; canSeeCost: boolean; key: string } | { error: string; forbidden: boolean } | null;
 
 function useReport<T>(tab: Tab, kind: Tab, from: string, to: string): LoadState<T> {
   const [state, setState] = useState<LoadState<T>>(null);
@@ -56,7 +59,7 @@ function useReport<T>(tab: Tab, kind: Tab, from: string, to: string): LoadState<
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) return { error: (j.error as string) || "Could not load the report.", forbidden: r.status === 403 };
-        return { rows: j.rows as T[], canSeeCost: !!j.canSeeCost };
+        return { rows: j.rows as T[], canSeeCost: !!j.canSeeCost, key: `${from}|${to}` };
       })
       .then((s) => { if (live) setState(s); })
       .catch(() => { if (live) setState({ error: "Could not load the report.", forbidden: false }); });
@@ -73,38 +76,26 @@ export function TeamReports({ shell = "app" }: { shell?: ReportShellKind }) {
   const employees = useReport<EmployeeRow>(tab, "employee", from, to);
   const state = tab === "project" ? projects : employees;
 
-  async function exportCurrent() {
-    if (!state || "error" in state) return;
-    if (tab === "project") {
-      const flat = (state.rows as ProjectRow[]).flatMap((p) => [
-        { project: p.label, kind: KIND_LABEL[p.assignableType] ?? p.assignableType, person: "All people", row: p as Split & { planned: number; variance: number; percentUsed: number | null; cost?: number } },
-        ...p.people.map((x) => ({ project: p.label, kind: KIND_LABEL[p.assignableType] ?? p.assignableType, person: x.name, row: x })),
-      ]);
-      await exportRowsToExcel({
-        rows: flat, sheet: "Project hours", filename: `project-hours-${from}-${to}.xlsx`,
-        columns: [
-          { header: "Project", value: (r) => r.project, width: 30 }, { header: "Type", value: (r) => r.kind, width: 20 },
-          { header: "Person", value: (r) => r.person, width: 24 },
-          { header: "Planned hours", value: (r) => r.row.planned }, { header: "Logged (approved)", value: (r) => r.row.actual },
-          { header: "Pending approval", value: (r) => r.row.pending }, { header: "Draft", value: (r) => r.row.draft },
-          { header: "Variance", value: (r) => r.row.variance }, { header: "% used", value: (r) => r.row.percentUsed },
-          ...(state.canSeeCost ? [{ header: "Cost", value: (r: { row: { cost?: number } }) => r.row.cost }] : []),
-        ],
-      });
-    } else {
-      await exportRowsToExcel({
-        rows: state.rows as EmployeeRow[], sheet: "Employee hours", filename: `employee-hours-${from}-${to}.xlsx`,
-        columns: [
-          { header: "Person", value: (r) => r.name, width: 24 }, { header: "Designation", value: (r) => r.designation, width: 20 },
-          { header: "Manager", value: (r) => r.managerName, width: 24 },
-          { header: "Capacity hours", value: (r) => r.capacity }, { header: "Planned hours", value: (r) => r.planned },
-          { header: "Logged (approved)", value: (r) => r.actual }, { header: "Pending approval", value: (r) => r.pending },
-          { header: "Draft", value: (r) => r.draft }, { header: "Utilization %", value: (r) => r.utilizationPercent },
-          ...(state.canSeeCost ? [{ header: "Cost", value: (r: EmployeeRow) => r.cost }] : []),
-        ],
-      });
+  // Export / Print / PDF. Held back (null) while loading, on an error, when the rows are for another period, or when empty.
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (!state || "error" in state || state.key !== `${from}|${to}` || state.rows.length === 0) return null;
+    try {
+      const info = {
+        entity: org ? (org.displayName || org.name) : "", currency: org?.currency ?? null,
+        canSeeCost: state.canSeeCost, from, to,
+        periodLine: `For the period ${fmt.shortDate(from)} to ${fmt.shortDate(to)}`,
+      };
+      return tab === "project"
+        ? buildProjectHoursModel(state.rows as ProjectRow[], info)
+        : buildEmployeeHoursModel(state.rows as EmployeeRow[], { ...info, today: localToday(), weekEnd });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, tab, from, to, org?.name, org?.displayName, org?.currency]);
 
   const actions = (
     <>
@@ -112,12 +103,11 @@ export function TeamReports({ shell = "app" }: { shell?: ReportShellKind }) {
       <button className={pill(tab === "employee")} onClick={() => setTab("employee")}>Employee</button>
       {/* The team reports are capped at a year (MAX_SPAN_DAYS), so "All Time" would only ever be refused. */}
       <ListPeriodFilter state={period} label="Period" exclude={["all"]} />
-      <ListExportButton onClick={exportCurrent} disabled={!state || "error" in state || state.rows.length === 0} />
     </>
   );
 
   return (
-    <ReportShell shell={shell} title="Team reports" subtitle="Planned against logged hours, by project and by person." actions={actions}>
+    <ReportShell shell={shell} title="Team reports" subtitle="Planned against logged hours, by project and by person." actions={actions} exportModel={exportModel}>
       {!state && <p className="text-[13px] text-stone-500">Loading…</p>}
       {state && "error" in state && (
         state.forbidden
