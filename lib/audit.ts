@@ -86,7 +86,9 @@ export type EventType =
   | "edi_generated"
   | "edi_sent"
   | "edi_voided"
-  | "edi_received";
+  | "edi_received"
+  // A report left the system as Excel, PDF or a printout. meta: report title, format, row count.
+  | "report_exported";
 
 export interface LogEventArgs {
   orgId: string;

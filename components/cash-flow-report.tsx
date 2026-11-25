@@ -2,8 +2,9 @@
 
 /** Cash Flow statement (indirect method). */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TrendingUp } from "lucide-react";
+import { buildCashFlowModel } from "@/lib/reports/builders/cash-flow";
 import { controlCompact } from "@/components/form-kit";
 import { ReportShell } from "@/components/ui";
 import { localToday, formatDateLong } from "@/lib/format";
@@ -17,8 +18,26 @@ export function CashFlowReport() {
   const [from, setFrom] = useFiscalFrom();
   const [to, setTo] = useState(localToday());
   const [d, setD] = useState<any>(null);
-  async function load() { setD(await fetch(`/api/accounting/cash-flow?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
+  // Clear first: while a refresh is in flight the screen says "Loading…" and the Export menu is disabled, so a new period
+  // label can never be exported over the previous period's figures.
+  async function load() { setD(null); setD(await fetch(`/api/accounting/cash-flow?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { load(); }, [from, to]);
+
+  // Export / Print / PDF: the response on screen, as the statement a CA would present.
+  const exportModel = useMemo(() => {
+    if (d === null) return null;
+    try {
+      return buildCashFlowModel(d, {
+        entity: orgSettings.displayName || orgSettings.name,
+        currency: orgSettings.currency,
+        periodLine: `For the period ${formatDateLong(from)} to ${formatDateLong(to)}`,
+        from, to,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+  }, [d, from, to, orgSettings.displayName, orgSettings.name, orgSettings.currency]);
 
   const Section = ({ title, lines, total }: { title: string; lines: any[]; total: number }) => (
     <>
@@ -29,7 +48,7 @@ export function CashFlowReport() {
   );
 
   return (
-    <ReportShell title="Cash Flow Statement" sub="Indirect method — net income adjusted for the period's changes in working capital, investing and financing." icon={TrendingUp} onRefresh={load} loading={d === null}>
+    <ReportShell title="Cash Flow Statement" sub="Indirect method — net income adjusted for the period's changes in working capital, investing and financing." icon={TrendingUp} onRefresh={load} loading={d === null} exportModel={exportModel}>
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} /> to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} /></div>
 
       {d === null ? <p className="text-[13px] text-stone-500">Loading…</p> : (

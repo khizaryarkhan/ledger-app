@@ -11,6 +11,7 @@ import { useData } from "@/components/data-provider";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { ReportShell } from "@/components/ui";
 import { controlCompact, SelectField } from "@/components/form-kit";
+import { buildGeneralLedgerModel } from "@/lib/reports/builders/general-ledger";
 
 const today = () => localToday();
 // NOT fmt.num2 — this report's negative figures are parenthesized
@@ -43,16 +44,25 @@ function GeneralLedgerInner() {
   useEffect(() => { fetch("/api/accounting/accounts").then(r => r.json()).then(a => setAccounts(Array.isArray(a) ? a : [])).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/payables/suppliers").then(r => r.json()).then(d => setSuppliers(Array.isArray(d) ? d : (d?.suppliers ?? []))).catch(() => {}); }, []);
 
+  // The filters that produce a view, as one string: stored with the data so an export is only offered when what is
+  // on screen was fetched with exactly the filters now selected (overlapping requests can otherwise cross over).
+  const queryString = () => {
+    const qs = new URLSearchParams({ statement: "general-ledger", from, to });
+    if (accountId) qs.set("accountId", accountId);
+    if (customerId) qs.set("customerId", customerId);
+    if (projectId) qs.set("projectId", projectId);
+    if (nameId) qs.set("nameId", nameId);
+    return qs.toString();
+  };
+  const [dataKey, setDataKey] = useState("");
+
   async function run() {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ statement: "general-ledger", from, to });
-      if (accountId) qs.set("accountId", accountId);
-      if (customerId) qs.set("customerId", customerId);
-      if (projectId) qs.set("projectId", projectId);
-      if (nameId) qs.set("nameId", nameId);
-      const d = await fetch(`/api/financials?${qs}`).then(r => r.json());
+      const key = queryString();
+      const d = await fetch(`/api/financials?${key}`).then(r => r.json());
       setData(d);
+      setDataKey(key);
     } finally { setLoading(false); }
   }
   useEffect(() => { run(); /* eslint-disable-next-line */ }, [accountId, customerId, projectId, nameId, from, to]);
@@ -60,8 +70,36 @@ function GeneralLedgerInner() {
   const curr = data?.meta?.currency || "";
   const anyFx = useMemo(() => (data?.accounts ?? []).some((a: any) => a.rows.some((r: any) => r.currency)), [data]);
 
+  // Export / Print / PDF: the response on screen, with the filters that produced it. Held back while a
+  // refresh is running so a stale view is never exported under new filters.
+  const exportModel = useMemo(() => {
+    // Not while refreshing, not for a failed response, and not when the data on screen was fetched with other filters.
+    if (!data || data.error || loading || dataKey !== queryString()) return null;
+    const params: { label: string; value: string }[] = [];
+    // A filter is always stated, even when its name is not in the lookup list (e.g. a drill-in for an inactive account).
+    const named = (id: string, label: string, name: string | undefined) => { if (id) params.push({ label, value: name ?? "(filtered — name unavailable)" }); };
+    const acct = accounts.find((a) => a.id === accountId);
+    named(accountId, "Account", acct ? `${acct.code ? `${acct.code} · ` : ""}${acct.name}` : undefined);
+    named(customerId, "Customer", customers.find((c: any) => c.id === customerId)?.name);
+    const sup = suppliers.find((s: any) => s.id === nameId);
+    named(nameId, "Supplier", sup ? (sup.displayName || sup.name) : undefined);
+    named(projectId, "Project", projects.find((p: any) => p.id === projectId)?.name);
+    try {
+      return buildGeneralLedgerModel(data, {
+        title: "General Ledger",
+        periodLine: `For the period ${formatDateShort(from)} to ${formatDateShort(to)}`,
+        params,
+        showFx,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, dataKey, loading, accounts, accountId, customers, customerId, suppliers, nameId, projects, projectId, from, to, showFx]);
+
   return (
-    <ReportShell title="General Ledger" sub={`${data?.meta?.entity ?? ""} — every posting with its type, document and running balance.`} icon={BookOpen} onRefresh={run} loading={loading}>
+    <ReportShell title="General Ledger" sub={`${data?.meta?.entity ?? ""} — every posting with its type, document and running balance.`} icon={BookOpen} onRefresh={run} loading={loading} exportModel={exportModel}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Account</label>
           <SelectField value={accountId} onChange={e => setAccountId(e.target.value)} className="h-8 min-w-[220px] text-[12px]">

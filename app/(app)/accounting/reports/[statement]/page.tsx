@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, ScrollText, Scale, TrendingUp, Landmark } from "lucide-react";
@@ -11,6 +11,7 @@ import {
   RANGE_PRESETS, AS_OF_PRESETS, COLUMN_BUCKETS, COMPARE_MODES,
   rangeForPreset, asOfForPreset, type RangePresetKey, type AsOfPresetKey, type BucketSize, type CompareMode,
 } from "@/lib/accounting/report-periods";
+import { buildStatementModel } from "@/lib/reports/builders/statements";
 
 type ColumnMode = BucketSize | "class" | "location";
 
@@ -113,6 +114,32 @@ export default function FinancialStatementPage() {
   const periodLine = isPeriod ? `For the period ${fmtDate(from)} to ${fmtDate(to)}` : `As at ${fmtDate(asOf)}`;
   const isMulti = hasColumnEngine && data?.table && data.table.columns.length > 1;
 
+  // What Export / Print / PDF produce: the SAME response the screen renders, so the two cannot disagree.
+  const exportModel = useMemo(() => {
+    if (!data) return null;
+    const params: { label: string; value: string }[] = [];
+    if (hasColumnEngine) {
+      params.push({ label: "Display columns by", value: COLUMN_BUCKETS.find((b) => b.value === columns)?.label ?? (columns === "class" ? "Class" : columns === "location" ? "Location" : String(columns)) });
+      if (columns !== "class" && columns !== "location") params.push({ label: "Compare to", value: COMPARE_MODES.find((c) => c.value === compareTo)?.label ?? String(compareTo) });
+    }
+    if (data.meta?.consolidated) params.push({ label: "Scope", value: "Consolidated across all branches" });
+    try {
+      return buildStatementModel(statement, data, {
+        title: meta.title,
+        formalTitle: meta.formal,
+        entity: data.meta?.entity ?? "",
+        currency: data.meta?.currency ?? null,
+        periodLine,
+        params,
+        fileBase: meta.title.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      }, Boolean(isMulti));
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, statement, columns, compareTo, periodLine, isMulti]);
+
   // Every account line drills into the General Ledger for that account over
   // the report's window — "click the number to see the transactions inside
   // it". In multi-column mode a cell drills into ITS OWN column's window.
@@ -127,7 +154,7 @@ export default function FinancialStatementPage() {
   };
 
   return (
-    <ReportShell title={meta.title} sub={meta.sub} icon={Icon} onRefresh={load} loading={!data && !error}>
+    <ReportShell title={meta.title} sub={meta.sub} icon={Icon} onRefresh={load} loading={!data && !error} exportModel={exportModel}>
       <div className="flex items-end gap-3 mb-5 flex-wrap">
         {isPeriod ? (
           <>

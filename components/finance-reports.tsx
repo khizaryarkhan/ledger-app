@@ -9,6 +9,8 @@ import { fmt, localToday } from "@/lib/format";
 import { useFiscalFrom } from "@/components/use-report-from";
 import { ReportShell } from "@/components/ui";
 import { controlCompact } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
+import { buildAgingModel, AGING_BUCKETS, AGING_BUCKET_LABEL } from "@/lib/reports/builders/aging";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
@@ -17,14 +19,16 @@ const money = fmt.num2;
 // for the fuller explanation.
 const footCls = "border-t-2 border-stone-800 bg-stone-900/60 font-semibold";
 
-const BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"] as const;
-const BUCKET_LABEL: Record<string, string> = { current: "Current", "1-30": "1–30", "31-60": "31–60", "61-90": "61–90", "90+": "90+" };
+// One definition, shared with the export, so the screen and the exported file label the buckets identically.
+const BUCKETS = AGING_BUCKETS;
+const BUCKET_LABEL = AGING_BUCKET_LABEL;
 
 export function AgingReport({ side }: { side: "receivable" | "payable" }) {
   const [data, setData] = useState<any>(null);
   const [asOf, setAsOf] = useState(localToday());
   const isAR = side === "receivable";
-  async function load() { setData(await fetch(`/api/accounting/aging?side=${side}&asOf=${asOf}`).then(r => r.json()).catch(() => ({ rows: [], buckets: {}, total: 0 }))); }
+  // Clear first so a new "As of" date is never exported over the previous date's figures; a failed request is flagged so it is never exported as "nothing outstanding".
+  async function load() { setData(null); setData(await fetch(`/api/accounting/aging?side=${side}&asOf=${asOf}`).then(r => r.json()).catch(() => ({ rows: [], buckets: {}, total: 0, failed: true }))); }
   useEffect(() => { load(); }, [asOf]);
   const rows = data?.rows ?? [];
 
@@ -38,8 +42,27 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
   ], [isAR]);
   const lv = useListView(rows, COLS, { storageKey: `finance-aging-${side}` });
 
+  // Export / Print / PDF: the buckets, and the documents the list is showing right now (after the user's sort and filters).
+  let org: { name: string; displayName: string | null; currency: string } | null = null;
+  try { org = useData().orgSettings; } catch { org = null; }
+  const exportModel = useMemo(() => {
+    if (data === null || data.failed || data.error) return null;
+    try {
+      return buildAgingModel(data, lv.rows, {
+        side, asOf,
+        entity: org ? (org.displayName || org.name) : "",
+        currency: org?.currency ?? null,
+        asOfLine: `As at ${fmt.shortDate(asOf)}`,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, lv.rows, side, asOf, org?.name, org?.displayName, org?.currency]);
+
   return (
-    <ReportShell title={isAR ? "Aged Receivables" : "Aged Payables"} sub={isAR ? "Open customer invoices bucketed by how overdue they are." : "Open supplier bills bucketed by how overdue they are."} icon={isAR ? Users : Building2} onRefresh={load} loading={data === null}>
+    <ReportShell title={isAR ? "Aged Receivables" : "Aged Payables"} sub={isAR ? "Open customer invoices bucketed by how overdue they are." : "Open supplier bills bucketed by how overdue they are."} icon={isAR ? Users : Building2} onRefresh={load} loading={data === null} exportModel={exportModel}>
       <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
       <div className="grid grid-cols-5 gap-2 mb-4">
         {BUCKETS.map(b => (

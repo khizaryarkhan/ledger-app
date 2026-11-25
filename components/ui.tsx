@@ -6,6 +6,8 @@ import { X, Check, AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
 import { t, Drawer } from "@/components/form-kit";
 import { useData } from "@/components/data-provider";
 import { fmt, localToday } from "@/lib/format";
+import { ReportExportMenu } from "@/components/report-export-menu";
+import type { ReportExportModel } from "@/lib/reports/export-model";
 
 /**
  * Standard wrapper for a single accounting report page — back-link to the
@@ -16,7 +18,7 @@ import { fmt, localToday } from "@/lib/format";
  * title + subtitle only, so a report page that bolts one on reads as a
  * different product from the rest of the app.
  */
-export function ReportShell({ title, sub, children, onRefresh, loading }: { title: string; sub: string; icon: any; children: ReactNode; onRefresh: () => void; loading: boolean }) {
+export function ReportShell({ title, sub, children, onRefresh, loading, exportModel }: { title: string; sub: string; icon: any; children: ReactNode; onRefresh: () => void; loading: boolean; /** Pass the report's export model to get the Export menu (Excel / PDF / Print). Omit for no menu. */ exportModel?: ReportExportModel | null }) {
   // Every report says whose figures these are, in what currency, and when they were run: a snapshot report (stock,
   // open orders) has no date parameter, so the run date is the only "as at" it can state.
   let org: { name: string; displayName: string | null; currency: string } | null = null;
@@ -31,7 +33,10 @@ export function ReportShell({ title, sub, children, onRefresh, loading }: { titl
           <p className="text-[13px] text-stone-400 mt-0.5">{sub}</p>
           {orgName && <p className="text-[11px] text-stone-500 mt-1">{orgName} · Currency {org?.currency} · Run on {fmt.shortDate(localToday())}</p>}
         </div>
-        <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+        <div className="flex items-center gap-2 shrink-0">
+          {exportModel !== undefined && <ReportExportMenu model={exportModel} />}
+          <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
     </div>

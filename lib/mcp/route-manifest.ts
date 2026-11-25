@@ -422,6 +422,8 @@ export const API_ROUTES: readonly { path: string; methods: readonly string[]; pa
   { path: "/api/portal/token", methods: ["POST"], body: ["customerId","invoiceIds"] },
   { path: "/api/print/document", methods: ["GET"], params: ["id","kind"] },
   { path: "/api/print/pdf", methods: ["GET"], params: ["id","kind"] },
+  { path: "/api/print/report", methods: ["POST"] },
+  { path: "/api/print/report/audit", methods: ["POST"], body: ["format","rows","title"] },
   { path: "/api/production/downtime", methods: ["GET","POST"], params: ["from","moId","to"] },
   { path: "/api/production/downtime/[id]", methods: ["DELETE","PATCH"] },
   { path: "/api/production/mos", methods: ["GET","POST"] },

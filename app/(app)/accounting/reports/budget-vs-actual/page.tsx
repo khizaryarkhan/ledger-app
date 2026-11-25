@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Target } from "lucide-react";
 import { ReportShell } from "@/components/ui";
@@ -8,6 +8,7 @@ import { SelectField } from "@/components/form-kit";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { fmt } from "@/lib/format";
 import { MONTH_LABELS, type Variance, type VarianceRow } from "@/lib/accounting/budgets";
+import { buildBudgetModel, groupTotal, monthSum, varianceOf } from "@/lib/reports/builders/budget";
 
 type Budget = { id: string; name: string; year: number; status: string };
 type Report = {
@@ -32,6 +33,8 @@ export default function BudgetVsActualPage() {
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // The selection the data on screen was fetched with: an export is offered only when it matches what is selected now.
+  const [dataKey, setDataKey] = useState("");
 
   useEffect(() => {
     fetch("/api/accounting/budgets").then((r) => r.json()).then((d: Budget[]) => {
@@ -54,21 +57,36 @@ export default function BudgetVsActualPage() {
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Could not run report");
       setData(d);
+      setDataKey(`${budgetId}|${fromM}|${toM}`);
     } catch (e: any) { setErr(e?.message || "Could not run report"); setData(null); } finally { setLoading(false); }
   }, [budgetId, year, fromM, toM]);
   useEffect(() => { run(); }, [run]);
+
+  // Export / Print / PDF: the report on screen. Held back while a refresh runs so a stale view is never exported.
+  const exportModel = useMemo(() => {
+    if (!data || loading || dataKey !== `${budgetId}|${fromM}|${toM}`) return null;
+    const lo = Math.min(fromM, toM), hi = Math.max(fromM, toM);
+    try {
+      return buildBudgetModel(data, {
+        entity: data.meta.entity, currency: data.meta.currency,
+        budgetName: budgets.find((b) => b.id === budgetId)?.name ?? "",
+        periodLine: `${MONTH_LABELS[lo - 1]} – ${MONTH_LABELS[hi - 1]} ${year ?? ""}`.trim(),
+        byMonth,
+      });
+    } catch (e) {
+      console.error("Could not build the export model", e);
+      return null;
+    }
+  }, [data, dataKey, loading, budgets, budgetId, fromM, toM, year, byMonth]);
 
   const income = data?.rows.filter((r) => r.kind === "income") ?? [];
   const expense = data?.rows.filter((r) => r.kind === "expense") ?? [];
   const cols = data?.months ?? [];
 
   // Monthly subtotals: each month's budget and actual summed over the rows, so Total income / Total expenses / Profit
-  // show a variance in every month column instead of leaving those cells blank.
-  const monthSum = (rows: VarianceRow[], m: number) => rows.reduce((s, r) => ({ b: s.b + r.months[m].budget, a: s.a + r.months[m].actual }), { b: 0, a: 0 });
-  function monthVar(b: number, a: number, kind: "income" | "expense" | "profit"): Variance {
-    const variance = Math.round((a - b) * 100) / 100;
-    return { budget: b, actual: a, variance, pct: b === 0 ? null : Math.round((variance / Math.abs(b)) * 10000) / 100, favourable: a === b ? true : kind === "expense" ? a < b : a > b };
-  }
+  // show a variance in every month column instead of leaving those cells blank. The sums and variance math live in
+  // lib/reports/builders/budget.ts, shared with the export, so the screen and the exported file cannot disagree.
+  const monthVar = varianceOf;
   function monthTd(m: number, v: Variance) {
     return <td key={m} className={`${listNumCell} border-l border-stone-800 ${varCls(v)}`}>{v.variance === 0 ? "—" : signed(v.variance)}</td>;
   }
@@ -92,13 +110,8 @@ export default function BudgetVsActualPage() {
   }
   function Group({ title, rows }: { title: string; rows: VarianceRow[] }) {
     if (!rows.length) return null;
-    const sum = rows.reduce((s, r) => ({ b: s.b + r.total.budget, a: s.a + r.total.actual }), { b: 0, a: 0 });
     const kind = rows[0].kind;
-    const t: Variance = {
-      budget: sum.b, actual: sum.a, variance: Math.round((sum.a - sum.b) * 100) / 100,
-      pct: sum.b === 0 ? null : Math.round(((sum.a - sum.b) / Math.abs(sum.b)) * 10000) / 100,
-      favourable: sum.a === sum.b ? true : kind === "income" ? sum.a > sum.b : sum.a < sum.b,
-    };
+    const t: Variance = groupTotal(rows);
     return (<>
       <tr><td colSpan={5 + (byMonth ? cols.length : 0)} className="px-2 pt-4 pb-1 text-[11px] uppercase tracking-wider text-stone-500">{title}</td></tr>
       {rows.map((r) => <Row key={r.accountId} r={r} />)}
@@ -107,7 +120,7 @@ export default function BudgetVsActualPage() {
   }
 
   return (
-    <ReportShell title="Budget vs Actual" icon={Target} onRefresh={run} loading={loading}
+    <ReportShell title="Budget vs Actual" icon={Target} onRefresh={run} loading={loading} exportModel={exportModel}
       sub={`${data?.meta.entity ? `${data.meta.entity} — b` : "B"}udget against the posted ledger, by account. Variance is actual minus budget.`}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Budget</label>

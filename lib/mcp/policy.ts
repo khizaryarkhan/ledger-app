@@ -64,6 +64,7 @@ export const REFUSED_PATHS: readonly { path: string; prefix?: boolean; why: stri
   { path: "/api/batch/upload", prefix: true, why: "it imports a spreadsheet uploaded in the browser. Make changes with /api/batch/bulk-edit instead" },
   { path: "/api/batch/template", why: "it returns a spreadsheet file" },
   { path: "/api/batch/debug", prefix: true, why: "diagnostic route" },
+  { path: "/api/print/report", prefix: true, why: "it renders a PDF from a report held in the browser, and records an export in the audit log; neither can be passed back through a connection" },
 ];
 
 /** Any path SEGMENT with one of these names is an integration hand-shake or a credential flow. */

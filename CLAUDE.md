@@ -317,6 +317,41 @@ create — not a simple form) that doesn't already match it:
   quick-preset gaps were closed the same week** — see "QBO-parity reporting
   controls" below.
 
+## Report export: Excel, PDF, Print from one model (Phase 0–1, 2026-11-25)
+
+Prompted by "is our reporting better than Crystal Reports?": the honest gap was that no report could be exported or printed.
+`ReportShell` (`components/ui.tsx`) now shows an **Export** menu (Excel / PDF / Print) whenever a report passes it an
+`exportModel`; a report that passes nothing shows no menu. **Done (Phase 1)**: Trial Balance, P&L, Balance Sheet,
+Comprehensive Income, Changes in Equity (single and multi-column), General Ledger, Aged Receivables/Payables, Cash Flow,
+Budget vs Actual. **Not done (Phase 2)**: the other ~15 reports on the shared shell (stock, purchasing, sales, lot trace,
+item ledger, delivery, production), and the Resources report shell. Not built at all: Customize panel / saved views, scheduled
+or emailed reports.
+
+- **One pure model, built from the SAME data object the screen renders.** `lib/reports/export-model.ts` is the shape;
+  `lib/reports/builders/*` mirror each screen's display rules (a line netting to zero is hidden; a multi-column zero cell
+  is blank; totals are the response's own figures). To add a report: write a builder, `useMemo` it in the page, pass
+  `exportModel`. **Hold the model back (return null) while the report is refreshing, failed, or was fetched with different
+  filters** — a review found Cash Flow and Aging could export the NEW period label over the OLD figures.
+- **Writers**: `export-excel.ts` (exceljs, dynamic import; real numeric cells, number format `#,##0.00####` = min 2dp, up to 6;
+  values not formulas, so the sheet cannot drift from the screen), `export-html.ts` (pure; used by Print in a hidden iframe AND
+  by the PDF), `export-pdf.ts` (server-only; goes through the one engine `lib/pdf/render-html.ts`).
+- **Dates are never a `Date`.** Cells carry the literal `YYYY-MM-DD`; Excel gets a day serial computed from its parts; the run
+  date is the viewer's `localToday()`, sent by the browser — the PDF route REQUIRES it rather than using the UTC server clock.
+  A test fails if anything in `lib/reports` builds a Date or reads the clock.
+- **`POST /api/print/report`** takes the model from the browser, so it is untrusted: zod-validated (`export-schema.ts`, ≤3,000
+  rows), size-bounded by declared and real bytes, every string HTML-escaped, org name/logo read from the organisation record
+  (never the body), rate-limited, same-origin only, refused to AI connections (and in `REFUSED_PATHS`). The PDF footer says it
+  is rendered from the on-screen report, not an attested statement; the audit row carries a sha256 of the submitted model.
+  Excel and Print run in the browser, so `POST /api/print/report/audit` records them — marked `selfReported`, because a user can
+  skip or falsify it.
+- **Known and accepted, not fixed**: the org logo is fetched by Chromium when it is an `https` URL (an org admin controls it,
+  so a blind request or a slow host is possible; a `data:` logo avoids it); there is no cap on simultaneous renders beyond the
+  per-user rate limit; a failed audit write does not fail an export; a builder that throws on an unexpected response just leaves
+  the Export menu disabled with no message. Budget vs Actual's red "unfavourable" cue travels as per-cell `flags`.
+- **Verified**: tsc clean, 1,984 tests, and a PDF rendered through the real engine locally (text content checked: figures, escaping,
+  hidden zero line, blank zero cells, page footer). **Not verified**: nothing clicked through in a browser (the dev server cannot
+  reach Neon); the PDF layout was not looked at, only its extracted text; Vercel's Chromium was not exercised.
+
 ## QBO-parity reporting controls — Phase 1: period presets, columns, compare-to (2026-10-22)
 
 Prompted directly against a live QBO report builder (screenshots of its
