@@ -49,10 +49,23 @@ interface Options {
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STATUS_LABEL: Record<string, string> = { new: "New", draft: "Draft", submitted: "Submitted", approved: "Approved", rejected: "Rejected", posted: "Posted" };
-// Quiet by default; only rejected earns colour.
+// A status you can read at a glance: amber still yours to hand in, sky with the approver, green settled, rose returned.
 const STATUS_CLASS: Record<string, string> = {
-  new: "text-stone-500", draft: "text-stone-400 ring-1 ring-stone-700", submitted: "text-stone-300", approved: "text-stone-300", posted: "text-stone-400",
-  rejected: "text-rose-300 bg-rose-500/10 ring-1 ring-rose-800/50",
+  new: "bg-stone-700/50 text-stone-300 ring-1 ring-stone-600",
+  draft: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
+  submitted: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30",
+  approved: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
+  posted: "bg-stone-700/50 text-stone-300 ring-1 ring-stone-600",
+  rejected: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30",
+};
+const PANEL = "rounded-lg ring-1 ring-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shadow-sm";
+// One colour per project or order, stable across weeks (taken from its id), drawn from the same palette as the Resource Board.
+const DOT_COLOURS = ["#3b82f6", "#f97316", "#10b981", "#eab308", "#ec4899", "#8b5cf6", "#06b6d4", "#84cc16"];
+const dotFor = (id: string | null) => {
+  if (!id) return "transparent";
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return DOT_COLOURS[h % DOT_COLOURS.length];
 };
 
 const hrs = (n: number) => String(Math.round(n * 100) / 100);
@@ -223,100 +236,154 @@ export function MyTimesheet() {
   }
 
   const thisWeek = weekStartOf(localToday());
-  const btn = "h-8 px-3 rounded-md text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-40";
+  const today = localToday();
+  const btn = "h-8 px-3 rounded-md text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-40 transition";
+
+  // What the week holds, in hours, by where each hour stands.
+  const byStatus: Record<string, number> = {};
+  for (const e of entries) byStatus[e.status] = (byStatus[e.status] ?? 0) + Number(e.hours);
+  const overDays = days.filter((d) => dayTotal(d) > capacity).length;
+  const nextStep =
+    (byStatus.rejected ?? 0) > 0 ? { tone: "text-rose-300", text: `${hrs(byStatus.rejected)} h were returned. Fix them and submit again.` }
+    : (byStatus.draft ?? 0) > 0 ? { tone: "text-amber-300", text: `${hrs(byStatus.draft)} h are still drafts. Tick the lines and press Submit.` }
+    : (byStatus.submitted ?? 0) > 0 ? { tone: "text-sky-300", text: `${hrs(byStatus.submitted)} h are waiting for your approver.` }
+    : weekTotal > 0 ? { tone: "text-emerald-300", text: "Everything this week is approved." }
+    : { tone: "text-stone-400", text: "Nothing logged yet. Add a line to start." };
+  const STAT_ORDER = ["draft", "rejected", "submitted", "approved", "posted"] as const;
 
   return (
     <div className="flex flex-col gap-4 px-6 py-4">
       {/* Returned time first: it is the one thing on this page asking for
           something back. Renders nothing when there are no returns. */}
       <MyReturns />
+
+      {/* The week at a glance */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={`${PANEL} p-4`}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">Hours this week</div>
+          <div className="mt-1 text-[20px] font-semibold text-white tabular-nums">{hrs(weekTotal)} <span className="text-[12px] font-normal text-stone-400">h</span></div>
+          <div className="text-[12px] text-stone-400">Capacity {hrs(capacity)} h a day{overDays > 0 && <span className="text-rose-400"> · {overDays} {overDays === 1 ? "day" : "days"} over</span>}</div>
+        </div>
+        <div className={`${PANEL} p-4`}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">Where your hours stand</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {STAT_ORDER.filter((s) => (byStatus[s] ?? 0) > 0).map((s) => (
+              <span key={s} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium ${STATUS_CLASS[s]}`}>
+                {STATUS_LABEL[s]} <span className="tabular-nums">{hrs(byStatus[s])} h</span>
+              </span>
+            ))}
+            {weekTotal === 0 && <span className="text-[12px] text-stone-400">No hours yet.</span>}
+          </div>
+        </div>
+        <div className={`${PANEL} p-4`}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">Next step</div>
+          <div className={`mt-2 text-[13px] font-medium ${nextStep.tone}`}>{nextStep.text}</div>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week" className="h-8 w-8 flex items-center justify-center rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"><ChevronLeft size={15} /></button>
-        <button onClick={() => setWeekStart(thisWeek)} disabled={weekStart === thisWeek} className="h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-[12px] text-stone-300 hover:text-stone-100 disabled:opacity-50">This week</button>
-        <button onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week" className="h-8 w-8 flex items-center justify-center rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"><ChevronRight size={15} /></button>
-        <span className="text-[13px] text-stone-300 ml-1">{formatDateShort(days[0])} to {formatDateShort(days[6], { year: true })}</span>
+        <div className="inline-flex items-center rounded-md ring-1 ring-stone-700 bg-stone-900">
+          <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week" className="h-8 w-8 flex items-center justify-center text-stone-400 hover:text-stone-100"><ChevronLeft size={15} /></button>
+          <span className="px-3 text-[12px] font-medium text-stone-200 tabular-nums min-w-[170px] text-center">{formatDateShort(days[0])} to {formatDateShort(days[6], { year: true })}</span>
+          <button onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week" className="h-8 w-8 flex items-center justify-center text-stone-400 hover:text-stone-100"><ChevronRight size={15} /></button>
+        </div>
+        <button onClick={() => setWeekStart(thisWeek)} disabled={weekStart === thisWeek} className="h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-900 text-[12px] font-medium text-stone-300 hover:text-stone-100 disabled:opacity-40">This week</button>
         <div className="flex-1" />
-        {busy && <Loader size={14} className="animate-spin text-stone-500" />}
+        {busy && <Loader size={14} className="animate-spin text-stone-400" />}
         <button onClick={() => act("submit")} disabled={busy || counts.submit === 0} className={`${btn} bg-primary hover:bg-primary-hover text-white font-semibold`}
           title="Submit the ticked Draft and Rejected lines">
           <Send size={13} /> Submit{counts.submit ? ` (${counts.submit})` : ""}
         </button>
-        <button onClick={() => act("recall")} disabled={busy || counts.recall === 0} className={`${btn} ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-stone-100`}
+        <button onClick={() => act("recall")} disabled={busy || counts.recall === 0} className={`${btn} ring-1 ring-stone-700 bg-stone-900 text-stone-300 hover:text-stone-100`}
           title="Bring ticked Submitted lines back to Draft (before anyone decides them)">
           <Undo2 size={13} /> Recall{counts.recall ? ` (${counts.recall})` : ""}
         </button>
-        <button onClick={() => act("delete")} disabled={busy || (counts.delete === 0 && emptySelected.length === 0)} className={`${btn} ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-rose-300`}
+        <button onClick={() => act("delete")} disabled={busy || (counts.delete === 0 && emptySelected.length === 0)} className={`${btn} ring-1 ring-stone-700 bg-stone-900 text-stone-300 hover:text-rose-300`}
           title="Delete the ticked Draft and Rejected lines">
           <Trash2 size={13} /> Delete{counts.delete ? ` (${counts.delete})` : ""}
         </button>
-        <button onClick={() => setAdding(true)} className={`${btn} ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-stone-100`}>
+        <button onClick={() => setAdding(true)} className={`${btn} ring-1 ring-stone-700 bg-stone-900 text-stone-300 hover:text-stone-100`}>
           <Plus size={13} /> Add line
         </button>
-        <button onClick={() => setCopyOpen(true)} className={`${btn} ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:text-stone-100`}>
+        <button onClick={() => setCopyOpen(true)} className={`${btn} ring-1 ring-stone-700 bg-stone-900 text-stone-300 hover:text-stone-100`}>
           <Copy size={13} /> Copy week
         </button>
       </div>
       {(err || msg) && (
-        <div className={`text-[12px] ${err ? "text-rose-400" : "text-stone-400"}`}>{err ?? msg}</div>
+        <div className={`rounded-md px-3 py-2 text-[12px] ring-1 ${err ? "text-rose-300 bg-rose-500/10 ring-rose-500/30" : "text-stone-300 bg-stone-800/60 ring-stone-700"}`}>{err ?? msg}</div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-stone-800">
-        <table className="w-full text-[13px] min-w-[980px]">
+      <div className={`${PANEL} overflow-x-auto`}>
+        <table className="w-full text-[13px] min-w-[980px] border-collapse">
           <thead>
-            <tr className={`text-left ${tableHead}`}>
-              <th className="pl-3 py-2.5 w-8">
+            <tr className={`text-left bg-stone-950/50 border-b border-stone-800 ${tableHead}`}>
+              <th className="pl-4 py-3 w-8">
                 <input type="checkbox" className={listCheckbox} checked={allOn} disabled={lines.length === 0}
                   onChange={(e) => toggle(lines.map((l) => l.key), e.target.checked)} aria-label="Select all lines" />
               </th>
-              <th className="px-3 py-2.5 font-medium">Type</th>
-              <th className="px-3 py-2.5 font-medium">Project / order</th>
-              <th className="px-2 py-2.5 font-medium w-[96px]">Status</th>
-              {days.map((d, i) => (
-                <th key={d} className="px-1 py-2.5 font-medium text-center w-[72px]">
-                  <div>{DAY_NAMES[i]}</div>
-                  <div className="normal-case tracking-normal text-stone-600">{formatDateShort(d)}</div>
-                </th>
-              ))}
-              <th className="px-3 py-2.5 font-medium text-right w-[64px]">Total</th>
+              <th className="px-3 py-3 font-semibold">Type</th>
+              <th className="px-3 py-3 font-semibold">Project / order</th>
+              <th className="px-2 py-3 font-semibold w-[104px]">Status</th>
+              {days.map((d, i) => {
+                const isToday = d === today;
+                const weekend = i >= 5;
+                return (
+                  <th key={d} className={`px-1 py-2 font-semibold text-center w-[76px] ${weekend ? "bg-stone-950/40" : ""}`}>
+                    <div className={isToday ? "text-primary-ink" : ""}>{DAY_NAMES[i]}</div>
+                    <div className={`mx-auto mt-0.5 inline-flex items-center justify-center rounded-full px-2 h-5 normal-case tracking-normal text-[11px] tabular-nums ${isToday ? "bg-primary text-white" : "text-stone-300"}`}>{formatDateShort(d)}</div>
+                  </th>
+                );
+              })}
+              <th className="px-4 py-3 font-semibold text-right w-[72px]">Total</th>
             </tr>
           </thead>
           <tbody>
             {lines.length === 0 && !adding && (
-              <tr><td colSpan={12} className="px-3 py-8 text-center text-stone-500">No time yet this week. Use Add line, or Copy week to bring last week's lines in.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-10 text-center text-stone-400">No time yet this week. Use Add line, or Copy week to bring last week's lines in.</td></tr>
             )}
             {lines.map((l) => {
               const reasons = Array.from(new Set(l.entries.map((e) => e.rejectedReason).filter((x): x is string => !!x)));
               const rowTotal = l.entries.reduce((s, e) => s + Number(e.hours), 0);
               const sub = assignableLabel(l.aType, l.aId);
+              const [code, ...rest] = sub.split(" · ");
               const split = lines.filter((x) => x.bookingKey === l.bookingKey).length > 1;
               return (
-                <tr key={l.key} className={`border-b border-stone-800/60 align-top ${selected.has(l.key) ? "bg-stone-900/60" : ""}`}>
-                  <td className="pl-3 py-2.5">
+                <tr key={l.key} className={`border-b border-stone-800/70 align-top hover:bg-stone-800/20 ${selected.has(l.key) ? "bg-stone-800/40" : ""}`}>
+                  <td className="pl-4 py-3">
                     <input type="checkbox" className={listCheckbox} checked={selected.has(l.key)} onChange={(e) => toggle([l.key], e.target.checked)} aria-label={`Select ${typeName(l.typeId)} ${STATUS_LABEL[l.status] ?? l.status} line`} />
                   </td>
-                  <td className="px-3 py-2">
-                    <div className="text-stone-100">{typeName(l.typeId)}</div>
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium text-stone-100">{typeName(l.typeId)}</div>
                     {reasons.map((r) => <div key={r} className="text-[12px] text-rose-400 mt-0.5">Returned: {r}</div>)}
                     {Array.from(new Set(l.entries.map((e) => e.description).filter((x): x is string => !!x))).map((d) => <div key={d} className="text-[12px] text-stone-400 mt-0.5">Note: {d}</div>)}
                   </td>
-                  <td className="px-3 py-2">
-                    <div className="text-stone-300">{sub || <span className="text-stone-600">—</span>}</div>
-                    {split && <div className="text-[11px] text-stone-500">split by status</div>}
+                  <td className="px-3 py-2.5">
+                    {sub ? (
+                      <div className="flex items-start gap-2">
+                        <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: dotFor(l.aId) }} />
+                        <div className="min-w-0">
+                          <div className="font-medium text-stone-100">{rest.length ? code : sub}</div>
+                          {rest.length > 0 && <div className="text-[12px] text-stone-400">{rest.join(" · ")}</div>}
+                        </div>
+                      </div>
+                    ) : <span className="text-stone-500">—</span>}
+                    {split && <div className="text-[11px] text-stone-500 mt-0.5">split by status</div>}
                   </td>
-                  <td className="px-2 py-2">
-                    <span className={`inline-block rounded-md px-1.5 py-0.5 text-[11px] ${STATUS_CLASS[l.status] ?? STATUS_CLASS.draft}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
+                  <td className="px-2 py-2.5">
+                    <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${STATUS_CLASS[l.status] ?? STATUS_CLASS.draft}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
                   </td>
-                  {days.map((d) => {
+                  {days.map((d, i) => {
                     const ce = cellEntries(l, d);
                     const total = ce.reduce((s, e) => s + Number(e.hours), 0);
                     const editable = ce.length > 1 ? false : ce.length === 1 ? lineIsEditable(l) : lineAcceptsNewHours(l);
+                    const tint = d === today ? "bg-primary/5" : i >= 5 ? "bg-stone-950/40" : "";
                     if (!editable) {
                       return (
-                        <td key={d} className="px-1 py-2 text-center tabular-nums text-stone-400">{total ? hrs(total) : <span className="text-stone-600">·</span>}</td>
+                        <td key={d} className={`px-1 py-2.5 text-center tabular-nums ${tint} ${total ? "text-stone-200 font-medium" : "text-stone-500"}`}>{total ? hrs(total) : "·"}</td>
                       );
                     }
                     return (
-                      <td key={`${d}-${rev}`} className="px-1 py-1.5">
+                      <td key={`${d}-${rev}`} className={`px-1 py-1.5 ${tint}`}>
                         <CalcInput
                           value={total ? hrs(total) : ""}
                           onChange={() => { /* committed on blur */ }}
@@ -330,20 +397,20 @@ export function MyTimesheet() {
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-right tabular-nums text-stone-300">{hrs(rowTotal)}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-stone-100">{hrs(rowTotal)}</td>
                 </tr>
               );
             })}
             {adding && (
-              <tr className="border-b border-stone-800/60">
+              <tr className="border-b border-stone-800/70 bg-stone-800/20">
                 <td />
-                <td className="px-3 py-1.5">
+                <td className="px-3 py-2">
                   <SelectField inset={false} className="!h-8 !text-[12px]" value={newType} onChange={(e) => { setNewType(e.target.value); setNewAssignable(""); }} aria-label="Timesheet type">
                     <option value="">Type...</option>
                     {options.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </SelectField>
                 </td>
-                <td className="px-3 py-1.5">
+                <td className="px-3 py-2">
                   {chosenType?.requiresAssignable ? (
                     <SelectField inset={false} className="!h-8 !text-[12px]" value={newAssignable} onChange={(e) => setNewAssignable(e.target.value)} aria-label="Project or order">
                       <option value="">Project or order...</option>
@@ -353,34 +420,34 @@ export function MyTimesheet() {
                         </optgroup>
                       ))}
                     </SelectField>
-                  ) : <span className="text-[12px] text-stone-600">{chosenType ? "No project needed" : ""}</span>}
+                  ) : <span className="text-[12px] text-stone-500">{chosenType ? "No project needed" : ""}</span>}
                 </td>
-                <td colSpan={9} className="px-2 py-1.5">
+                <td colSpan={9} className="px-2 py-2">
                   <div className="flex items-center gap-2">
                     <button onClick={addLine} disabled={!canAdd} className={`${controlCompact} text-stone-200 hover:text-white disabled:opacity-50`}>Add</button>
-                    <button onClick={() => { setAdding(false); setNewType(""); setNewAssignable(""); }} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
+                    <button onClick={() => { setAdding(false); setNewType(""); setNewAssignable(""); }} className="text-[12px] text-stone-400 hover:text-stone-200">Cancel</button>
                   </div>
                 </td>
               </tr>
             )}
           </tbody>
           <tfoot>
-            <tr className="text-[12px]">
+            <tr className="text-[12px] bg-stone-950/50 border-t border-stone-800">
               <td />
-              <td colSpan={3} className="px-3 py-2.5 text-stone-400">Total (capacity {hrs(capacity)} h/day)</td>
+              <td colSpan={3} className="px-3 py-3 text-stone-400">Total (capacity {hrs(capacity)} h/day)</td>
               {days.map((d) => {
                 const t = dayTotal(d);
                 const over = t > capacity;
                 return (
-                  <td key={d} className={`px-1 py-2.5 text-center tabular-nums ${over ? "text-rose-400 font-semibold" : "text-stone-300"}`} title={over ? "Over daily capacity" : undefined}>{hrs(t)}</td>
+                  <td key={d} className={`px-1 py-3 text-center tabular-nums ${over ? "text-rose-400 font-semibold" : "text-stone-300"}`} title={over ? "Over daily capacity" : undefined}>{hrs(t)}</td>
                 );
               })}
-              <td className="px-3 py-2.5 text-right tabular-nums text-stone-100 font-semibold">{hrs(weekTotal)}</td>
+              <td className="px-4 py-3 text-right tabular-nums text-white font-semibold">{hrs(weekTotal)}</td>
             </tr>
           </tfoot>
         </table>
       </div>
-      <p className="text-[12px] text-stone-500">
+      <p className="text-[12px] text-stone-400">
         Tick the lines you are ready to hand in and press Submit. If an approver approves part of a line and returns the rest, the line splits so each part shows its own status.
       </p>
 
