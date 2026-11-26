@@ -21,7 +21,8 @@
 
 import { db } from "@/db";
 import { invoices, customers, projects, communications } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { summarisePriorReferences, type PriorSend } from "@/lib/prior-references";
 import { sendEmail } from "@/lib/mailer";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { buildStatementPdf } from "@/lib/statement-pdf";
@@ -150,6 +151,31 @@ export async function buildSendGroups(
 }
 
 
+/** Emails already sent to the customer about these invoices, with the reference
+ *  each carried. Outbound email only: a call or note is not something the
+ *  customer can look up. Org-scoped. Best-effort — a failure means no footer,
+ *  never a failed send. */
+async function loadPriorSends(orgId: string, invoiceIds: string[]): Promise<PriorSend[]> {
+  if (!invoiceIds.length) return [];
+  try {
+    const rows = await db
+      .select({ invoiceId: communications.invoiceId, ref: communications.refNumber, sentAt: communications.sentAt })
+      .from(communications)
+      .where(and(
+        eq(communications.orgId, orgId),
+        inArray(communications.invoiceId, invoiceIds),
+        eq(communications.direction, "Outbound"),
+        eq(communications.channel, "Email"),
+        eq(communications.isDraft, false),
+        isNotNull(communications.refNumber),
+      ));
+    return rows.filter((r): r is { invoiceId: string; ref: string | null; sentAt: Date } => !!r.invoiceId);
+  } catch (e) {
+    console.error("[bulk-send] could not load prior references:", e);
+    return [];
+  }
+}
+
 /** Send ONE group's email. Never throws for an expected failure — the chunk
  *  engine records `{ ok: false, error }` as a failed item and carries on. */
 export async function sendGroupEmail(
@@ -174,6 +200,14 @@ export async function sendGroupEmail(
   const ids = group.rows.map(r => r.invoiceId);
   const total = group.rows.reduce((s, r) => s + r.bal, 0);
 
+  // References already used for THESE invoices. Read before this email's own
+  // communications rows are written, so it never lists itself. The email shows
+  // the latest few; the statement carries the full list.
+  const priorSends = await loadPriorSends(orgId, ids);
+  const numberOf = Object.fromEntries(group.rows.map(r => [r.invoiceId, r.invoiceNumber]));
+  const priorForEmail = summarisePriorReferences(priorSends, numberOf);
+  const priorForStatement = summarisePriorReferences(priorSends, numberOf, Infinity).shown;
+
   // Pay links are best-effort: no link just means no button. fetchQboInvoiceLink
   // already short-circuits for a non-QBO org and caches the org-level checks,
   // so this does not become one API call per invoice for everyone.
@@ -197,6 +231,9 @@ export async function sendGroupEmail(
     subject, dateStr: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
     total, currency: group.rows[0]?.currency ?? "USD", portalUrl, intro,
     orgName: opts.orgName, logoUrl: opts.logoUrl,
+    priorReferences: priorForEmail.shown.length
+      ? { ...priorForEmail, earlierInStatement: opts.attachStatement }
+      : undefined,
     rows: group.rows.map(r => ({
       invoiceNumber: r.invoiceNumber, customerName: r.custName, projectName: r.projName,
       invoiceDate: r.invoiceDate, dueDate: r.dueDate, balance: r.bal, currency: r.currency,
@@ -214,6 +251,7 @@ export async function sendGroupEmail(
           custName: r.custName, projName: r.projName, bal: r.bal, days: r.days,
         })),
         logoUrl: opts.logoUrl,
+        priorReferences: priorForStatement,
       });
       attachments.push({ filename: "Statement-of-Open-Invoices.pdf", content: Buffer.from(bytes), contentType: "application/pdf" });
     } catch (e: any) {

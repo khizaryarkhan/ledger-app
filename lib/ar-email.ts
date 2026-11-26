@@ -5,6 +5,9 @@
  */
 
 import { fmt, formatDateShort } from "@/lib/format";
+import {
+  PRIOR_REFS_HEADING, formatRefDate, invoiceCountLabel, type PriorReference,
+} from "@/lib/prior-references";
 
 export type ArEmailRow = {
   invoiceNumber: string;
@@ -57,6 +60,14 @@ export function renderInvoiceEmail(opts: {
    *  (no visual change for an org that hasn't set either). */
   orgName?: string | null;
   logoUrl?: string | null;
+  /** References already used to notify the customer about THESE invoices
+   *  (lib/prior-references.ts). Absent = no footer, exactly as before. */
+  priorReferences?: {
+    shown: PriorReference[];
+    earlier: number;
+    /** The complete list is in the attached statement. */
+    earlierInStatement?: boolean;
+  };
 }): string {
   // Escaped before the newline→<br> conversion — the intro is admin-authored
   // text with customer/ref values already substituted in, not markup, so the
@@ -123,6 +134,23 @@ export function renderInvoiceEmail(opts: {
       </tr>`;
   }).join("");
 
+  // Footer: references already used for these invoices. Small and grey — it is
+  // for looking things up, not a call to action. Every value is escaped.
+  const pr = opts.priorReferences;
+  const priorFooter = pr && pr.shown.length > 0
+    ? `<div style="margin-top:24px;padding-top:12px;border-top:1px solid #e5e7eb;">
+         <p style="font-size:11px;font-weight:600;color:#6b7280;margin:0 0 6px;text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(PRIOR_REFS_HEADING)}</p>
+         ${pr.shown.map(s => `<div style="font-size:12px;color:#6b7280;line-height:1.7;">
+           <span style="font-weight:600;color:#374151;">${escapeHtml(s.ref)}</span> &middot; ${escapeHtml(formatRefDate(s.date))} &middot; ${escapeHtml(invoiceCountLabel(s.invoiceNumbers.length))}
+         </div>`).join("")}
+         ${pr.earlier > 0
+           ? `<div style="font-size:12px;color:#9ca3af;line-height:1.7;">${pr.earlierInStatement
+               ? `+ ${pr.earlier} earlier, listed in the attached statement`
+               : `+ ${pr.earlier} earlier`}</div>`
+           : ""}
+       </div>`
+    : "";
+
   return `
     <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#fff;">
       <div style="background:#1c1917;padding:24px 32px;">
@@ -153,6 +181,7 @@ export function renderInvoiceEmail(opts: {
             </tr>
           </tfoot>
         </table>
+        ${priorFooter}
       </div>
     </div>`;
 }

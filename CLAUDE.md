@@ -3680,6 +3680,14 @@ different organisations.
   without sharing an index). Explicit domain merges now claim GROUP keys, not customer ids, so ticking a shared
   domain pulls in only the entity on that domain.
 - A merged email that spans several organisations is still a deliberate, ticked opt-in.
+- **Prior reference numbers (2026-11-26).** The customer cannot tie a new email to the earlier ones, so the email
+  footer and the attached statement list the references already used for THIS email's invoices
+  (`lib/prior-references.ts`, loaded by `sendGroupEmail` from outbound, non-draft, email-channel `communications`).
+  Heading "Prior Reference Nos. for Notifications" (neutral: never "chase"/"reminder", the customer reads it); dates
+  **DD-MMM-YYYY** via `formatRefDate`, built from the parts. Grouped by reference with its date and invoice count;
+  the email shows the latest five ("+ N earlier, listed in the attached statement"), the statement lists all with
+  invoice numbers. Hidden on a first-time send. Only the bulk-send path passes it: the Board's own statement export
+  and the chase crons do not yet. Not verified in a browser or against a real send.
 - **Not verified in a browser.** tsc clean, `tests/send-grouping.test.ts` (23 tests). The invoice's own
   `billingEmail` wins over the customer's, so an invoice with no own contact falls back to the customer email and
   groups with whatever shares that domain.

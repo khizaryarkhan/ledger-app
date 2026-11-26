@@ -17,6 +17,7 @@
 
 import { formatDateShort } from "./format";
 import { renderHtmlToPdf } from "./pdf/render-html";
+import { PRIOR_REFS_HEADING, formatRefDate, type PriorReference } from "./prior-references";
 
 export type StatementRow = {
   inv: {
@@ -131,7 +132,12 @@ export function safeLogoSrc(logoUrl: string | null | undefined): string | null {
 }
 
 /** The statement as HTML — pure, so it can be tested without a browser. */
-export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date() }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null; now?: Date }): { html: string; footerTemplate: string } {
+export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date(), priorReferences }: {
+  orgName: string; rows: StatementRow[]; logoUrl?: string | null; now?: Date;
+  /** Every reference already used to notify the customer about these invoices
+   *  (lib/prior-references.ts). Absent or empty = no section. */
+  priorReferences?: PriorReference[];
+}): { html: string; footerTemplate: string } {
   const stamp =
     now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) +
     " · " +
@@ -197,6 +203,20 @@ export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date() }:
     return `<div class="grp-cust"><span>${esc(custName)}</span><span class="num">${esc(fmtCcyMap(cg.total))}</span></div>${projectsHtml}`;
   }).join("");
 
+  // Every earlier reference for these invoices, with the invoice numbers each
+  // covered — the complete list the email footer points at. Dates are
+  // DD-MMM-YYYY; every value is escaped.
+  const priorHtml = priorReferences && priorReferences.length > 0
+    ? `<div style="margin-top:18px;page-break-inside:avoid;">
+        <div class="label" style="margin-bottom:6px">${esc(PRIOR_REFS_HEADING)}</div>
+        <table class="lines"><thead><tr><th>Reference</th><th>Date</th><th>Invoices</th></tr></thead><tbody>
+          ${priorReferences.map(p => `<tr>
+            <td>${esc(p.ref)}</td><td>${esc(formatRefDate(p.date))}</td>
+            <td>${esc(p.invoiceNumbers.map(n => `#${n}`).join(", "))}</td></tr>`).join("")}
+        </tbody></table>
+      </div>`
+    : "";
+
   const html = `<!doctype html><html><head><meta charset="utf-8" /><style>${css()}</style></head><body>
     <div class="head">
       <div>
@@ -217,6 +237,7 @@ export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date() }:
     </div>
     ${groupsHtml}
     <div class="grand"><span class="lab">GRAND TOTAL</span><span class="val num">${esc(fmtCcyMap(grand))}</span></div>
+    ${priorHtml}
   </body></html>`;
 
   const footerTemplate = `
@@ -235,7 +256,9 @@ export function buildStatementHtml({ orgName, rows, logoUrl, now = new Date() }:
  * shared headless-Chromium engine. SERVER-ONLY (see this file's header
  * comment) — the caller is always an API route, never a client component.
  */
-export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }): Promise<Buffer> {
-  const { html, footerTemplate } = buildStatementHtml({ orgName, rows, logoUrl });
+export async function buildStatementPdf({ orgName, rows, logoUrl, priorReferences }: {
+  orgName: string; rows: StatementRow[]; logoUrl?: string | null; priorReferences?: PriorReference[];
+}): Promise<Buffer> {
+  const { html, footerTemplate } = buildStatementHtml({ orgName, rows, logoUrl, priorReferences });
   return renderHtmlToPdf(html, { footerTemplate });
 }
