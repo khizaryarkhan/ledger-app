@@ -18,7 +18,7 @@
 //
 // Pure and I/O-free, like lib/send-grouping.ts, so the rules are unit-tested.
 
-export const PRIOR_REFS_HEADING = "Prior Reference Nos. for Notifications";
+export const PRIOR_REFS_HEADING = "Reference Numbers of Prior Notifications";
 
 /** How many references the email footer lists before pointing at the statement. */
 export const PRIOR_REFS_EMAIL_LIMIT = 5;

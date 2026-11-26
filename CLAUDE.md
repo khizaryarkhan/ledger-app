@@ -3683,7 +3683,7 @@ different organisations.
 - **Prior reference numbers (2026-11-26).** The customer cannot tie a new email to the earlier ones, so the email
   footer and the attached statement list the references already used for THIS email's invoices
   (`lib/prior-references.ts`, loaded by `sendGroupEmail` from outbound, non-draft, email-channel `communications`).
-  Heading "Prior Reference Nos. for Notifications" (neutral: never "chase"/"reminder", the customer reads it); dates
+  Heading "Reference Numbers of Prior Notifications" (neutral: never "chase"/"reminder", the customer reads it); dates
   **DD-MMM-YYYY** via `formatRefDate`, built from the parts. Grouped by reference with its date and invoice count;
   the email shows the latest five ("+ N earlier, listed in the attached statement"), the statement lists all with
   invoice numbers. Hidden on a first-time send. Only the bulk-send path passes it: the Board's own statement export
