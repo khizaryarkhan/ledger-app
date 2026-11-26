@@ -3662,6 +3662,28 @@ Shipments) in the same pass.
   were deleted from `app/(app)/payables/suppliers/[id]/page.tsx`. The `bills`
   state/fetch was KEPT — the Overview tab's aging buckets still depend on it.
 
+## Send Invoices: one email per customer ENTITY, not per customer (2026-11-26)
+
+Reported: a batch send to one customer (Amhola, three projects) put every project's invoices in one email addressed to
+every contact on any of them, and a recipient replied that he had nothing to do with that project. One email per
+CUSTOMER (the earlier fix, `lib/send-grouping.ts` header) was still too coarse: a customer's projects can belong to
+different organisations.
+
+- **Inside a customer, rows join into one entity when they share** a corporate domain, a project (a project may have
+  contacts at several organisations; they stay together), or the exact same personal address. Different domains and
+  different projects = separate emails, each with its own `{ref}`, statement and portal link.
+- **A personal mailbox domain (gmail, outlook, yahoo…, `isConsumerDomain`) never links rows**, because two people at
+  gmail.com are strangers and invoices are often under NDA. A personal address on only SOME of an email's invoices
+  still sees them all, so the group carries a `warnings` entry and the modal shows "Check before sending".
+- Group keys: `custId` when a customer has one entity (unchanged, so existing `toOverrides` still apply),
+  `<custId>@<sorted link tokens>` when it has several (derived from the content, so the browser and the server agree
+  without sharing an index). Explicit domain merges now claim GROUP keys, not customer ids, so ticking a shared
+  domain pulls in only the entity on that domain.
+- A merged email that spans several organisations is still a deliberate, ticked opt-in.
+- **Not verified in a browser.** tsc clean, `tests/send-grouping.test.ts` (23 tests). The invoice's own
+  `billingEmail` wins over the customer's, so an invoice with no own contact falls back to the customer email and
+  groups with whatever shares that domain.
+
 ## Key domain concepts
 
 - **Collections Board** (`app/(app)/board/`, `components/board-list.tsx`): the

@@ -96,14 +96,107 @@ describe("mergeCandidates", () => {
     expect(mergeCandidates(groups)).toEqual([]);
   });
 
-  it("skips a customer whose contacts span two domains", () => {
+  it("skips a group whose contacts span two domains (same project, two organisations)", () => {
     const { groups } = groupByCustomer([
-      row("c1", "Split Ltd", "a@acme.com"),
-      row("c1", "Split Ltd", "b@other.com"),
+      { ...row("c1", "Split Ltd", "a@acme.com"), projectId: "p1" },
+      { ...row("c1", "Split Ltd", "b@other.com"), projectId: "p1" },
       row("c2", "Acme Two", "c@acme.com"),
     ]);
-    // Only one *whole-domain* customer remains on acme.com, so nothing to merge.
+    // c1's one project group sits on two domains, so only c2 is left on acme.com.
     expect(mergeCandidates(groups)).toEqual([]);
+  });
+});
+
+describe("groupByCustomer — entities within a customer", () => {
+  const inv = (email: string, projectId: string | null, projName: string | null, bal = 100) =>
+    ({ ...row("amhola", "Amhola Capital", email, bal), projectId, projName });
+
+  it("splits projects whose contacts are on different domains — the Aidan incident", () => {
+    const { groups } = groupByCustomer([
+      inv("aidan@healy.com", "p-tralee", "Tralee"),
+      inv("dg@axis.construction", "p-rolestown", "Rolestown"),
+      inv("dg@axis.construction", "p-gorey", "Gorey"),
+    ]);
+    expect(groups).toHaveLength(2);
+    const healy = groups.find(g => g.emails.includes("aidan@healy.com"))!;
+    expect(healy.emails).toEqual(["aidan@healy.com"]);
+    expect(healy.rows).toHaveLength(1);
+    const axis = groups.find(g => g.emails.includes("dg@axis.construction"))!;
+    expect(axis.emails).toEqual(["dg@axis.construction"]);
+    expect(axis.rows).toHaveLength(2);
+  });
+
+  it("keeps one group per customer when everything shares a domain", () => {
+    const { groups } = groupByCustomer([
+      inv("a@axis.construction", "p1", "One"),
+      inv("b@axis.construction", "p2", "Two"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe("amhola");
+    expect(groups[0].label).toBe("Amhola Capital");
+  });
+
+  it("combines several domains inside ONE project", () => {
+    const { groups } = groupByCustomer([
+      inv("a@owner.com", "p1", "Tralee"),
+      inv("b@contractor.com", "p1", "Tralee"),
+      inv("c@other.com", "p2", "Gorey"),
+    ]);
+    expect(groups).toHaveLength(2);
+    const tralee = groups.find(g => g.rows.length === 2)!;
+    expect(tralee.emails.sort()).toEqual(["a@owner.com", "b@contractor.com"]);
+  });
+
+  it("never links two rows on a personal mailbox domain", () => {
+    const { groups } = groupByCustomer([
+      inv("sam@gmail.com", null, null),
+      inv("kim@gmail.com", null, null),
+    ]);
+    expect(groups).toHaveLength(2);
+    for (const g of groups) expect(g.emails).toHaveLength(1);
+  });
+
+  it("does link rows that share the exact same personal address", () => {
+    const { groups } = groupByCustomer([
+      inv("sam@gmail.com", null, null),
+      inv("sam@gmail.com", null, null),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows).toHaveLength(2);
+  });
+
+  it("warns when a personal address would see invoices it is not on", () => {
+    const { groups } = groupByCustomer([
+      inv("a@owner.com, sam@gmail.com", "p1", "Tralee"),
+      inv("a@owner.com", "p1", "Tralee"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].warnings.join(" ")).toContain("sam@gmail.com");
+  });
+
+  it("gives each entity a distinct, stable key and a descriptive label", () => {
+    const rows = [
+      inv("aidan@healy.com", "p1", "Tralee"),
+      inv("dg@axis.construction", "p2", "Gorey"),
+    ];
+    const a = groupByCustomer(rows).groups;
+    const b = groupByCustomer([...rows].reverse()).groups;
+    expect(new Set(a.map(g => g.key)).size).toBe(2);
+    expect(a.map(g => g.key).sort()).toEqual(b.map(g => g.key).sort());
+    expect(a.map(g => g.label).sort()).toEqual(["Amhola Capital · Gorey", "Amhola Capital · Tralee"]);
+  });
+
+  it("merging a domain pulls in only the entity on that domain, not the customer's others", () => {
+    const { groups } = groupByCustomer([
+      inv("a@shared.com", "p1", "One"),
+      inv("b@private.com", "p2", "Two"),
+      { ...row("c2", "Other Co", "x@shared.com") },
+    ]);
+    const out = applyMerges(groups, new Set(["shared.com"]), mergeCandidates(groups));
+    const merged = out.find(g => g.key === "merge:shared.com")!;
+    expect(merged.custIds.sort()).toEqual(["amhola", "c2"]);
+    expect(merged.rows).toHaveLength(2);
+    expect(out.some(g => g.emails.includes("b@private.com") && g.key !== "merge:shared.com")).toBe(true);
   });
 });
 

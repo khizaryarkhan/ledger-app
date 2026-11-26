@@ -210,9 +210,20 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
               describing something that was not safe. */}
           {multiGroup && (
             <div className="rounded-lg border border-stone-700 bg-stone-800/60 px-3 py-2.5 text-[12px] text-stone-300">
-              <strong className="text-stone-100">{sendable.length} separate emails</strong> — one per customer,
-              each containing only that customer's invoices and its own reference number.
-              No recipient can see another customer's invoices or email address.
+              <strong className="text-stone-100">{sendable.length} separate emails</strong> — one per customer
+              entity. Invoices go only to the contacts on them: projects whose contacts sit on different
+              company domains are sent separately, projects with several domains stay together, and personal
+              mailboxes (Gmail, Outlook…) are never grouped by domain. Each email has its own reference number.
+            </div>
+          )}
+          {sendable.some(g => g.warnings.length > 0) && (
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[12px] text-amber-200 space-y-1">
+              <div className="flex items-center gap-2 font-medium">
+                <AlertTriangle size={14} className="shrink-0 text-amber-400" /> Check before sending
+              </div>
+              {sendable.filter(g => g.warnings.length > 0).map(g => (
+                <div key={g.key}><span className="text-amber-100">{g.label}:</span> {g.warnings.join(" ")}</div>
+              ))}
             </div>
           )}
 
@@ -319,7 +330,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
           <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
             <div>
               <div className="text-[13px] font-medium text-stone-200">Attach statement of open invoices</div>
-              <div className="text-[11px] text-stone-500">{attachStatement ? (willSplit ? "A statement (each domain's invoices only) will be attached." : "The same statement PDF as Export will be attached.") : "No statement attached."}</div>
+              <div className="text-[11px] text-stone-500">{attachStatement ? (willSplit ? "A statement of each email's own invoices will be attached." : "The same statement PDF as Export will be attached.") : "No statement attached."}</div>
             </div>
             <button type="button" role="switch" aria-checked={attachStatement} onClick={() => setAttachStatement(v => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachStatement ? "bg-primary" : "bg-stone-600"}`}>

@@ -68,42 +68,124 @@ export type GroupableRow = {
   custName: string;
   email: string | null;
   bal: number;
+  /** Optional: rows of one project always travel together. */
+  projectId?: string | null;
+  projName?: string | null;
 };
 
 export type SendGroup<R extends GroupableRow = GroupableRow> = {
-  /** Stable key: a single custId, or "merge:<domain>" for an explicit merge. */
+  /** Stable key: a custId (customer with one entity), "<custId>@<entity>" (one
+   *  of several entities of a customer), or "merge:<domain>" for an explicit merge. */
   key: string;
   label: string;
   custIds: string[];
   emails: string[];
   rows: R[];
   total: number;
+  /** Things a person should look at before pressing Send. */
+  warnings: string[];
 };
 
-/** One group per customer, largest balance first. Rows with no usable email
- *  come back separately — they are skipped, never folded into someone else's
- *  email. */
+// ── Entities within a customer ───────────────────────────────────────────────
+//
+// One customer can bill several projects whose contacts belong to DIFFERENT
+// organisations (the owner's, the contractor's, the consultant's). Sending all
+// of a customer's invoices to the union of all those contacts told a recipient
+// about projects they have nothing to do with — and one of them said so.
+//
+// So inside a customer, rows are connected into an ENTITY when:
+//   • they share a corporate domain (acme.com), or
+//   • they share a project (a project may legitimately have contacts at
+//     several organisations — they are combined), or
+//   • they share the exact same PERSONAL address (gmail etc.).
+// A personal mailbox domain NEVER links two rows by itself: two people at
+// gmail.com are strangers, and customers' invoices are often under an NDA.
+
+/** What an address links on: the domain for a company, the whole address for a
+ *  personal mailbox. */
+const linkToken = (email: string) => {
+  const d = domainOf(email);
+  return isConsumerDomain(d) ? email : d;
+};
+
+const projectOf = (r: GroupableRow): string | null =>
+  r.projectId ?? (r as { inv?: { projectId?: string | null } }).inv?.projectId ?? null;
+
+function clusterRows<R extends GroupableRow>(rows: R[]): R[][] {
+  const parent = rows.map((_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+    return i;
+  };
+  const seen = new Map<string, number>();
+  const link = (k: string, i: number) => {
+    const j = seen.get(k);
+    if (j === undefined) seen.set(k, i);
+    else parent[find(i)] = find(j);
+  };
+  rows.forEach((r, i) => {
+    splitEmails(r.email).forEach(e => link(`t:${linkToken(e)}`, i));
+    const p = projectOf(r);
+    if (p) link(`p:${p}`, i);
+  });
+  const out = new Map<number, R[]>();
+  rows.forEach((r, i) => {
+    const root = find(i);
+    out.set(root, [...(out.get(root) ?? []), r]);
+  });
+  return [...out.values()];
+}
+
+/** A personal address that is on only SOME of the email's invoices would receive
+ *  all of them — worth a human look when an NDA may apply. */
+function personalAddressWarning<R extends GroupableRow>(rows: R[]): string[] {
+  const perRow = rows.map(r => new Set(splitEmails(r.email)));
+  const all = new Set(perRow.flatMap(s => [...s]));
+  const exposed = [...all].filter(e => isConsumerDomain(domainOf(e)) && perRow.some(s => !s.has(e)));
+  if (!exposed.length) return [];
+  return [`${exposed.join(", ")} (personal mailbox) is not on every invoice in this email but will see all of them — check any NDA.`];
+}
+
+/** One group per customer ENTITY, largest balance first. Rows with no usable
+ *  email come back separately — they are skipped, never folded into someone
+ *  else's email. */
 export function groupByCustomer<R extends GroupableRow>(rows: R[]): {
   groups: SendGroup<R>[];
   noEmail: R[];
 } {
-  const m = new Map<string, SendGroup<R>>();
+  const byCust = new Map<string, R[]>();
   const noEmail: R[] = [];
   for (const r of rows) {
     if (splitEmails(r.email).length === 0) { noEmail.push(r); continue; }
-    let g = m.get(r.custId);
-    if (!g) {
-      g = { key: r.custId, label: r.custName, custIds: [r.custId], emails: [], rows: [], total: 0 };
-      m.set(r.custId, g);
-    }
-    g.rows.push(r);
-    g.total += r.bal;
+    byCust.set(r.custId, [...(byCust.get(r.custId) ?? []), r]);
   }
-  for (const g of m.values()) g.emails = uniqEmails(g.rows.map(r => r.email));
-  return { groups: [...m.values()].sort((a, b) => b.total - a.total), noEmail };
+
+  const groups: SendGroup<R>[] = [];
+  for (const [custId, custRows] of byCust) {
+    const clusters = clusterRows(custRows);
+    for (const rs of clusters) {
+      const emails = uniqEmails(rs.map(r => r.email));
+      const sig = [...new Set(emails.map(linkToken))].sort().join("+");
+      const projects = [...new Set(rs.map(r => r.projName).filter((p): p is string => !!p))];
+      const entity = projects.length ? projects.join(", ") : sig;
+      const single = clusters.length === 1;
+      groups.push({
+        key: single ? custId : `${custId}@${sig}`,
+        label: single ? rs[0].custName : `${rs[0].custName} · ${entity}`,
+        custIds: [custId], emails, rows: rs,
+        total: rs.reduce((s, r) => s + r.bal, 0),
+        warnings: personalAddressWarning(rs),
+      });
+    }
+  }
+  return { groups: groups.sort((a, b) => b.total - a.total), noEmail };
 }
 
-export type MergeCandidate = { domain: string; custIds: string[]; custNames: string[] };
+export type MergeCandidate = {
+  domain: string; custIds: string[]; custNames: string[];
+  /** The groups that would be combined (a customer may own several). */
+  groupKeys: string[];
+};
 
 /** Corporate domains shared by more than one customer — the genuine "novated
  *  project / shared auditor" case the domain grouping was built for. Offered as
@@ -124,8 +206,9 @@ export function mergeCandidates<R extends GroupableRow>(groups: SendGroup<R>[]):
     .filter(([, gs]) => gs.length > 1)
     .map(([domain, gs]) => ({
       domain,
-      custIds: gs.flatMap(g => g.custIds),
+      custIds: [...new Set(gs.flatMap(g => g.custIds))],
       custNames: gs.map(g => g.label),
+      groupKeys: gs.map(g => g.key),
     }))
     .sort((a, b) => b.custIds.length - a.custIds.length);
 }
@@ -135,23 +218,24 @@ export function applyMerges<R extends GroupableRow>(
   groups: SendGroup<R>[], mergedDomains: Set<string>, candidates: MergeCandidate[],
 ): SendGroup<R>[] {
   if (mergedDomains.size === 0) return groups;
-  const claimed = new Map<string, string>();       // custId → domain
+  const claimed = new Map<string, string>();       // group key → domain
   for (const c of candidates) {
     if (!mergedDomains.has(c.domain)) continue;
-    c.custIds.forEach(id => claimed.set(id, c.domain));
+    c.groupKeys.forEach(k => claimed.set(k, c.domain));
   }
   const out: SendGroup<R>[] = [];
   const merged = new Map<string, SendGroup<R>>();
   for (const g of groups) {
-    const d = g.custIds.length === 1 ? claimed.get(g.custIds[0]) : undefined;
+    const d = claimed.get(g.key);
     if (!d) { out.push(g); continue; }
     let m = merged.get(d);
     if (!m) {
-      m = { key: `merge:${d}`, label: `@${d}`, custIds: [], emails: [], rows: [], total: 0 };
+      m = { key: `merge:${d}`, label: `@${d}`, custIds: [], emails: [], rows: [], total: 0, warnings: [] };
       merged.set(d, m);
       out.push(m);
     }
-    m.custIds.push(...g.custIds);
+    m.custIds.push(...g.custIds.filter(id => !m!.custIds.includes(id)));
+    m.warnings.push(...g.warnings);
     m.rows.push(...g.rows);
     m.total += g.total;
     m.emails = uniqEmails([...m.emails, ...g.emails]);
