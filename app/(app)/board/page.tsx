@@ -4,9 +4,10 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN, localToday, isWithinAsAt } from "@/lib/format";
-import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
+import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search, Inbox } from "lucide-react";
 import { DEFAULT_STAGES, resolveStageLabel, Stage, isExceptionStage, stageChipClass, stageDotClass } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
+import { BoardWorkspace } from "@/components/board-workspace";
 import { SelectField, control } from "@/components/form-kit";
 
 // Renders a compact "PKR 1,499,999 · USD 25,000" breakdown — one pill per currency.
@@ -212,7 +213,7 @@ export default function BoardPage() {
   const closedLabel = stages.find(s => s.isClosed)?.label ?? "Closed";
 
   const [groupBy, setGroupBy] = useState<"customer" | "project">("customer");
-  const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "list" | "workspace">("cards");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
@@ -438,21 +439,21 @@ export default function BoardPage() {
               from its own column headers (multi-select, is / is not), and two
               filters for one field applied together was a trap. One that is
               still SET stays visible in List view, so nothing filters unseen. */}
-          {(reps ?? []).length > 0 && (viewMode === "cards" || !!repFilter) && (
+          {(reps ?? []).length > 0 && (viewMode !== "list" || !!repFilter) && (
             <SelectField value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
               aria-label="Filter by rep" className="w-auto h-8 text-xs">
               <option value="">All reps</option>
               {(reps ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </SelectField>
           )}
-          {(viewMode === "cards" || !!regionFilter) && (
+          {(viewMode !== "list" || !!regionFilter) && (
           <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             aria-label="Filter by region" className="w-auto h-8 text-xs">
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </SelectField>
           )}
-          {(viewMode === "cards" || !!stageFilter) && (
+          {(viewMode !== "list" || !!stageFilter) && (
           <SelectField value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}
             aria-label="Filter by stage" className="w-auto h-8 text-xs">
             <option value="">All stages</option>
@@ -503,6 +504,10 @@ export default function BoardPage() {
             <button onClick={() => setViewMode("list")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               <ListIcon size={12} /> List
+            </button>
+            <button onClick={() => setViewMode("workspace")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "workspace" ? "bg-primary text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
+              <Inbox size={12} /> Workspace
             </button>
           </div>
         </div>
@@ -586,6 +591,11 @@ export default function BoardPage() {
           orgNames={orgScope.orgNames}
         />
         </div>
+      )}
+
+      {/* Workspace — a work queue by customer, over the same filtered rows */}
+      {viewMode === "workspace" && (
+        <BoardWorkspace rows={openInvoiceRows} comments={communications ?? []} />
       )}
 
       {/* Legend */}
